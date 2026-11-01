@@ -66,8 +66,8 @@ changing credentials, environment variables, external files, ignored scratch
 inputs or remote resources: those are not certified by the receipt. Run a fresh
 check instead. Only use reuse for a self-contained project's stable inputs.
 
-`check no-sandbox` and `--skip-check no-sandbox` are for the spec-sync skill's
-eligible model-reference-only pass. They still probe models. `check fast` and
+`check no-sandbox` and `--skip-check no-sandbox` are for a spec-sync pass whose
+plan does not reach the sandbox image. They still probe models. `check fast` and
 `--skip-check fast` omit both expensive probes and are for iteration only.
 A full receipt covers either partial mode, but a partial receipt cannot stand
 in for a full one. If a partial check repairs or otherwise changes files, no

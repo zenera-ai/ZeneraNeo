@@ -58,11 +58,10 @@ code, `zen-topology` for `handoffs:` or `fork:` on any agent,
 configured and already passing `zen check` is exactly the case that looks
 finished and is not: the obligation lives in the skill, so a review that never
 opens the skill cannot find what is missing. Outside a specification-sync pass,
-this applies whatever prompted the change. During an incremental sync, load only
-skills for capabilities its changed requirements, files, keys or unresolved
-work touch. A full pass still loads every enabled capability's skill. The
-**spec-only** and **model-reference-only** tiers load no capability skill unless
-the work expands beyond their eligibility rules.
+this applies whatever prompted the change. During an incremental sync, load the
+skills the `zen-spec-sync` pass plan names for the areas its changes reach - an
+enabled capability no change reaches owes nothing new. A full pass still loads
+every enabled capability's skill.
 
 **Load `zen-instructions` before writing, editing, reviewing or deleting any
 `agents/*instructions.md`.** They are the house rules, prepended to every
@@ -1895,8 +1894,8 @@ Run it first and read what it says. Everything else below is judgement, which is
 why it is still a list. The `zen-review` skill has the detail.
 Within a specification-sync pass, reuse its final check with
 `review.sh --skip-check` instead of probing again, and apply the sync skill's
-explicit tier scope to this checklist. Use `--skip-check no-sandbox` only for an
-eligible model-reference-only pass. Independent reviews still cover the whole
+pass plan to this checklist. Use `--skip-check no-sandbox` only when that plan
+does not reach the sandbox image. Independent reviews still cover the whole
 checklist.
 
 Before finishing any change here:

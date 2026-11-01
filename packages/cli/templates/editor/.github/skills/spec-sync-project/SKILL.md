@@ -22,31 +22,16 @@ because this pass has to make the first. Then, from the project root:
 ```
 
 `status` answers `full`, `incremental` or `tampered`. Say which in the chat
-before reading anything, and on an incremental pass state the scope you drew
-from the diffs - the skill says how. `full` and `tampered` both mean the whole
-prompt as written below, from nothing.
+before reading anything. `full` and `tampered` mean everything below as
+written, from nothing: read the whole tree, load every enabled capability's
+skill, run setup in full and run the full check.
 
-The diff covers both sides. `SPECIFICATION.md` and `SPECIFICATION-FEEDBACK.md`
-say what has been **asked for** since the last pass; `agents.yaml` and every
-file under `agents/` say what has been **built or hand-edited** since then. The
-first narrows the pass to the work nobody has done; the second only widens it,
-because a prompt or skill someone changed outside a pass still has to be
-accounted for against the specification.
-Generated house-rule copies print as `maintenance:` and do not alone widen
-the pass; their diffs remain visible and `zen check --fix` owns their repair.
-
-The scope decides what you **read and edit**. It never decides what you
-**verify** outside the skill's explicit tiers: **spec-only** and
-**model-reference-only** narrow verification under the conditions the skill
-sets. Choose the tier before loading capability skills. In a normal incremental
-pass, load only skills for capabilities the diff or unresolved work reaches;
-in a full pass, load every enabled capability's skill.
-
-When inputs disagree - a ticked answer against a later specification edit, the
-specification against `zen --version` - use the order of precedence in the
-skill. The user's own message comes first. Do not use session history, file
-timestamps or `git log` to work out why something changed. Whatever the order
-does not settle becomes a question in `SPECIFICATION-FEEDBACK.md`.
+On an incremental pass, the skill owns everything that makes the pass smaller:
+the scope drawn from the diffs, precedence when inputs disagree, and the pass
+plan that decides which capability skills to load, which setup proof and which
+check to run. Post the scope and the plan before reading the project. Wherever a
+section below says **the plan**, it means that plan; on a full pass, read it as
+"everything".
 
 ## 1. Read before changing anything
 
@@ -65,9 +50,7 @@ Read, in this order, and do not edit until all of it is read:
 Never read `.tmp/logs/meta.*` - those are other runs of this command, not
 evidence - nor anything of `zen`'s own (copilot instructions §0.2).
 
-On an incremental pass this list narrows to the artefacts the scope implicates,
-and to the changed hunks of the specification rather than all of it. The
-narrowing is a claim: name what you skipped and why the diff does not reach it.
+On an incremental pass this list narrows to what the plan reaches.
 
 If an initial diagnostic is needed, run
 `zen check --no-models --no-sandbox` and record what it said. A project that
@@ -111,13 +94,8 @@ forward pass can see:
 These are bugs whatever the specification says: fix them in place and report each
 one. An extra that is merely unspecified is reported under `➕`, not removed.
 
-On an incremental pass this reverse reading covers every project-owned file this pass touched
-plus every file the implementation diff in §0 named - an edit made in this
-session, or made by hand since the last pass, is exactly where a fresh
-contradiction comes from. On a full pass it is the whole tree, as above.
-Generated house-rule copies and the editor tree are maintained by `zen check`,
-not audited line by line against the specification. Preserve any project policy
-discovered in their maintenance diffs in a project-owned topic file.
+On an incremental pass the skill says which files this reverse reading covers.
+Generated house-rule copies and the editor tree are never read this way.
 
 ## 3. Change the smallest thing that closes the gap
 
@@ -146,6 +124,8 @@ the model to compute or remember. Specifically:
 
 Never delete an **extra** without saying so. Report it, say why the
 specification does not cover it, and leave it unless I tell you to remove it.
+Leave it where it is, too: a line you write for a specified item does not
+mention an extra, so removing it later stays a removal of its own lines.
 
 Do not invent a value the specification does not state - a model id, a limit, a
 retry count, a file path. That is an entry in `SPECIFICATION-FEEDBACK.md`, not a
@@ -397,24 +377,13 @@ Append to the existing file rather than rewriting it, keeping the numbering and
 the contents list in step. Numbers are never reused: a struck question's number
 retires with it.
 
-Read the feedback diff from §0 before writing: a question the human answered
-since the last pass is work to close, not a question to ask again. If a question
-has a box marked `[x]`, or one answer left under it, and no `✅` entry, the
-reader answered it and never ran `/spec-apply-feedback` - implement that
-answer, fold its text into `SPECIFICATION.md` yourself, and say so in the chat.
-Do this unless the specification has since been edited on the same point. In
-that case the edit supersedes the answer: strike the question, naming the line
-that replaced it, and leave the newer text alone.
+A question the human answered since the last pass is work to close, not a
+question to ask again; the skill says how to implement or supersede it.
 
 ## 6. Run `scripts/_setup.sh` and watch it finish
 
-After `zen check` passes, run `scripts/_setup.sh` yourself. A pass is not done
-until it has run to completion in this session. The exceptions are a spec-only
-or model-reference-only pass, as the `zen-spec-sync` skill defines them:
-there `scripts/_setup.sh --check`
-reporting every step `skipped` is enough, and anything else sends you back to
-the full run below. For any tier, when `STEPS` is empty, one successful
-`scripts/_setup.sh --check` is sufficient; do not run it twice to prove nothing.
+Run setup to the proof the plan names. When it names a full run, a pass is not
+done until `scripts/_setup.sh` has run to completion in this session, as below.
 
 It is slow - embedding a large corpus is hours, and the progress line says how
 many - so start it in the background and follow the logs instead of waiting
@@ -452,18 +421,14 @@ blind:
 
 ## 7. Verify and report
 
-After the final edit and setup, run
-`.github/skills/zen-review/scripts/review.sh check full --fix` and fix whatever
-it names rather than working around it. The model-reference-only tier may use
-`check no-sandbox` under the skill's unchanged-sandbox conditions. A pin repair
-requires the full sandbox check. This is the final expensive check, not an
-instruction to repeat an already valid one. Use
-`.github/skills/zen-review/scripts/review.sh --skip-check` (with `no-sandbox`
-only for that eligible tier) for the mechanical review, which verifies the
-receipt instead of probing again. Edits after a check invalidate reuse.
-It validates structure and says nothing about the prose, so work §9 of the
+After the final edit and setup, re-plan, then run the check the final plan names
+(`.github/skills/zen-review/scripts/review.sh check full --fix` on a full pass)
+and fix whatever it names rather than working around it. Run it once; edits
+after it invalidate it. Then run `review.sh --skip-check` in the same mode for
+the mechanical review, which reuses the receipt instead of probing again.
+That validates structure and says nothing about the prose, so work §9 of the
 copilot instructions as a checklist afterwards and report each group pass or
-fail, narrowed only by the skill's tier rules. Then report in the chat:
+fail, narrowed only by the plan. Then report in the chat:
 
 - what changed, file by file, and which specification item each change closes
 - every prompt or skill line that served no specification item, and what became
@@ -474,24 +439,11 @@ fail, narrowed only by the skill's tier rules. Then report in the chat:
 
 ## 8. Record the pass
 
-Last, and only once §6 and §7 have actually passed. Use `snapshot.sh record`
-with explicit scope, changes, feedback, unresolved items and check outcomes
-(see the `zen-spec-sync` skill), or write
-`.spec-sync/history/<stamp>.md` in the format the `zen-spec-sync` skill gives -
-including `Still open`, which is the only place the next pass learns that an
-unchanged specification line is not yet implemented - and then:
-
-```sh
-.github/skills/zen-spec-sync/scripts/snapshot.sh commit
-```
-
-In that order, never the other way. Moving the baseline before the pass has
-finished records a specification as applied that was not: the next pass diffs
-against it, sees nothing to do, and the work is never done by anybody. A pass
-that fails with the baseline unmoved costs one repeat.
-
-A pass that changed nothing still writes a history file and still commits. Say
-in the chat which history file you wrote and that the baseline moved.
+Last, and only once §6 and §7 have actually passed: write the history entry
+with `snapshot.sh record`, including both plans and `Still open`, then
+`snapshot.sh commit`. Never the other way round; the skill says why and how.
+A pass that changed nothing still records and commits. Say in the chat which
+history file you wrote and that the baseline moved.
 
 Do not report a specification item as done unless the file that implements it
-exists, `zen check` passes, and setup satisfies the selected tier's proof.
+exists, `zen check` passes, and setup satisfies the plan's proof.

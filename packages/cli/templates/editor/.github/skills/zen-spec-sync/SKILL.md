@@ -1,6 +1,6 @@
 ---
 name: zen-spec-sync
-description: Running `/spec-sync-project` incrementally - the committed `.spec-sync` baseline, scope and precedence, spec-only and model-reference-only verification tiers, affected capability skills, generated-rule maintenance, reusable validation, explicit history recording and why the baseline moves last. Load before every `/spec-sync-project`, including a project's first pass.
+description: Running `/spec-sync-project` incrementally - the committed `.spec-sync` baseline, scope and precedence, the pass plan that maps changed areas to capability skills and checks, spec-only and model-reference-only verification tiers, generated-rule maintenance, reusable validation, explicit history recording and why the baseline moves last. Load before every `/spec-sync-project`, including a project's first pass.
 user-invocable: false
 ---
 
@@ -14,8 +14,9 @@ one already made, and re-raises questions someone has already answered.
 A pass is worth repeating cheaply, so it keeps a record of **what it applied**.
 The next pass diffs the specification against that record and works the
 difference. What it must not do is confuse a narrow diff with a narrow
-obligation: the record scopes what you _read and edit_. The tiers below also
-scope verification, with explicit escalation when the work reaches further.
+obligation: the record scopes what you _read and edit_. The pass plan below
+also scopes which skills you load and which checks you run, from the areas the
+changes reach, and grows when the work reaches further.
 
 ## What this owns
 
@@ -168,14 +169,93 @@ answers:
 That is the whole of the work. A version mismatch is not a reason to look for
 anything else.
 
-## Choose a verification tier before loading capability skills
+## Plan the pass before loading anything
 
-Use `full` for a missing or untrusted baseline. On an incremental pass, first
-read the diffs and the applied entry's `Still open`, then choose `spec-only`,
-`model-reference-only`, or the normal incremental checks below. Unresolved
-items or feedback requiring other work disqualify a narrow tier. Say the tier,
-its scope and the omitted work in the chat. Escalate as soon as the actual work
-exceeds that scope; a small original diff is not permission to skip new work.
+On an incremental pass, after `snapshot.sh diff` and before reading the
+project, post a plan in the chat. Derive it from **what changed**, not from
+what the project has turned on: a capability that is enabled and untouched owes
+nothing it did not already owe when the last pass verified it.
+
+1. **Classify every input into areas**, using the list below: every `changed:`
+   path, every changed top-level key in `agents.yaml`, every `SPECIFICATION.md`
+   hunk, every answered feedback question and every `Still open` item. A hunk
+   counts by what it asks for, not by the section it sits in: a _Scope_ line
+   that introduces writing scripts reaches **code**.
+2. **Take the union** of the skills and checks those areas name. Load those
+   skills and no others. Name each skill and expensive check left out, with
+   the reason: `zen-sandbox - no sandbox/, sandbox: or pin change`. Reading
+   narrows the same way, to the files the areas reach and the changed hunks of
+   the specification. That narrowing is a claim too: name what you skip
+   reading and why no change reaches it.
+3. **Re-plan before verifying.** After the last edit and before the final
+   check, classify again, now including this pass's own edits -
+   `snapshot.sh diff` compares the baseline with the working tree, so it shows
+   them. Run the checks the final plan names. An edit that reaches a new area
+   adds that area's skill, loaded before the edit, and its checks. A plan only
+   grows during a pass; it never drops an area it has named.
+
+A full or tampered pass reaches every area.
+
+### Areas
+
+- **specification** - wording in `SPECIFICATION.md` or
+  `SPECIFICATION-FEEDBACK.md` that asks for nothing in the areas below. Skill:
+  none. Checks: baseline.
+- **prompts and grants** - `agents/prompts/**`, `agents/skills/**`, and the
+  `tools:` and `skills:` lists of an agent. Skill: none of its own; the content
+  may reach another area. A `sandbox:*` or `files:*` grant is a tool grant, not
+  a sandbox change. Checks: baseline.
+- **house rules** - a project-owned `agents/*instructions.md`. Skill:
+  `zen-instructions`. Checks: baseline.
+- **memory** - a `memory:` block, a project-owned memory topic file, or what
+  agents commit to or recall from memory. Skill: `zen-memory`. Checks:
+  baseline.
+- **code** - an agent that writes or runs code, its coding skill, or a script
+  shipped under a skill folder. Skill: `zen-code-python`. Checks: baseline.
+- **topology** - `handoffs:`, `fork:`, or an agent added, removed or given a
+  different job. Skill: `zen-topology`. Checks: baseline.
+- **models** - a chat model reference or `providers:`. Skill: none. Checks:
+  baseline, whose check already probes models.
+- **index** - an embedding reference, `assets/**`, or an index the project
+  builds or searches. Skill: `zen-rag-docs` or `zen-rag-schema`. Checks:
+  setup run.
+- **setup** - `scripts/**`. Skill: `zen-cli` when a step's commands change.
+  Checks: setup run.
+- **sandbox image** - `sandbox/**`, the `sandbox:` block, the `@zenera/*` pin,
+  a setup step that writes into the build context, or any `sandbox.pin.*` or
+  `rules.stale` finding. Skill: `zen-sandbox`, except for a pin or
+  `rules.stale` repair alone. Checks: sandbox.
+
+### Checks
+
+- **baseline** - every incremental pass: after the last edit and setup,
+  `review.sh check no-sandbox`; `scripts/_setup.sh --check` reporting every
+  step `skipped` (one run when `STEPS` is empty); then
+  `review.sh --skip-check no-sandbox`.
+- **setup run** - replaces the setup part of baseline with §6 of the prompt:
+  `scripts/_setup.sh` to completion, again to prove every step `skipped`,
+  `--check`, and `zen rag docs ready` for each index the project builds.
+- **sandbox** - replaces `no-sandbox` with `full --fix` on the check and `full`
+  on the review.
+
+Results add areas. `--check` reporting anything but `skipped` adds **setup**.
+A check finding `rules.stale` or a sandbox pin, or one that would repair any
+file, adds **sandbox image**: run `review.sh check full --fix`, because a
+partial check that changes files issues no reusable receipt. `--no-sandbox` is
+allowed only once git confirms the sandbox configuration, Dockerfile and build
+context are unchanged and no setup step writes into them; if that cannot be
+established, the pass reaches **sandbox image**.
+
+## Choose a verification tier
+
+The plan is the tier. Use `full` for a missing or untrusted baseline. A plan
+whose only area is **specification** is the spec-only pass; one whose only
+area is **models**, through a chat model reference, is the
+model-reference-only pass. Both carry the extra conditions below. Every other
+plan runs the normal incremental checks. Unresolved items or feedback requiring
+other work disqualify a narrow tier. Say the tier, its scope and the omitted
+work in the chat. Escalate as soon as the actual work exceeds that scope; a
+small original diff is not permission to skip new work.
 
 ### The model-reference-only pass
 
@@ -224,24 +304,23 @@ re-entrancy and repeat the final check. Finish all builds before recording.
 
 Outside the two narrow tiers:
 
-1. **`zen check` passes after the last edit and setup.** Use
-   `review.sh check full --fix` to repair generated copies and pins before
-   validating. When an initial diagnostic is needed, use
-   `zen check --no-models --no-sandbox`; do not repeat expensive probes before
-   and after editing. Reuse the final receipt with `review.sh --skip-check`
-   rather than invoking a third check during review.
-2. **`scripts/_setup.sh` has run to completion in this session, and re-runs
-   clean.** A one-line specification change can still break a setup step, and a
-   pass that did not run it does not know. Then `scripts/_setup.sh --check` must
-   report every step `skipped`: it makes each step's own readiness test without
-   doing the work, which is what tells a real `skipped` from a step that only
-   looked done. A step that tests for a committed `manifest.json` skips on a
-   fresh clone whose git-ignored `lance/` vectors are missing, and the project
-   cannot search. When `STEPS` is empty, one successful `--check` is sufficient;
-   there is no execution or re-entrancy work to prove.
+1. **`zen check` passes after the last edit and setup**, in the mode the final
+   plan names: `review.sh check no-sandbox` unless the plan reaches **sandbox
+   image**, then `review.sh check full --fix`. When an initial diagnostic is
+   needed, use `zen check --no-models --no-sandbox`; do not repeat expensive
+   probes before and after editing. Reuse the final receipt with
+   `review.sh --skip-check` in the same mode rather than invoking a third check
+   during review.
+2. **Setup satisfies the plan.** `scripts/_setup.sh --check` must report every
+   step `skipped`: it makes each step's own readiness test without doing the
+   work, which is what tells a real `skipped` from a step that only looked done.
+   When the plan reaches **setup** or **index**, run `scripts/_setup.sh` to
+   completion in this session and re-run it clean first: a step that tests for a
+   committed `manifest.json` skips on a fresh clone whose git-ignored `lance/`
+   vectors are missing, and the project cannot search. When `STEPS` is empty,
+   one successful `--check` is sufficient.
 3. **§9 of the copilot instructions, worked as a checklist**, group by group.
-4. **The capability obligations in §0.1.** Load a capability skill only when
-   changed requirements, files, keys or unresolved work reach that capability.
+4. **The capability obligations in §0.1**, through the skills the plan names.
    For a full pass, every enabled capability is in scope. `zen check` must
    still report no `rules.stale`, whether or not its capability was in scope.
 5. **`zen-instructions` is loaded before editing a project-owned house rule.** A pass
@@ -330,7 +409,7 @@ claims supplied to it. Run `commit` separately, only after verification.
 ## Scope
 
 What drove the pass: the diff hunks, the feedback entries, what the last pass
-left open. `full` if it was a full pass.
+left open, and the first and final plans. `full` if it was a full pass.
 
 ## Changed
 
