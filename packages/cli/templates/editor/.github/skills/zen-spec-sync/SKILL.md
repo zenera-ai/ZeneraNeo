@@ -180,7 +180,13 @@ nothing it did not already owe when the last pass verified it.
    path, every changed top-level key in `agents.yaml`, every `SPECIFICATION.md`
    hunk, every answered feedback question and every `Still open` item. A hunk
    counts by what it asks for, not by the section it sits in: a _Scope_ line
-   that introduces writing scripts reaches **code**.
+   that introduces writing scripts reaches **code**. A hunk that only
+   describes what is already built asks for nothing: when the implementation
+   diff is empty and reading the files the hunk names shows they already do
+   exactly what it says, it counts as **specification**. A `✅` entry whose
+   **Still to implement** says nothing is left is the usual source; confirm
+   it by that reading rather than trusting it. One line that differs makes the
+   hunk count by what it asks for.
 2. **Take the union** of the skills and checks those areas name. Load those
    skills and no others. Name each skill and expensive check left out, with
    the reason: `zen-sandbox - no sandbox/, sandbox: or pin change`. Reading
@@ -199,8 +205,9 @@ A full or tampered pass reaches every area.
 ### Areas
 
 - **specification** - wording in `SPECIFICATION.md` or
-  `SPECIFICATION-FEEDBACK.md` that asks for nothing in the areas below. Skill:
-  none. Checks: baseline.
+  `SPECIFICATION-FEEDBACK.md` that asks for nothing in the areas below,
+  including a hunk that only describes what is already built. Skill: none.
+  Checks: baseline.
 - **prompts and grants** - `agents/prompts/**`, `agents/skills/**`, and the
   `tools:` and `skills:` lists of an agent. Skill: none of its own; the content
   may reach another area. A `sandbox:*` or `files:*` grant is a tool grant, not
@@ -341,7 +348,9 @@ feedback or `Still open` item requires implementation work:
 - the pass edits nothing except `SPECIFICATION.md`, `SPECIFICATION-FEEDBACK.md`
   and the `@zenera/*` pin in `sandbox/Dockerfile`
 - no changed specification hunk names an agent, tool, model, embedding, skill,
-  house rule, handoff, memory, index, asset or setup step
+  house rule, handoff, memory, index, asset or setup step - except a hunk that
+  only describes what is already built, confirmed as the plan says, such as a
+  `➕` keep answer folded into the specification
 
 Generated copies and the editor tree repaired by `--fix` are maintenance, not
 project implementation edits for this test.
