@@ -1,6 +1,6 @@
 ---
 name: spec-edit
-description: Change SPECIFICATION.md as the request given with the command asks - written in the specification's own structure and voice, checked against what the runtime can actually do - and nothing else. Never explores the project or the environment; discovering how things work is /spec-sync-project's job.
+description: Change SPECIFICATION.md as the request given with the command asks - written in the specification's own structure and voice, checked against what the runtime can actually do - and nothing else. SPECIFICATION.md is the only file it may edit (plus a throwaway temp file when a computation needs one). Never explores the project or the environment; discovering how things work is /spec-sync-project's job.
 argument-hint: 'what to add, change or remove in the specification'
 disable-model-invocation: true
 ---
@@ -10,8 +10,14 @@ specification is the intent of the project; you are changing the intent, not
 the implementation. Making the project match it is `/spec-sync-project`, which
 runs after this.
 
-You change one file: `SPECIFICATION.md`. Not `agents.yaml`, not a prompt, not a
-skill, not `SPECIFICATION-FEEDBACK.md`.
+**The only file you may edit is `SPECIFICATION.md`.** Do not create, edit,
+rename, move or delete any other file in the project - not `agents.yaml`, not a
+prompt, not a skill, not a script, not `sandbox/`, not
+`SPECIFICATION-FEEDBACK.md`, not a new notes or draft file. The one exception:
+when a computation genuinely needs scratch space, you may use a temporary file
+outside the project (created with `mktemp` in the system temp directory), and
+you delete it before you finish. Anything else the request seems to need
+changed goes into the report for `/spec-sync-project`, never into the project.
 
 ## 0. Size the edit, then read only what it needs
 
@@ -84,7 +90,8 @@ project beyond the files above. Do not open, list or search anything else in
 the project: not `agents/`, `scripts/`, `sandbox/`, `resources/`, `assets/`,
 `gym/`, examples, code or data, and not the skills' own `references/` beyond
 the models reference. Do not run any command other than the `zen models` ones
-above, and do not inspect environment variables, the network, running
+above and, when a computation needs it, commands that touch only your own
+temporary file; do not inspect environment variables, the network, running
 processes or installed tools. A path the request names is written into the
 specification as named; you do not read it to find out what is in it.
 
@@ -316,6 +323,8 @@ In the chat:
 - anything you did not write because the runtime cannot do it
 - every value written by role or env-var name that only the reader has, and
   anything you would have wanted to look up but did not (§0)
+- every change outside `SPECIFICATION.md` the request implies, left for
+  `/spec-sync-project` rather than made
 - then, in one line: send `/spec-sync-project` to make the project match.
 
 ## 5. The request
