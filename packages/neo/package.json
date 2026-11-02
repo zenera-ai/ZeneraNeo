@@ -1,6 +1,6 @@
 {
     "name": "@zenera/neo",
-    "version": "1.1.49",
+    "version": "1.1.50",
     "description": "A multi-agent runtime for Node.js: agents, models, tools, skills, memory and an append-only trajectory.",
     "keywords": [
         "agents",
