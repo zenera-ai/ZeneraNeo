@@ -189,6 +189,10 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
     const onIssue = opts.onIssue ?? ((issue: ModelIssue) => logger.warn(describeIssue(issue)));
     const user = resolveUser(opts.user);
 
+    // The machine's plugins are imported before the project's env file is read: a plugin may
+    // configure itself from the environment when imported, and that must be the host's.
+    const machinePlugins = opts.envPlugins === false ? [] : await envPlugins(logger);
+
     // Before the keyring, so the project's own file wins over the machine's
     // keys, and before the load, so `${VAR}` in agents.yaml can name anything
     // in it. The real environment still beats both.
@@ -199,10 +203,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
                 'which plugins load, are the host’s to say (zen run --as <user> to try one)',
         );
     }
-    const hostPlugins = mergePlugins(
-        opts.plugins ?? [],
-        opts.envPlugins === false ? [] : await envPlugins(logger),
-    );
+    const hostPlugins = mergePlugins(opts.plugins ?? [], machinePlugins);
 
     const keys = await KeyStore.open();
     keys.materialize();

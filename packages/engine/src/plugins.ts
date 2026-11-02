@@ -29,7 +29,8 @@ export interface PluginContext {
     /** who the run acts for, when anyone; the same value `current_user` answers with */
     user?: RunIdentity;
     project: { dir: string; name: string };
-    session: SessionPaths;
+    /** the session the run belongs to; absent when tools are only listed (`zen check`) */
+    session?: SessionPaths;
     logger: Logger;
 }
 
@@ -195,4 +196,30 @@ export function mergePlugins(
 ): ZenPlugin[] {
     const names = new Set(given.map((p) => p.name));
     return [...given, ...machine.filter((p) => !names.has(p.name))];
+}
+
+/**
+ * The tools the machine's plugins add, for checking a project rather than
+ * running it: the plugins are asked with no user and no session, and closed
+ * again. A plugin that fails or clashes is a warning, and adds nothing.
+ */
+export async function machinePluginTools(
+    project: { dir: string; name: string },
+    builtins: readonly AnyTool[],
+    logger: Logger,
+): Promise<AnyTool[]> {
+    const tools: AnyTool[] = [];
+    for (const plugin of await envPlugins(logger)) {
+        try {
+            const loaded = await loadPlugins([plugin], { project, logger }, [
+                ...builtins,
+                ...tools,
+            ]);
+            await loaded.close();
+            tools.push(...loaded.tools);
+        } catch (err) {
+            logger.warn(`${PLUGINS_ENV}: ${message(err)} — its tools are left out`);
+        }
+    }
+    return tools;
 }

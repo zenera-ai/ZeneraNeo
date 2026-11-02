@@ -4,6 +4,8 @@ import {
     credentialFor,
     envNames,
     form,
+    machinePluginTools,
+    PLUGINS_ENV,
     resolveBuild,
     type DeclaredRole,
     type KeyStore,
@@ -696,8 +698,24 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
     entry = entrypoint(config, add);
 
     // The tools a `zen run` would actually offer, so a selector is checked
-    // against the real set rather than a list written down twice.
-    const available = availableTools(root, config);
+    // against the real set rather than a list written down twice: the built-ins
+    // and whatever the plugins `ZEN_PLUGINS` names add.
+    const builtins = availableTools(root, config);
+    const plugged = await machinePluginTools(
+        { dir: root, name: name ?? basename(root) },
+        builtins,
+        {
+            warn: (message) =>
+                add({
+                    severity: 'warning',
+                    code: 'plugins.load',
+                    where: PLUGINS_ENV,
+                    message,
+                    fix: `fix or remove the entry in ${PLUGINS_ENV}; projects naming its tools will not load`,
+                }),
+        },
+    );
+    const available = [...builtins, ...plugged];
 
     for (const spec of config.agents) {
         agents.push(checkAgent(root, config, spec, entry, available, rules, record, add));
@@ -1065,8 +1083,9 @@ function checkAgent(
                         ? err.message.replace(`${where}.tools: `, '')
                         : String(err)) + ' — `zen run` will refuse to load the project',
                 fix:
-                    'correct the name, or drop it. A tool this CLI does not ship can only ' +
-                    'reach an agent from a TypeScript host, through ProjectOptions.tools',
+                    'correct the name, or drop it. A tool this CLI does not ship reaches an ' +
+                    `agent through a plugin: ${PLUGINS_ENV} on this machine, or a TypeScript ` +
+                    'host passing it to openEngine',
             });
         }
         if (resolved && tools.length === 0) {
