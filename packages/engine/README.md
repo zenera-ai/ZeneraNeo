@@ -41,6 +41,12 @@ const lookup: ZenPlugin = {
 const engine = await openEngine({ project, session, user, plugins: [lookup] });
 ```
 
+A `zen` nobody embeds (the CLI, `zen check`, a job) loads the plugins the machine names instead:
+`ZEN_PLUGINS` is a comma-separated list of absolute paths to ES modules whose default export is a
+`ZenPlugin`. It is read from the real environment when the engine is first imported; a project's
+`.env` cannot set it. An embedding host gets them too, unless it passes a plugin of the same name or
+`envPlugins: false`.
+
 ## Use
 
 ```ts

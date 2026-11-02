@@ -1,4 +1,6 @@
 import type { AnyTool, RunIdentity } from '@zenera/neo';
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Logger } from './errors.ts';
 import type { SessionPaths } from './session.ts';
 
@@ -119,4 +121,78 @@ export async function loadPlugins(
 
 function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
+}
+
+// ---------------------------------------------------------------------------
+// Plugins the machine names
+//
+// A host that embeds the engine passes its plugins in. A `zen` it does not
+// embed — the CLI in a terminal, a job, `zen check` — has no such call, so the
+// machine names them instead: `ZEN_PLUGINS` is a comma-separated list of
+// absolute paths to ES modules whose default export is a `ZenPlugin`. A project
+// naming one of their groups then loads the same way everywhere.
+//
+// It is read once, when this module is first imported, and only from the real
+// environment: a plugin runs inside this process, with every credential the
+// process holds, so a project must not be able to name one. `readProjectEnv`
+// refuses the name for the same reason, should a host apply a project's env
+// file before importing the engine.
+// ---------------------------------------------------------------------------
+
+export const PLUGINS_ENV = 'ZEN_PLUGINS';
+
+const STARTUP_PLUGINS = process.env[PLUGINS_ENV];
+
+let fromEnv: Promise<ZenPlugin[]> | undefined;
+
+/** The plugins `ZEN_PLUGINS` named when this process started, imported once. */
+export function envPlugins(logger: Logger): Promise<ZenPlugin[]> {
+    fromEnv ??= importPlugins(STARTUP_PLUGINS, logger);
+    return fromEnv;
+}
+
+/**
+ * Imports the plugins a `ZEN_PLUGINS`-style list names. One that cannot be
+ * loaded is a warning, not a failure: a project that never names its tools
+ * should still run, and one that does fails on the unknown tool, which says
+ * more than a missing file does.
+ */
+export async function importPlugins(
+    list: string | undefined,
+    logger: Logger,
+): Promise<ZenPlugin[]> {
+    const plugins: ZenPlugin[] = [];
+    const paths = (list ?? '')
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean);
+    for (const path of paths) {
+        if (!isAbsolute(path)) {
+            logger.warn(`${PLUGINS_ENV}: ${path} is not an absolute path — ignored`);
+            continue;
+        }
+        try {
+            const mod = (await import(pathToFileURL(path).href)) as { default?: unknown };
+            const plugin = mod.default as ZenPlugin | undefined;
+            if (!plugin || typeof plugin.name !== 'string' || typeof plugin.tools !== 'function') {
+                logger.warn(
+                    `${PLUGINS_ENV}: ${path} has no default export with a name and tools() — ignored`,
+                );
+                continue;
+            }
+            plugins.push(plugin);
+        } catch (err) {
+            logger.warn(`${PLUGINS_ENV}: cannot load ${path}: ${message(err)} — ignored`);
+        }
+    }
+    return plugins;
+}
+
+/** The host's plugins and the machine's, the host's winning where both name one. */
+export function mergePlugins(
+    given: readonly ZenPlugin[],
+    machine: readonly ZenPlugin[],
+): ZenPlugin[] {
+    const names = new Set(given.map((p) => p.name));
+    return [...given, ...machine.filter((p) => !names.has(p.name))];
 }

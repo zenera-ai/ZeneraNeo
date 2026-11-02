@@ -43,7 +43,13 @@ import {
 import { readJson, writeJson } from './home.ts';
 import { KeyStore, assertUsable } from './keys.ts';
 import { projectMounts, type Project } from './projects.ts';
-import { loadPlugins, type LoadedPlugins, type ZenPlugin } from './plugins.ts';
+import {
+    envPlugins,
+    loadPlugins,
+    mergePlugins,
+    type LoadedPlugins,
+    type ZenPlugin,
+} from './plugins.ts';
 import {
     buildSandbox,
     prepareHome,
@@ -140,9 +146,12 @@ export interface EngineOptions {
      * Tools the host brings — see `ZenPlugin`. Each plugin is asked once, here,
      * so its tools can hold what this run needs (who it is for, a credential
      * the host minted for it). Config selects them like any other tool, and a
-     * name or group that clashes with a built-in is refused.
+     * name or group that clashes with a built-in is refused. The plugins
+     * `ZEN_PLUGINS` names are added too, unless one of these has the same name.
      */
     plugins?: ZenPlugin[];
+    /** false: ignore `ZEN_PLUGINS` and use only `plugins` */
+    envPlugins?: boolean;
 }
 
 export interface Engine {
@@ -186,10 +195,14 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
     const env = loadProjectEnv(opts.project.dir);
     if (env?.refused.length && !opts.quiet) {
         logger.warn(
-            `${env.path} sets ${env.refused.join(', ')} — ignored: who a run acts for ` +
-                'is the host’s to say (zen run --as <user> to try one)',
+            `${env.path} sets ${env.refused.join(', ')} — ignored: who a run acts for, and ` +
+                'which plugins load, are the host’s to say (zen run --as <user> to try one)',
         );
     }
+    const hostPlugins = mergePlugins(
+        opts.plugins ?? [],
+        opts.envPlugins === false ? [] : await envPlugins(logger),
+    );
 
     const keys = await KeyStore.open();
     keys.materialize();
@@ -267,7 +280,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         // having to know the tool exists; `-current_user` still takes it away.
         const always = identityTools(user);
         plugins = await loadPlugins(
-            opts.plugins ?? [],
+            hostPlugins,
             { user, project: opts.project, session: opts.session, logger },
             [...builtins, ...always],
         );

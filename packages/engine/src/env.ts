@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { FILE_ENVS } from './keys.ts';
+import { PLUGINS_ENV } from './plugins.ts';
 
 // ---------------------------------------------------------------------------
 // The project's `.env`
@@ -44,7 +45,8 @@ export interface ProjectEnv {
     /**
      * Names the file declared and was not allowed to: `ZEN_USER_*` says who a
      * run is acting for, and only the host gets to say that. A project that
-     * could set it in a committed file could be anyone it liked.
+     * could set it in a committed file could be anyone it liked. `ZEN_PLUGINS`
+     * names code to run inside the engine's process, with its credentials.
      */
     refused: string[];
 }
@@ -66,7 +68,7 @@ export function readProjectEnv(dir: string): ProjectEnv | undefined {
     const values: Record<string, string> = {};
     const refused: string[] = [];
     for (const [name, value] of Object.entries(parseEnv(readFileSync(path, 'utf8')))) {
-        if (isIdentityEnv(name)) {
+        if (isIdentityEnv(name) || name === PLUGINS_ENV) {
             refused.push(name);
         } else if (value !== undefined) {
             values[name] = located(dir, name, value);

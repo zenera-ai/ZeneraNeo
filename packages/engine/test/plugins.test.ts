@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { identityTools, loadProject } from '@zenera/neo';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+    importPlugins,
     loadPlugins,
+    mergePlugins,
+    readProjectEnv,
     sessionPathsAt,
     tool,
     type AnyTool,
@@ -169,5 +172,61 @@ describe('plugin tools in a project', () => {
 
     it('reach no agent that did not ask for them', async () => {
         expect(await selected('[read_file]')).toEqual(['read_file', 'current_user']);
+    });
+});
+
+describe('plugins the machine names', () => {
+    const module = (body: string): string => {
+        const path = join(scratch(), 'plugin.mjs');
+        writeFileSync(path, body);
+        return path;
+    };
+    const logger = () => {
+        const seen: string[] = [];
+        return { seen, warn: (m: string) => void seen.push(m) };
+    };
+
+    it('imports each listed module and takes its default export', async () => {
+        const a = module(
+            "export default { name: 'a', tools: () => [{ name: 'a_tool', group: 'a', parameters: { type: 'object' }, execute: () => 'a' }] };",
+        );
+        const b = module("export default { name: 'b', tools: () => [] };");
+        const log = logger();
+        const plugins = await importPlugins(` ${a} , ${b} ,`, log);
+        expect(plugins.map((p) => p.name)).toEqual(['a', 'b']);
+        expect(log.seen).toEqual([]);
+        const loaded = await loadPlugins(plugins, ctx(), builtins);
+        expect(loaded.tools.map((t) => t.name)).toEqual(['a_tool']);
+    });
+
+    it('warns and skips what it cannot use, so other projects still run', async () => {
+        const noExport = module('export const x = 1;');
+        const log = logger();
+        const plugins = await importPlugins(
+            ['relative/plugin.mjs', '/nowhere/plugin.mjs', noExport].join(','),
+            log,
+        );
+        expect(plugins).toEqual([]);
+        expect(log.seen).toHaveLength(3);
+        expect(log.seen[0]).toContain('is not an absolute path');
+        expect(log.seen[1]).toContain('cannot load /nowhere/plugin.mjs');
+        expect(log.seen[2]).toContain('has no default export');
+        expect(await importPlugins(undefined, log)).toEqual([]);
+    });
+
+    it('lets the host replace a machine plugin of the same name', () => {
+        const machine = plugin('mcp', []);
+        const other = plugin('other', []);
+        const host = plugin('mcp', [make('mcp_call', 'mcp')]);
+        expect(mergePlugins([host], [machine, other])).toEqual([host, other]);
+        expect(mergePlugins([], [machine])).toEqual([machine]);
+    });
+
+    it('never takes ZEN_PLUGINS from a project env file', () => {
+        const dir = scratch();
+        writeFileSync(join(dir, '.env'), 'ZEN_PLUGINS=/tmp/evil.mjs\nFOO=bar\n');
+        const env = readProjectEnv(dir);
+        expect(env?.refused).toEqual(['ZEN_PLUGINS']);
+        expect(env?.values).toEqual({ FOO: 'bar' });
     });
 });
