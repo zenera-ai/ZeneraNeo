@@ -1,6 +1,6 @@
 {
     "name": "@zenera/engine",
-    "version": "1.1.48",
+    "version": "1.1.49",
     "description": "Runs a @zenera/neo project on this machine: keyring, sandbox, sessions and the record each turn leaves behind.",
     "keywords": [
         "agents",
@@ -45,6 +45,6 @@
         "prepack": "tsc -b"
     },
     "dependencies": {
-        "@zenera/neo": "^1.1.48"
+        "@zenera/neo": "^1.1.49"
     }
 }
