@@ -6,8 +6,11 @@ import {
     Workspace,
     assertState,
     buildRunReport,
+    compactIdentity,
     exaTools,
     fileTools,
+    identityFromEnv,
+    identityTools,
     lastText,
     loadProject,
     memoryDir,
@@ -20,6 +23,7 @@ import {
     type AgentState,
     type Input,
     type MemoryIndex,
+    type RunIdentity,
     type RunResult,
 } from '@zenera/neo';
 import { existsSync } from 'node:fs';
@@ -28,7 +32,14 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { auditModels, describeIssue, type ModelIssue } from './audit.ts';
 import { loadProjectEnv } from './env.ts';
-import { EXIT, EngineError, invalidError, stderrLogger, type Logger } from './errors.ts';
+import {
+    EXIT,
+    EngineError,
+    invalidError,
+    stderrLogger,
+    usageError,
+    type Logger,
+} from './errors.ts';
 import { readJson, writeJson } from './home.ts';
 import { KeyStore, assertUsable } from './keys.ts';
 import { projectMounts, type Project } from './projects.ts';
@@ -60,6 +71,9 @@ import {
 // is watching. What differs between hosts - where warnings go, how a container
 // engine gets installed, how a run is drawn - comes in through the options.
 // ---------------------------------------------------------------------------
+
+/** Who a run acts for — re-exported so a host needs only this package. */
+export type { RunIdentity } from '@zenera/neo';
 
 /** A run drawn for a model to read, written beside it as `graph.mmd`. */
 export type GraphRenderer = (
@@ -109,6 +123,18 @@ export interface EngineOptions {
     preflight?: Preflight;
     /** draws each finished run as `graph.mmd`; no graph when unset */
     graph?: GraphRenderer;
+    /**
+     * Who the run is acting for — the person the host authenticated, not the
+     * project's author and not the owner of the keys. `current_user` answers with it and
+     * every sandbox command sees it as `ZEN_USER_*`.
+     *
+     * Unset, the engine takes `ZEN_USER_*` from its own environment, marked
+     * `local`: that is how a `zen run` inside a sandbox keeps acting for the
+     * same person, and how `zen run --as` works. `null` means nobody, and reads
+     * nothing — a server that knows its runs have no user says so, rather than
+     * letting whatever its own environment holds speak for one.
+     */
+    user?: RunIdentity | null;
 }
 
 export interface Engine {
@@ -131,6 +157,8 @@ export interface Engine {
     sandbox: SandboxSetup;
     lock: Held;
     graph?: GraphRenderer;
+    /** who the run is acting for, when anyone */
+    user?: RunIdentity;
     close(): Promise<void>;
 }
 
@@ -142,11 +170,18 @@ export interface Engine {
 export async function openEngine(opts: EngineOptions): Promise<Engine> {
     const logger = opts.logger ?? stderrLogger;
     const onIssue = opts.onIssue ?? ((issue: ModelIssue) => logger.warn(describeIssue(issue)));
+    const user = resolveUser(opts.user);
 
     // Before the keyring, so the project's own file wins over the machine's
     // keys, and before the load, so `${VAR}` in agents.yaml can name anything
     // in it. The real environment still beats both.
     const env = loadProjectEnv(opts.project.dir);
+    if (env?.refused.length && !opts.quiet) {
+        logger.warn(
+            `${env.path} sets ${env.refused.join(', ')} — ignored: who a run acts for ` +
+                'is the host’s to say (zen run --as <user> to try one)',
+        );
+    }
 
     const keys = await KeyStore.open();
     keys.materialize();
@@ -195,6 +230,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             keys: opts.keys,
             env: env?.names,
             mounts,
+            identity: user,
             ...(opts.disposable ? { persist: false } : {}),
         });
         const workspaceOptions = {
@@ -219,6 +255,9 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
                 // turn that tried.
                 ...exaTools(),
             ],
+            // Every agent can ask who it is acting for without the project
+            // having to know the tool exists; `-current_user` still takes it away.
+            alwaysTools: identityTools(user),
             skillsAt: SKILLS_MOUNT,
             memory: opts.memory,
             memoryDir: opts.memoryDir,
@@ -270,6 +309,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         sandbox,
         lock,
         graph: opts.graph,
+        user,
         close: async () => {
             await teardown(sandbox.pool, logger);
             // A host-supplied graph is the host's to release.
@@ -279,6 +319,31 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             lock.release();
         },
     };
+}
+
+/**
+ * The identity a run acts for: what the host said, or — when it said nothing —
+ * what the environment carries, which is never more than `local`. Validated
+ * here because it is about to become variables and a container's argv: a
+ * newline in an id is not an id.
+ */
+export function resolveUser(given: RunIdentity | null | undefined): RunIdentity | undefined {
+    if (given === null) {
+        return undefined;
+    }
+    const user = given ? compactIdentity(given) : identityFromEnv(process.env);
+    if (!user) {
+        return undefined;
+    }
+    if (!user.id.trim()) {
+        throw usageError('the run’s user has an empty id');
+    }
+    for (const [key, value] of Object.entries(user)) {
+        if (typeof value === 'string' && /[\0\r\n]/.test(value)) {
+            throw usageError(`the run’s user ${key} has a control character in it`);
+        }
+    }
+    return user;
 }
 
 async function loadState(session: SessionPaths): Promise<AgentState | undefined> {
@@ -351,6 +416,7 @@ export function envelope(engine: Engine, outcome: RunOutcome): Record<string, un
             ...(outcome.graph ? { graph: outcome.graph } : {}),
         },
         mounts: mounts(engine),
+        ...(engine.user ? { user: engine.user } : {}),
         agent: outcome.result.agent,
         stopReason: outcome.result.stopReason,
         durationMs: outcome.durationMs,
@@ -475,6 +541,7 @@ async function record(
         usage: result.usage,
         workspace: engine.workspace,
         memory: engine.memory,
+        ...(engine.user ? { user: engine.user } : {}),
         error: result.state.error,
     });
 

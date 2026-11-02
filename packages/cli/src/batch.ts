@@ -1,5 +1,5 @@
 import { display, stamp } from '@zenera/engine';
-import type { ContentPart, Input, ModelUsage } from '@zenera/neo';
+import type { ContentPart, Input, ModelUsage, RunIdentity } from '@zenera/neo';
 import {
     addUsage,
     lockHolder,
@@ -74,6 +74,8 @@ export interface BatchOptions {
     readOnly?: boolean;
     keys?: boolean;
     yes?: boolean;
+    /** `--as`: who every item acts for */
+    user?: RunIdentity;
     /** a second home for the combined envelope */
     out?: string;
     json: boolean;
@@ -360,6 +362,7 @@ async function runItem(item: BatchItem, ctx: ItemContext): Promise<ItemResult> {
             memoryDir: ctx.memory,
             memoryReadOnly: ctx.memoryReadOnly,
             keys: ctx.opts.keys,
+            user: ctx.opts.user,
             yes: true,
             // The project's own problems are the batch's, not each item's.
             quiet: true,

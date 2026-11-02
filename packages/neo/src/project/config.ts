@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { IDENTITY_ENV_PREFIX } from '../tools/identity.ts';
 
 // ---------------------------------------------------------------------------
 // agents.yaml
@@ -334,6 +335,17 @@ const sandbox = z
         //         });
         //     }
         // }
+        for (const [i, name] of (value.env ?? []).entries()) {
+            if (name.startsWith(IDENTITY_ENV_PREFIX)) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['env', i],
+                    message:
+                        `${name} is set by the host for the user a run acts for — ` +
+                        `a project cannot forward its own ${IDENTITY_ENV_PREFIX}* variables`,
+                });
+            }
+        }
     });
 
 const agent = z

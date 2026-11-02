@@ -1093,6 +1093,10 @@ not appear in the container's argv, in `ps`, or in `podman inspect`. For the
 same reason the container's identity is computed from the names alone: rotating
 a key does not abandon a `persist: true` container's filesystem.
 
+`ZEN_USER_*` is reserved. Those variables say which user the run acts for, and
+only the host sets them. They are set on each command, never on the container,
+so `env:` cannot name one. See [identity.md](identity.md).
+
 ### `agents[].sandbox`
 
 Agents share one container by default. They already share the workspace, and a

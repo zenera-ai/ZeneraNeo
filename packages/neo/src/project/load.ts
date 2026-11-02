@@ -55,6 +55,13 @@ export interface ProjectOptions<TCtx = unknown> {
      */
     tools?: AnyTool<TCtx>[];
     /**
+     * Tools every agent gets without naming them — `current_user`, from the engine. Config
+     * can still select one by name, and take it away with `-name`; what it
+     * cannot do is forget it, which is the point for a tool whose whole value
+     * is that the model can always ask.
+     */
+    alwaysTools?: AnyTool<TCtx>[];
+    /**
      * Credentials for the names the config declares — or names it does not, so
      * a deployment can add a provider the repository never mentions. Merged
      * over `providers:`, host last, which is how ops repoints a key without a
@@ -175,7 +182,7 @@ export async function loadProject<TCtx = unknown>(
             description: spec.description,
             instructions: instructionsFor(root, spec, houseRules),
             model: resolve(spec.model ?? config.model, `agents.${spec.name}.model`),
-            tools: toolsFor(spec, opts.tools ?? []),
+            tools: toolsFor(spec, opts.tools ?? [], opts.alwaysTools ?? []),
             handoffs: spec.handoffs,
             skills: bindingFor(spec, providers),
             fork: forkFor(spec),
@@ -631,14 +638,27 @@ function embedderResolver<TCtx>(
     };
 }
 
-function toolsFor<TCtx>(spec: AgentConfig, available: AnyTool<TCtx>[]): AnyTool<TCtx>[] {
-    if (!spec.tools?.length) {
-        return [];
+function toolsFor<TCtx>(
+    spec: AgentConfig,
+    available: AnyTool<TCtx>[],
+    always: AnyTool<TCtx>[],
+): AnyTool<TCtx>[] {
+    // One namespace, so `current_user` and `identity:*` resolve, and `-current_user` is a removal
+    // rather than an unknown tool.
+    const names = new Set(available.map((t) => t.name));
+    const all = [...available, ...always.filter((t) => !names.has(t.name))];
+    const where = { where: `agents.${spec.name}.tools`, hint: 'pass it in ProjectOptions.tools' };
+    const selectors = spec.tools ?? [];
+    const chosen = selectors.length ? selectTools(all, selectors, where) : [];
+    if (!always.length) {
+        return chosen;
     }
-    return selectTools(available, spec.tools, {
-        where: `agents.${spec.name}.tools`,
-        hint: 'pass it in ProjectOptions.tools',
-    });
+    // What `*` and the removals leave of everything is what the author did
+    // not take away; an always-tool survives unless it was among the taken.
+    const drops = selectors.filter((s) => s.trim().startsWith('-'));
+    const kept = new Set(selectTools(all, ['*', ...drops], where).map((t) => t.name));
+    const have = new Set(chosen.map((t) => t.name));
+    return [...chosen, ...always.filter((t) => kept.has(t.name) && !have.has(t.name))];
 }
 
 function bindingFor(spec: AgentConfig, providers: SkillProvider[]): SkillBinding | undefined {
