@@ -17,6 +17,30 @@ Pass `user` to say who the run is acting for. The agent gets it from the `curren
 the sandbox gets it from `ZEN_USER_*` or the `zenera` library. See
 [docs/identity.md](../../docs/identity.md).
 
+Pass `plugins` to bring tools of your own. Each `ZenPlugin` is asked for its tools once, when the
+engine opens, with the run's `user`, project and session, so a tool can hold what this run needs.
+Config selects plugin tools like built-in ones (`tools: [mcp:*]`). A name or group that clashes with
+a built-in tool, or with another plugin, is refused. The engine calls `close` when it closes, or when
+it fails to open after the plugin was asked:
+
+```ts
+import { openEngine, tool, type ZenPlugin } from '@zenera/engine';
+
+const lookup: ZenPlugin = {
+    name: 'lookup',
+    tools: ({ user }) => [
+        tool<{ q: string }>({
+            name: 'lookup_search',
+            group: 'lookup',
+            description: 'Searches the directory as the signed-in user.',
+            parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] },
+            execute: ({ q }) => search(q, user?.id),
+        }),
+    ],
+};
+const engine = await openEngine({ project, session, user, plugins: [lookup] });
+```
+
 ## Use
 
 ```ts

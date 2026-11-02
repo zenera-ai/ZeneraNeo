@@ -43,6 +43,7 @@ import {
 import { readJson, writeJson } from './home.ts';
 import { KeyStore, assertUsable } from './keys.ts';
 import { projectMounts, type Project } from './projects.ts';
+import { loadPlugins, type LoadedPlugins, type ZenPlugin } from './plugins.ts';
 import {
     buildSandbox,
     prepareHome,
@@ -135,6 +136,13 @@ export interface EngineOptions {
      * letting whatever its own environment holds speak for one.
      */
     user?: RunIdentity | null;
+    /**
+     * Tools the host brings — see `ZenPlugin`. Each plugin is asked once, here,
+     * so its tools can hold what this run needs (who it is for, a credential
+     * the host minted for it). Config selects them like any other tool, and a
+     * name or group that clashes with a built-in is refused.
+     */
+    plugins?: ZenPlugin[];
 }
 
 export interface Engine {
@@ -210,6 +218,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
     let project: AgentProject;
     let files: Workspace;
     let memory: string | undefined;
+    let plugins: LoadedPlugins | undefined;
     try {
         const { root, config } = readProjectConfig(opts.project.dir);
         // Naming a directory declares the graph, but it cannot bind anyone to
@@ -242,22 +251,29 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         // The same view the file tools have, so a path the agent just wrote
         // resolves the same way when it asks memory to keep a copy.
         files = new Workspace(workspaceOptions);
+        const builtins = [
+            // Both groups are pointed at one directory, so both are told the
+            // one name for it: whatever `run_command` prints a path as,
+            // `read_file` accepts.
+            ...fileTools(workspaceOptions),
+            ...sandboxTools(sandbox.pool),
+            // Registered whether or not a key exists: the credential is
+            // read when a tool is called, so a project that names `exa:*`
+            // loads on a machine that cannot yet search, and says so on the
+            // turn that tried.
+            ...exaTools(),
+        ];
+        // Every agent can ask who it is acting for without the project
+        // having to know the tool exists; `-current_user` still takes it away.
+        const always = identityTools(user);
+        plugins = await loadPlugins(
+            opts.plugins ?? [],
+            { user, project: opts.project, session: opts.session, logger },
+            [...builtins, ...always],
+        );
         project = await loadProject(opts.project.dir, {
-            tools: [
-                // Both groups are pointed at one directory, so both are told the
-                // one name for it: whatever `run_command` prints a path as,
-                // `read_file` accepts.
-                ...fileTools(workspaceOptions),
-                ...sandboxTools(sandbox.pool),
-                // Registered whether or not a key exists: the credential is
-                // read when a tool is called, so a project that names `exa:*`
-                // loads on a machine that cannot yet search, and says so on the
-                // turn that tried.
-                ...exaTools(),
-            ],
-            // Every agent can ask who it is acting for without the project
-            // having to know the tool exists; `-current_user` still takes it away.
-            alwaysTools: identityTools(user),
+            tools: [...builtins, ...plugins.tools],
+            alwaysTools: always,
             skillsAt: SKILLS_MOUNT,
             memory: opts.memory,
             memoryDir: opts.memoryDir,
@@ -266,34 +282,44 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             resolveFile: (path: string) => files.within(path),
         });
     } catch (err) {
+        await plugins?.close();
         throw invalidError(
             err instanceof Error ? err.message : String(err),
             `while loading ${opts.project.dir}`,
         );
     }
+    const loaded = plugins;
 
-    // Asked here rather than at the first `run_command`, so a host with no
-    // container engine costs an error instead of a round trip. Nothing is
-    // started: the container itself waits until something actually runs.
-    if (usesSandbox(project)) {
-        prepareHome(sandbox);
-        await opts.preflight?.(sandbox, opts.yes);
+    let state: AgentState | undefined;
+    let lock: Held;
+    let runner: AgentRunner;
+    try {
+        // Asked here rather than at the first `run_command`, so a host with no
+        // container engine costs an error instead of a round trip. Nothing is
+        // started: the container itself waits until something actually runs.
+        if (usesSandbox(project)) {
+            prepareHome(sandbox);
+            await opts.preflight?.(sandbox, opts.yes);
+        }
+
+        // `recordRequests` is what makes the report show the exact bytes sent
+        // rather than a reconstruction. It costs state size, and a CLI run is
+        // written to disk once and inspected by a human — exactly the case the
+        // library leaves it off for by default.
+        //
+        // `--model` becomes the runner's fallback rather than an alias, so it
+        // overrides the config's `model:` without touching agents that pinned one.
+        runner = project.runner({
+            recordRequests: true,
+            model: opts.model ? project.models.model(opts.model) : undefined,
+        });
+
+        state = await loadState(opts.session);
+        lock = acquire(opts.session);
+    } catch (err) {
+        await loaded.close();
+        throw err;
     }
-
-    // `recordRequests` is what makes the report show the exact bytes sent
-    // rather than a reconstruction. It costs state size, and a CLI run is
-    // written to disk once and inspected by a human — exactly the case the
-    // library leaves it off for by default.
-    //
-    // `--model` becomes the runner's fallback rather than an alias, so it
-    // overrides the config's `model:` without touching agents that pinned one.
-    const runner = project.runner({
-        recordRequests: true,
-        model: opts.model ? project.models.model(opts.model) : undefined,
-    });
-
-    const state = await loadState(opts.session);
-    const lock = acquire(opts.session);
 
     return {
         project,
@@ -316,6 +342,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             if (!opts.memory) {
                 project.close();
             }
+            await loaded.close();
             lock.release();
         },
     };

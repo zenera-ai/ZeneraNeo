@@ -6,6 +6,7 @@ export * from './home.ts';
 export * from './ids.ts';
 export * from './image.ts';
 export * from './keys.ts';
+export * from './plugins.ts';
 export * from './projects.ts';
 export * from './sandbox.ts';
 export * from './session.ts';
