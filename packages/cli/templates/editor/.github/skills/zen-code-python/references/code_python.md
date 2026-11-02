@@ -30,9 +30,18 @@ commit the new version as superseding the old one.
    goes to the path given by `--output`.
 5. **Take credentials from environment variables by name.** Never write a key,
    token or password into the code or an argument default.
-6. **Use only what the sandbox image already has.** Do not `pip install` from
+6. **Take the user you act for from the run, never from an argument.** When the
+   answer depends on who is asking - their records, their permissions, their
+   account - read it with `zenera.require_identity()` (`import zenera`; `.id`,
+   `.email`, `.role`, `.source`). It exits with a clear error when the run has no
+   signed-in user. Never add `--user-id` or `--email` for the person asking, and
+   never copy their id from the conversation into the code or the command: the
+   model cannot vouch for who someone is, and the run already knows. An argument
+   is right only for a _different_ user the question names - `--assignee` - and
+   then the script still checks `require_identity().role` before acting for them.
+7. **Use only what the sandbox image already has.** Do not `pip install` from
    the script or before running it.
-7. **Write it to a file and run the file**:
+8. **Write it to a file and run the file**:
    `python /workspace/scripts/<name>.py --resource-id 42`. Never run Python
    with `python -c` or a heredoc.
 
@@ -43,6 +52,9 @@ commit the new version as superseding the old one.
 - Read your own code against a different question of the same kind. If
   answering it would mean editing the script rather than passing other
   arguments, a value is still hard-coded: make it an argument and run again.
+  Asked by a different user, the same script must answer for them with the
+  same command: if it would not, the user is hard-coded or passed in - read it
+  from `zenera.require_identity()` instead.
 - If you hold `memory_commit`, commit the working script as a `file` node. Its
   text says what kind of question it answers and names its arguments, so that a
   later search for a similar question finds it.

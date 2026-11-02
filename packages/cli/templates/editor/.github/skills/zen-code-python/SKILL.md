@@ -28,6 +28,9 @@ your own words loses the mechanical phrasing that makes them obeyed.
 
 - every value that would change for the next similar question is a named
   argument, never a literal
+- the user the run acts for comes from `zenera.require_identity()`, never from
+  an argument, a literal or the conversation - the one value that changes per
+  question and is still not an argument
 - the file is named for what it does, and describes itself through `--help`
 - the result goes to stdout, a produced file to an `--output` path
 - the script is written to a file and the file is run - no `python -c`, no
@@ -103,6 +106,11 @@ Run `zen check` after any change to `agents.yaml` or a skill.
   teaches the shape the rule forbids. Every example invocation passes its values
   as named arguments:
   `python /workspace/scripts/list_overdue_invoices.py --customer-id 42`.
+- **Never show the asker as an argument.** `--user-id`, `--email` or `--me` for
+  the person asking teaches the model to fill in who someone is. An example for
+  "my invoices" passes no user at all -
+  `python /workspace/scripts/list_my_overdue_invoices.py --since 2026-01-01` -
+  and the script reads `zenera.require_identity()`.
 - **Scripts shipped inside a skill** (`agents/skills/<name>/scripts/`, §3.4.1 of
   the copilot instructions) follow the same rules: named arguments, a `--help`,
   the result on stdout, an `--output` path under `/workspace` for any file,
@@ -121,4 +129,6 @@ Run `zen check` after any change to `agents.yaml` or a skill.
       carry the same wording - not a second paraphrase
 - [ ] No other prompt, skill or house rule restates the rules, adds an
       exemption, or shows `python -c` or a script with literal values
+- [ ] No script or example takes the asking user as an argument; per-user
+      scripts read `zenera.require_identity()`
 - [ ] Every script shipped in a skill takes its values as named arguments

@@ -22,6 +22,7 @@ answers once on stdout and exits.
 | `--model <ref>`         | Override the default model for this run                  |
 | `--image <ref>`         | Override the container image commands run in             |
 | `--read-only`           | Withhold every tool that can write                       |
+| `--as <user>`           | Act for this user - see below                            |
 | `--plain`               | Never open the TUI; a prompt is then required            |
 | `--theme <dark\|light>` | Palette for the TUI; `auto` detects. `$ZENERA_THEME`     |
 | `--out <file>`          | Put the answer in this file instead of on stdout         |
@@ -276,6 +277,26 @@ name rather than ignored. Every item is a new session of its own, they cannot
 share a workspace, and a batch never draws the TUI.
 
 For a project or a prompt actually called "batch", say `--project batch`.
+
+## Acting for a user - `--as`
+
+A run is for nobody unless the host says otherwise: `current_user` answers
+`authenticated: false` and `ZEN_USER_*` is unset in the sandbox. `--as` names
+the user, so a project whose answers depend on who is asking can be tried here:
+
+```
+zen run --as ann@acme.com "what are my open tickets?"
+zen run --as u-123 "…"                                  an id: ZEN_USER_ID only
+ZEN_USER_ROLE=viewer zen run --as ann@acme.com "…"      a role too
+zen run batch --input cases.json --as ann@acme.com      every item as Ann
+```
+
+An email sets both the id and `ZEN_USER_EMAIL`; `ZEN_USER_ROLE` and
+`ZEN_USER_NAME`, when exported, fill in the rest. It is always `source: local` -
+a statement, not a login - so code that trusts the identity only for `host`
+treats it as untrusted, which is what a test of that code should see. Without
+`--as`, already-exported `ZEN_USER_*` are used the same way. A project's `.env`
+cannot set them. `--json` and the run's `meta.json` record the user as `user`.
 
 ## Which word is the project
 
