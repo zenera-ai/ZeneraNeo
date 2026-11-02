@@ -6,6 +6,7 @@ dist/
 .dev/
 .out/
 *.tsbuildinfo
+.mypy_cache
 
 # Scratch
 .tmp/
