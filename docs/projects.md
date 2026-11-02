@@ -309,6 +309,9 @@ const project = await loadProject('./my-project', {
   resolving symlinks first.
 - `sandboxTools(pool)` - `run_command`, `run_command_background`,
   `read_command_output`, `stop_command`, all in group `sandbox`.
+- `identityTools(user)` - `current_user`, in group `identity`: who the run acts for. Pass
+  it as `alwaysTools` and every agent gets it without naming it, though
+  `-current_user` still removes it. See [identity.md](identity.md).
 
 Pass `mount` and both sets speak the same names: a path a command prints in the
 container is a path `read_file` accepts. That is the reason for the key, and it

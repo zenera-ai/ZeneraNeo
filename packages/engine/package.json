@@ -33,7 +33,8 @@
     },
     "files": [
         "dist",
-        "!dist/**/*.map"
+        "!dist/**/*.map",
+        "runtime"
     ],
     "engines": {
         "node": ">=24"

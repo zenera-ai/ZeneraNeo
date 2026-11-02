@@ -3,14 +3,18 @@ import {
     GATEWAY_URL_ENV,
     SANDBOX_GROUP,
     SandboxPool,
+    identityEnv,
+    isIdentityEnv,
     type AgentProject,
     type ProjectConfig,
+    type RunIdentity,
     type SandboxConfig,
     type SandboxMount,
     type SandboxSpec,
 } from '@zenera/neo';
-import { mkdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { basename, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { stderrLogger, type Logger } from './errors.ts';
 import { resolveBuild, type ResolvedBuild } from './image.ts';
 import { credentials } from './keys.ts';
@@ -121,6 +125,11 @@ export interface SandboxInputs {
     env?: readonly string[];
     /** `false` overrides every `persist:` in the config, the agents' included */
     persist?: boolean;
+    /**
+     * Who the run is acting for. Set on every command as `ZEN_USER_*`, never
+     * on the container — see `execEnv` in the library for why.
+     */
+    identity?: RunIdentity;
 }
 
 export function buildSandbox(opts: SandboxInputs): SandboxSetup {
@@ -173,6 +182,8 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         key: opts.session.id,
         readOnly: opts.readOnly,
         mounts,
+        execEnv: identityEnv(opts.identity),
+        execPaths: RUNTIME_PATHS,
     });
 
     return { pool, spec, image: spec.image ?? DEFAULT_SANDBOX_IMAGE, build, home, mounts };
@@ -209,7 +220,7 @@ function secretsOf(
     if (!secrets) {
         return undefined;
     }
-    return [...new Set([...secrets, ...(env ?? [])])];
+    return [...new Set([...secrets, ...(env ?? [])])].filter((name) => !isIdentityEnv(name));
 }
 
 /**
@@ -232,7 +243,7 @@ function toSpec(
     const env: Record<string, string> = { ...extra };
     for (const name of config.env ?? []) {
         const value = process.env[name];
-        if (value !== undefined && value !== '') {
+        if (value !== undefined && value !== '' && !isIdentityEnv(name)) {
             env[name] = value;
         }
     }
@@ -270,9 +281,50 @@ export function usesSandbox(project: AgentProject): boolean {
  */
 export type Preflight = (setup: SandboxSetup, yes?: boolean) => Promise<void>;
 
-/** Where the container's `$HOME` lives must exist before podman mounts it. */
+/**
+ * Where the container's `$HOME` lives must exist before podman mounts it — and
+ * the `zenera` libraries go into it, written fresh on every open so they match
+ * the engine that set the variables they read.
+ */
 export function prepareHome(setup: SandboxSetup): void {
     mkdirSync(setup.home, { recursive: true });
+    installRuntime(setup.home);
+}
+
+// ---------------------------------------------------------------------------
+// The `zenera` libraries
+//
+// What generated code calls to ask who it is running for. Python and Node,
+// because those are what agents write; anything else reads `ZEN_USER_*`.
+//
+// They live in the home the container already mounts, not in a mount of their
+// own: a new mount would rename every container that already exists, and a
+// persisted one would lose what it had installed. Each language is put where
+// its interpreter looks without being told — `require` searches
+// `$HOME/.node_modules` on its own — except Python, which has no such place
+// that does not depend on the version, so its directory is put in front of
+// `PYTHONPATH` on every command, ahead of whatever the image set.
+// ---------------------------------------------------------------------------
+
+/** The packaged sources, beside `src/` and `dist/` alike. */
+const RUNTIME_SOURCE = fileURLToPath(new URL('../runtime/', import.meta.url));
+
+/** Where each one lands, inside the container. */
+export const RUNTIME_PYTHON = `${HOME}/.zenera/python`;
+export const RUNTIME_NODE = `${HOME}/.node_modules/zenera`;
+
+const RUNTIME_PATHS = { PYTHONPATH: [RUNTIME_PYTHON] };
+
+function installRuntime(home: string): void {
+    const inside = (path: string): string => join(home, relative(HOME, path));
+    for (const [from, to] of [
+        ['python', RUNTIME_PYTHON],
+        ['node', RUNTIME_NODE],
+    ] as const) {
+        const target = inside(to);
+        rmSync(target, { recursive: true, force: true });
+        cpSync(join(RUNTIME_SOURCE, from), target, { recursive: true });
+    }
 }
 
 /** Best-effort teardown: losing a container must never lose a run. */

@@ -1,0 +1,15 @@
+{
+    "name": "zenera",
+    "version": "1.0.0",
+    "description": "Who this Zenera run is acting for. Installed into the sandbox by the engine.",
+    "license": "MIT",
+    "main": "./index.cjs",
+    "types": "./index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./index.d.ts",
+            "import": "./index.mjs",
+            "require": "./index.cjs"
+        }
+    }
+}

@@ -144,6 +144,25 @@ export interface SandboxOptions extends SandboxSpec {
     readOnly?: boolean;
     /** extra bind mounts; the host side must already exist */
     mounts?: readonly SandboxMount[];
+    /**
+     * Environment set on every command rather than on the container: values
+     * that belong to the run, not to the box — the user it is acting for.
+     *
+     * `env` is fixed when the container is created, and a container is kept
+     * between sessions and shared between agents; a run's values written there
+     * would still be answering for whoever came before. Not part of the
+     * container's name either, for the same reason in reverse: a new user is
+     * not a new machine. Plain values on podman's command line, so nothing
+     * secret goes here — that is what `secrets` is for.
+     */
+    execEnv?: Record<string, string>;
+    /**
+     * Directories put in front of a path-like variable for every command —
+     * `PYTHONPATH`, say — keeping whatever the image already set behind them.
+     * `--env` could only replace the image's value, and an image that relies on
+     * its own `PYTHONPATH` would break on the first `python`.
+     */
+    execPaths?: Record<string, readonly string[]>;
     /** the container engine binary */
     engine?: string;
     /** how processes are spawned — the seam tests replace */
@@ -353,6 +372,8 @@ interface Resolved extends Required<Omit<SandboxSpec, 'user'>> {
     readOnly: boolean;
     mounts: readonly SandboxMount[];
     engine: string;
+    execEnv: Record<string, string>;
+    execPaths: Record<string, readonly string[]>;
     explicitCpus?: boolean;
     explicitMemory?: boolean;
 }
@@ -551,6 +572,32 @@ export class Sandbox {
     }
 
     /**
+     * `podman exec` for a command the agent asked for, with the run's own
+     * environment. The script still arrives on stdin; when a path has to be
+     * extended, the shell that reads it is started by a fixed `-c` line that
+     * exports the variable and `exec`s it — built from host-chosen names and
+     * paths only, so no text of the agent's is ever part of a parse here.
+     */
+    #exec(options: readonly string[] = []): string[] {
+        const env = Object.entries(this.spec.execEnv).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+        const paths = Object.entries(this.spec.execPaths).filter(([, dirs]) => dirs.length);
+        const shell = paths.length
+            ? [
+                  '/bin/sh',
+                  '-c',
+                  [
+                      ...paths.map(
+                          ([name, dirs]) =>
+                              `export ${name}=${quote(dirs.join(':'))}"\${${name}:+:\$${name}}"`,
+                      ),
+                      'exec /bin/sh -s',
+                  ].join('; '),
+              ]
+            : ['/bin/sh', '-s'];
+        return ['exec', '--interactive', ...env, ...options, this.name, ...shell];
+    }
+
+    /**
      * Runs one command and waits for it. The script goes down stdin, so no part
      * of it is ever parsed by a shell on this side of the container.
      */
@@ -561,11 +608,11 @@ export class Sandbox {
         const startedAt = Date.now();
 
         const once = (): Promise<ProcResult> =>
-            this.#run(
-                this.spec.engine,
-                ['exec', '--interactive', '--workdir', cwd, this.name, '/bin/sh', '-s'],
-                { input: command, timeoutMs, signal: opts.signal },
-            );
+            this.#run(this.spec.engine, this.#exec(['--workdir', cwd]), {
+                input: command,
+                timeoutMs,
+                signal: opts.signal,
+            });
         let res = await once();
         if (gone(res)) {
             // podman refused before running anything, so the retry cannot run the command twice.
@@ -638,11 +685,10 @@ export class Sandbox {
             `i=0; while [ ! -s ${JOBS}/${id}.pid ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.1; done`,
         ].join('\n');
 
-        const started = await this.#run(
-            this.spec.engine,
-            ['exec', '--interactive', this.name, '/bin/sh', '-s'],
-            { input: launch, timeoutMs: 30_000 },
-        );
+        const started = await this.#run(this.spec.engine, this.#exec(), {
+            input: launch,
+            timeoutMs: 30_000,
+        });
         if (started.code !== 0) {
             throw new SandboxError(`could not start the job: ${message(started)}`);
         }
@@ -899,6 +945,11 @@ function resolveSpec(opts: SandboxOptions): Resolved {
     }
     const hardening = opts.hardening ?? 'standard';
     const strict = hardening === 'strict';
+    for (const name of [...Object.keys(opts.execEnv ?? {}), ...Object.keys(opts.execPaths ?? {})]) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+            throw new SandboxError(`not a variable name: ${JSON.stringify(name)}`);
+        }
+    }
     return {
         root: opts.root,
         key: opts.key,
@@ -918,6 +969,8 @@ function resolveSpec(opts: SandboxOptions): Resolved {
         readOnly: opts.readOnly ?? false,
         mounts: opts.mounts ?? [],
         engine: opts.engine ?? 'podman',
+        execEnv: opts.execEnv ?? {},
+        execPaths: opts.execPaths ?? {},
     };
 }
 

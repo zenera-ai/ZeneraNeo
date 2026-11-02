@@ -13,6 +13,10 @@ behind (`state.json`, `report.html`, run metadata).
 It never prints and never prompts. Warnings go to the `Logger` you pass, errors are `EngineError`s
 with a code, and installing a container engine is a `preflight` the host supplies.
 
+Pass `user` to say who the run is acting for. The agent gets it from the `current_user` tool, and code in
+the sandbox gets it from `ZEN_USER_*` or the `zenera` library. See
+[docs/identity.md](../../docs/identity.md).
+
 ## Use
 
 ```ts
@@ -26,6 +30,7 @@ const engine = await openEngine({
     project: { dir: '/project', name: 'acme' },
     session,
     memoryDir: '/data/users/u1/memory',
+    user: { id: 'u1', email: 'ann@acme.com', role: 'editor', source: 'host' },
     logger: { warn: (m) => console.warn(m) },
 });
 try {

@@ -1,4 +1,4 @@
-import { claimLock, ownLock } from '@zenera/neo';
+import { claimLock, ownLock, type RunIdentity } from '@zenera/neo';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { EngineError, EXIT, invalidError, usageError } from './errors.ts';
@@ -281,6 +281,8 @@ export interface RunMeta {
     usage: unknown;
     workspace: string;
     memory?: string;
+    /** who the run acted for, when anyone */
+    user?: RunIdentity;
     error?: string;
 }
 

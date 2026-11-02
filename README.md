@@ -242,6 +242,7 @@ their own subcommands. Install only the capabilities a project needs.
 - [Agent knowledge and document retrieval](docs/knowledge.md)
 - [API integrations](docs/integrations.md)
 - [Memory](docs/memory.md)
+- [Who a run acts for](docs/identity.md)
 - [Fine-tuning and writing rubrics](docs/finetuning.md)
 - [Every model through a Bifrost gateway](docs/gateway.md)
 

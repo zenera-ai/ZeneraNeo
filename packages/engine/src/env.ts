@@ -1,3 +1,4 @@
+import { isIdentityEnv } from '@zenera/neo';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -40,6 +41,12 @@ export interface ProjectEnv {
     names: string[];
     /** what the file says, credential paths made absolute */
     values: Record<string, string>;
+    /**
+     * Names the file declared and was not allowed to: `ZEN_USER_*` says who a
+     * run is acting for, and only the host gets to say that. A project that
+     * could set it in a committed file could be anyone it liked.
+     */
+    refused: string[];
 }
 
 /** The env file a project in `dir` reads: `$ZEN_ENV_FILE` when set, `.env` otherwise. */
@@ -57,12 +64,15 @@ export function readProjectEnv(dir: string): ProjectEnv | undefined {
         return undefined;
     }
     const values: Record<string, string> = {};
+    const refused: string[] = [];
     for (const [name, value] of Object.entries(parseEnv(readFileSync(path, 'utf8')))) {
-        if (value !== undefined) {
+        if (isIdentityEnv(name)) {
+            refused.push(name);
+        } else if (value !== undefined) {
             values[name] = located(dir, name, value);
         }
     }
-    return { path, names: Object.keys(values), values };
+    return { path, names: Object.keys(values), values, refused };
 }
 
 /**

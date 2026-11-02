@@ -1,7 +1,7 @@
 import * as Projects from '@zenera/engine';
 import { display } from '@zenera/engine';
-import type { AgentEvent, Input } from '@zenera/neo';
-import { usageByModel } from '@zenera/neo';
+import type { AgentEvent, Input, RunIdentity } from '@zenera/neo';
+import { identityFromEnv, usageByModel } from '@zenera/neo';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parse } from '../args.ts';
@@ -41,6 +41,7 @@ interface Flags {
     model?: string;
     image?: string;
     'no-keys'?: boolean;
+    as?: string;
     'read-only'?: boolean;
     yes?: boolean;
     plain?: boolean;
@@ -79,6 +80,9 @@ export const run: Command = {
         '  --image <ref>          Use this container image to run commands in.',
         '  --read-only            Take away every tool that can write.',
         '  --no-keys              Do not pass API keys into the container.',
+        '  --as <user>            Act for this user: what `current_user` answers and $ZEN_USER_ID',
+        '                         holds. An email also sets $ZEN_USER_EMAIL. For trying',
+        '                         a project; the Zenera app passes the signed-in user.',
         '  --plain                Never open the TUI. Needs a prompt.',
         '  --theme <dark|light>   Colours for the TUI. Default: auto.',
         '  --out <file>           Put the answer in this file instead of on screen.',
@@ -169,6 +173,7 @@ export const run: Command = {
                 model: { type: 'string' },
                 image: { type: 'string' },
                 'no-keys': { type: 'boolean' },
+                as: { type: 'string' },
                 'read-only': { type: 'boolean' },
                 yes: { type: 'boolean' },
                 plain: { type: 'boolean' },
@@ -256,6 +261,7 @@ export const run: Command = {
                 request?.memory ?? (values.memory ? resolve(ctx.cwd, values.memory) : undefined),
             memoryReadOnly: values['memory-read-only'],
             keys: values['no-keys'] ? false : undefined,
+            user: asUser(values.as),
             yes: values.yes || ctx.json,
             disposable: values.disposable,
         });
@@ -291,6 +297,33 @@ export const run: Command = {
         }
     },
 };
+
+// ---------------------------------------------------------------------------
+// Many shots
+// ---------------------------------------------------------------------------
+
+/**
+ * `--as`, as the identity a run acts for. Always `local` — saying who you are
+ * on your own machine is a test, not a login. The other fields still come from
+ * `ZEN_USER_*` when exported, so `ZEN_USER_ROLE=viewer zen run --as ann` tries
+ * a role too. Unset, the engine reads the environment by itself.
+ */
+function asUser(as: string | undefined): RunIdentity | undefined {
+    if (as === undefined) {
+        return undefined;
+    }
+    const id = as.trim();
+    if (!id) {
+        throw usageError('--as needs a user', 'an id or an email, e.g. --as ann@example.com');
+    }
+    const env = identityFromEnv({ ...process.env, ZEN_USER_ID: id });
+    return {
+        ...env,
+        id,
+        email: env?.email ?? (id.includes('@') ? id : undefined),
+        source: 'local',
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Many shots
@@ -346,6 +379,7 @@ async function batch(
         image: values.image,
         readOnly: values['read-only'],
         keys: values['no-keys'] ? false : undefined,
+        user: asUser(values.as),
         yes: values.yes,
         out: values.out,
         json: ctx.json,
