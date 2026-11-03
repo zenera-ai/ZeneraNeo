@@ -2089,7 +2089,7 @@ candidates; these are the judgements to make about each one)**
 | Fails only on genuinely hard cases            | Promote that agent's tier, or split the hard path out               |
 | Shows no reasoning while it works             | Turn summaries on for that model - §7.6                             |
 | Forgets across conversations                  | Continue the session rather than starting a new one                 |
-| Greps `/memory` or reads `graph.json`         | `agents/memory-instructions.md` is missing the block - §5.3         |
+| Greps `/memory` or queries `memory.db`        | `agents/memory-instructions.md` is missing the block - §5.3         |
 | Recalls a note it cannot check or continue    | Same block: it is what requires provenance on every node - §5.3     |
 | Breaks at load with a named path              | Read the message - it names the exact key                           |
 

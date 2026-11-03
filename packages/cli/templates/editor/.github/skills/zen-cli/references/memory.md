@@ -1,7 +1,7 @@
 # Memory - `zen memory`
 
 ```
-zen memory [stats|ls|search|grep|show|export|merge|forget] [args] [options]
+zen memory [stats|ls|search|grep|show|export|merge|forget|migrate] [args] [options]
 ```
 
 Alias: `mem`.
@@ -29,9 +29,10 @@ skill.
 | `zen memory export [f]`   | The whole graph as one HTML page                    |
 | `zen memory merge <dir…>` | Fold other memories into this one                   |
 | `zen memory forget <id…>` | Remove nodes, their vectors and their files         |
+| `zen memory migrate`      | Convert a version 1 memory (`graph.json`) once      |
 
 `ls` cuts the text to the terminal's width; piped, or run by an agent, it prints
-all of it. Never read `graph.json` directly - `ls --json` is the same nodes in a
+all of it. Never query `memory.db` directly - `ls --json` is the same nodes in a
 shape that does not change under you.
 
 | Flag                          | Meaning                                        |
@@ -120,22 +121,21 @@ zen memory diff <candidate> --dir <batch-dir>/<id>/memory
 - **used** - nodes `memory_load` returned, and how often: what the run read.
 - **removed**, and new `SUPERSEDES` edges.
 
-It reads both sides without the lock, so it works on a memory a run is writing.
+It reads one consistent snapshot of each side, so it works on a memory a run is
+writing.
 
 Superseded nodes are left out unless you ask: `--all` includes them marked, and
 `--stale` narrows to them alone.
 
-Nothing that only reads takes the directory lock, so this and every other
-subcommand but `merge` and `forget` works while a run is writing the memory, and
-against the read-only `/memory` mount inside a sandbox.
+Every subcommand reads one consistent snapshot, so all of them work while a run
+is writing the memory - and the run keeps writing while they do.
 
 ## A graph that is not the project's
 
 `--dir` opens a memory directory as it stands, and skips project resolution
 entirely: there need be no `agents.yaml` anywhere above it. That is what to use
-for a graph a run was pointed at with `zen run --memory <dir>`, and for a copy
-taken out of a running session - though for reading a live memory, `grep` needs
-no copy at all.
+for a graph a run was pointed at with `zen run --memory <dir>`, and for the one
+a running session is writing to - no copy needed.
 
 ```
 zen run --memory .tmp/mem "…"     remember into .tmp/mem for this run
@@ -182,8 +182,9 @@ working list and detail view.
 
 ## Merging
 
-The lock is per directory, so two runs cannot warm the same memory at once.
-They each warm their own, and `merge` puts the results back together:
+Several runs may write one memory at once - each write is a transaction - but a
+warmup should not share one: runs learning together see each other's commits
+mid-round. They each warm their own, and `merge` puts the results back together:
 
 ```sh
 zen memory merge .tmp/warmup-*/batch/*/memory            into the project’s
@@ -194,8 +195,8 @@ zen memory merge <batch-dir>/*/memory                    after `zen run batch`
 `zen run batch` is the fan-out with the bookkeeping done for you: each item
 gets its own copy of the memory, the project's is left alone, and the summary
 prints the `merge` line. A batch that is only asking should say
-`--memory-read-only` instead — nobody writes, so nobody needs the lock, and
-every item recalls from the one graph.
+`--memory-read-only` instead — nobody writes, so nothing changes under anyone,
+and every item recalls from the one graph.
 
 Sources are positional and the target is `--dir`, or the project you are in —
 the same shape as everywhere else here. The shell expands the glob, so a

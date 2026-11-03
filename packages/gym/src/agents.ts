@@ -3,6 +3,7 @@ import {
     buildRunReport,
     renderReportHtml,
     type AgentState,
+    type RunResult,
     type AnyTool,
     type Model,
 } from '@zenera/neo';
@@ -40,7 +41,7 @@ export interface AgentRunOptions {
 
 export interface AgentRun {
     state: AgentState;
-    stopReason: 'final' | 'aborted' | 'failed';
+    stopReason: RunResult['stopReason'];
     toolCalls: number;
     report?: string;
 }

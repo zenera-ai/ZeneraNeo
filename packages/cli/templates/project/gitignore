@@ -5,10 +5,12 @@ sessions/
 # The same, one level up: a batch's workspaces, memory copies and answers.
 batches/
 
-# Memory is worth keeping: `graph.json`, `files/` and the vectors are what the
-# agents learned. The vectors are binary, but nothing rebuilds them from the
-# graph, so a clone without them recalls by term overlap until every node is
-# written again. Only the lock is runtime state.
+# Memory is worth keeping: `memory.db` and `files/` are what the agents
+# learned, vectors included, and nothing rebuilds them. The database is folded
+# into that one file whenever the last run using it closes; the write-ahead
+# log beside it is runtime state, as is a version 1 memory's lock.
+memory/memory.db-wal
+memory/memory.db-shm
 memory/.lock
 
 # Scratch, inside the workspace so the sandbox can reach it.

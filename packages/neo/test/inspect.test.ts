@@ -281,7 +281,7 @@ const AT = '2026-01-01T00:00:00.000Z';
 async function memory(noteText = 'written by this run'): Promise<MemoryStore> {
     const dir = mkdtempSync(join(tmpdir(), 'zn-runmem-'));
     dirs.push(dir);
-    const store = await MemoryStore.open(dir, { lock: false });
+    const store = await MemoryStore.open(dir);
     const all = ['*'];
     store.graph.add({ id: 'task', kind: 'task', text: 'reconcile the ledger', audience: all }, AT);
     store.graph.add({ id: 'plan', kind: 'plan', text: 'diff, then explain', audience: all }, AT);

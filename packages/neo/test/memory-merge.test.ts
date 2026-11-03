@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { hostname, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MEMORY_MOUNT } from '../src/memory/files.ts';
@@ -100,7 +100,7 @@ describe('merging memories', () => {
         expect(report.sources.map((s) => s.added)).toEqual([2, 1]);
         expect(report.embedding).toEqual(EMBEDDING);
 
-        const back = await MemoryStore.open(intoDir, { lock: false });
+        const back = await MemoryStore.open(intoDir, { readOnly: true });
         expect(back.graph.order).toBe(3);
         expect(back.graph.edges()).toEqual([{ source: 'A1', target: 'A2', relation: 'PRODUCED' }]);
         expect(back.vectors?.rows).toBe(3);
@@ -309,14 +309,15 @@ describe('merging memories', () => {
         await expect(mergeMemories(into, [a, a])).rejects.toThrow(/named twice/);
     });
 
-    it('refuses a source a live run still holds', async () => {
+    it('merges a source a run is still writing to', async () => {
         const a = await memory('a', [node('A1')]);
-        await writeFile(
-            join(a, '.lock'),
-            JSON.stringify({ pid: process.pid, host: hostname(), startedAt: T0 }),
-        );
-
-        await expect(mergeMemories(into, [a])).rejects.toThrow(/is in use/);
+        const live = await MemoryStore.open(a);
+        try {
+            const report = await mergeMemories(into, [a]);
+            expect(report).toMatchObject({ added: 1 });
+        } finally {
+            live.release();
+        }
     });
 
     it('reports a dry run without writing anything', async () => {

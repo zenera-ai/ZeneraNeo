@@ -29,10 +29,13 @@ import {
 } from './trajectory.ts';
 import {
     isToolReturn,
+    isToolSuspend,
     stringify,
     zeroUsage,
     type AnyTool,
     type Input,
+    type ResumeAnswer,
+    type SuspendSpec,
     type TokenUsage,
     type ToolEffect,
     type ToolOutcome,
@@ -145,6 +148,18 @@ export interface RunOptions<T = string, TCtx = unknown> {
     maxForkDepth?: number;
 }
 
+export interface ResumeOptions<T = string, TCtx = unknown> extends RunOptions<T, TCtx> {
+    /**
+     * Answers to the calls the run is suspended on, by call id. A suspended call
+     * without an answer stays suspended: the run stops again at once.
+     */
+    answers?: Record<string, ResumeAnswer>;
+}
+
+/** What a new message says to a call still waiting for a person. */
+export const SUPERSEDED_MESSAGE =
+    'cancelled: the user sent a new message instead of answering this; continue without it';
+
 /** Internal: what a branch driver needs on top of the caller's options. */
 interface DriveOptions<T, TCtx> extends RunOptions<T, TCtx> {
     branch?: BranchRef;
@@ -237,12 +252,19 @@ export class AgentRunner<TCtx = unknown> {
         return new RunStream<T>(this.#start(agent, input, opts));
     }
 
-    /** Continues a persisted run from its own snapshot. */
-    resume<T = string>(state: AgentState, opts: RunOptions<T, TCtx> = {}): RunStream<T> {
-        return new RunStream<T>(this.#drive(state, opts));
+    /**
+     * Continues a persisted run from its own snapshot. A run that stopped
+     * `suspended` continues once `answers` answer its suspended calls.
+     */
+    resume<T = string>(state: AgentState, opts: ResumeOptions<T, TCtx> = {}): RunStream<T> {
+        return new RunStream<T>(this.#resumeAndDrive(state, opts));
     }
 
-    /** Adds a follow-up message to a finished (or paused) run and continues it. */
+    /**
+     * Adds a follow-up message to a finished (or paused) run and continues it.
+     * Calls still suspended are cancelled first: the person chose to say
+     * something else rather than answer them.
+     */
     send<T = string>(
         state: AgentState,
         input: Input,
@@ -251,13 +273,57 @@ export class AgentRunner<TCtx = unknown> {
         return new RunStream<T>(this.#sendAndDrive(state, input, opts));
     }
 
+    async *#resumeAndDrive<T>(
+        state: AgentState,
+        opts: ResumeOptions<T, TCtx>,
+    ): AsyncGenerator<AgentEvent, RunResult<T>> {
+        const answered = yield* this.#answer(state, opts.answers ?? {}, opts);
+        return yield* this.#drive(answered, opts);
+    }
+
     async *#sendAndDrive<T>(
         state: AgentState,
         input: Input,
         opts: RunOptions<T, TCtx>,
     ): AsyncGenerator<AgentEvent, RunResult<T>> {
-        const next = await Kernel.applyUserInput(state, input, this.#env(opts));
+        const cancel: Record<string, ResumeAnswer> = {};
+        for (const s of state.suspended ?? []) {
+            cancel[s.callId] = { status: 'cancelled', message: SUPERSEDED_MESSAGE };
+        }
+        const answered = yield* this.#answer(state, cancel, opts);
+        const next = await Kernel.applyUserInput(answered, input, this.#env(opts));
         return yield* this.#drive(next, opts);
+    }
+
+    /** Applies answers to suspended calls; answers to anything else are ignored. */
+    async *#answer<T>(
+        initial: AgentState,
+        answers: Record<string, ResumeAnswer>,
+        opts: RunOptions<T, TCtx>,
+    ): AsyncGenerator<AgentEvent, AgentState> {
+        const env = this.#env(opts);
+        let state = initial;
+        for (const s of initial.suspended ?? []) {
+            const answer = answers[s.callId];
+            if (!answer) {
+                continue;
+            }
+            if (answer.status === 'resolved' && 'rerun' in answer) {
+                state = Kernel.releaseSuspension(state, s.callId);
+                continue;
+            }
+            const outcome: ToolOutcome =
+                answer.status === 'resolved'
+                    ? { output: stringify(answer.payload), isError: false }
+                    : { output: answer.message ?? 'cancelled: nobody answered', isError: true };
+            const was = state;
+            state = await Kernel.applyToolResult(state, s.callId, outcome, env);
+            const node = appended(was, state).find((n) => n.type === 'tool_result');
+            if (node) {
+                yield tag(state, undefined, { type: 'after_tool_call', state, node });
+            }
+        }
+        return state;
     }
 
     #env<T>(opts: RunOptions<T, TCtx>): Kernel.KernelEnv {
@@ -352,11 +418,28 @@ export class AgentRunner<TCtx = unknown> {
                 }
 
                 case 'tools': {
+                    // A suspended call waits for `resume`; when nothing else is left
+                    // to run, the run stops here and says what it waits for.
+                    const waiting = new Set((state.suspended ?? []).map((x) => x.callId));
+                    const runnable = action.calls.filter((c) => !waiting.has(c.callId));
+                    if (!runnable.length) {
+                        return yield* this.#finish(state, branch, 'suspended');
+                    }
                     const tools = await Kernel.resolveTools(state, this.registry, env);
-                    for (const call of action.calls) {
+                    for (const call of runnable) {
                         yield tag(state, branch, { type: 'before_tool_call', state, call });
                         const was = state;
-                        const outcome = await this.#runTool(state, tools, call, opts);
+                        const ran = await this.#runTool(state, tools, call, opts);
+                        if ('suspend' in ran) {
+                            state = Kernel.applySuspension(
+                                state,
+                                call,
+                                ran.suspend,
+                                this.#clock.now(),
+                            );
+                            continue;
+                        }
+                        const outcome = ran;
                         state = await Kernel.applyToolResult(state, call.callId, outcome, env);
                         const added = appended(was, state);
                         const node = added.find((n) => n.type === 'tool_result');
@@ -619,7 +702,7 @@ export class AgentRunner<TCtx = unknown> {
         tools: AnyTool<TCtx>[],
         call: PendingToolCall,
         opts: DriveOptions<T, TCtx>,
-    ): Promise<ToolOutcome> {
+    ): Promise<ToolOutcome | { suspend: SuspendSpec }> {
         const started = Date.now();
         const fail = (output: string): ToolOutcome => ({
             output,
@@ -656,6 +739,17 @@ export class AgentRunner<TCtx = unknown> {
                 services: this.services,
                 signal: opts.signal,
             });
+            if (isToolSuspend(out)) {
+                // A branch runs alongside its siblings and is joined when all end:
+                // there is no run of its own to stop and resume.
+                // Its message still reaches the model, which can pass it on.
+                return opts.branch
+                    ? fail(
+                          `error: ${def.name} needs a person and cannot wait inside a fork branch` +
+                              (out.spec.message ? `: ${out.spec.message}` : ''),
+                      )
+                    : { suspend: out.spec };
+            }
             const effects: ToolEffect[] = isToolReturn(out) ? out.effects : [];
             const value = isToolReturn(out) ? out.output : out;
             return {

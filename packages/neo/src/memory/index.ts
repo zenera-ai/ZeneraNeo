@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { Embedder } from '../embedding.ts';
 import type { IdClock } from '../ids.ts';
 import { forgetFile, hostPath, rememberFile } from './files.ts';
-import type { MemoryGraph, NodeDraft, NodePatch } from './graph.ts';
+import { type MemoryGraph, type NodeDraft, type NodePatch, RevisionMismatch } from './graph.ts';
 import { recall } from './recall.ts';
 import type { MemoryStore } from './store.ts';
 import {
@@ -32,6 +32,11 @@ import {
 // Everything is validated, and every source file stat-ed, before the first
 // mutation, on the same principle as `runPatch` in tools/files.ts: a
 // commit that fails must leave no half-built graph behind.
+//
+// Other runs may be writing the same memory. So the plan is made against the
+// graph as last seen, the slow parts — embedding, copying files — happen
+// outside the store's write lock, and what the plan assumed about existing
+// nodes is checked again inside it, against the graph as it is on disk.
 // ---------------------------------------------------------------------------
 
 /** Past this a `load` returns the path and lets the agent open it itself. */
@@ -128,6 +133,11 @@ export class MemoryIndex {
         return [...this.#relations];
     }
 
+    /** Catches up with what other runs committed to the same memory. */
+    refresh(): void {
+        this.store.refresh();
+    }
+
     /**
      * Read-only: a search returns nodes the model has not read, so nothing is
      * touched. `stale` is the audit view — it puts back the superseded nodes
@@ -141,6 +151,7 @@ export class MemoryIndex {
         opts: { stale?: boolean } = {},
     ): Promise<Recollection> {
         const vector = query.text ? await this.#embed([query.text], 'query') : undefined;
+        this.refresh();
         return recall({
             graph: this.graph,
             query,
@@ -176,7 +187,7 @@ export class MemoryIndex {
         clock: IdClock,
     ): Promise<LoadedNode[]> {
         const at = clock.now();
-        const out: LoadedNode[] = [];
+        this.refresh();
         for (const id of ids) {
             const node = this.graph.get(id);
             // Indistinguishable from "no such node" on purpose: a refusal that
@@ -187,20 +198,32 @@ export class MemoryIndex {
                     'use an id from the legend of a memory_search result',
                 );
             }
-            const touched = this.graph.touch(id, at) ?? node;
-            const file = touched.file;
+        }
+        const touch = (): MemoryNode[] =>
+            ids.map((id) => this.graph.touch(id, at) ?? this.graph.get(id)!);
+        // The bump is bookkeeping, and persisting it is what would make a
+        // read-only recall rewrite the graph every other run is reading.
+        const touched = this.store.readOnly
+            ? this.graph.untracked(touch)
+            : this.store.write(() => {
+                  // Forgotten by another run since the check above.
+                  const missing = ids.find((id) => !this.graph.has(id));
+                  if (missing) {
+                      throw new MemoryError(`no memory ${missing}`);
+                  }
+                  return touch();
+              });
+
+        const out: LoadedNode[] = [];
+        for (const node of touched) {
+            const file = node.file;
             out.push({
-                node: touched,
+                node,
                 content:
                     file && file.bytes <= INLINE_FILE_BYTES
                         ? await readFile(hostPath(this.store.dir, file), 'utf8')
                         : undefined,
             });
-        }
-        // The bump is bookkeeping, and persisting it is what would make a
-        // read-only recall rewrite the graph every other run is reading.
-        if (!this.store.readOnly) {
-            await this.store.commit();
         }
         return out;
     }
@@ -212,6 +235,7 @@ export class MemoryIndex {
             throw new MemoryError('a commit needs at least one node or edge');
         }
 
+        this.refresh();
         const plan = this.#plan(nodes, edges, opts);
         const vectors = await this.#embed(
             plan.embed.map((e) => e.text),
@@ -220,9 +244,9 @@ export class MemoryIndex {
         // Keyed before anything is dropped: `#merge` reshapes `plan.embed`, and
         // the vectors only line up with it positionally until it does.
         const vector = new Map(plan.embed.map((e, i) => [e.id, vectors?.[i]]));
-        const merged = this.#merge(plan, vector, opts.sees);
 
         // Files first, so a failed copy can be undone before the graph knows.
+        // A file-bearing node never folds onto a twin, so none is copied in vain.
         const written: MemoryFile[] = [];
         try {
             for (const item of plan.files) {
@@ -240,26 +264,35 @@ export class MemoryIndex {
         const at = opts.clock.now();
         let created = 0;
         let updated = 0;
-        for (const item of plan.nodes) {
-            if (item.existing) {
-                this.graph.update(item.id, item.patch, at);
-                updated++;
-            } else {
-                this.graph.add(item.draft, at);
-                created++;
-            }
-        }
-        for (const edge of plan.edges) {
-            this.graph.link(edge.source, edge.target, edge.relation, at);
-        }
-        for (const e of plan.embed) {
-            const v = vector.get(e.id);
-            if (v) {
-                this.store.vectors?.set(e.id, v);
-            }
+        let merged = 0;
+        try {
+            this.store.write(() => {
+                this.#recheck(plan);
+                merged = this.#merge(plan, vector, opts.sees);
+                for (const item of plan.nodes) {
+                    if (item.existing) {
+                        this.graph.update(item.id, item.patch, at);
+                        updated++;
+                    } else {
+                        this.graph.add(item.draft, at);
+                        created++;
+                    }
+                }
+                for (const edge of plan.edges) {
+                    this.graph.link(edge.source, edge.target, edge.relation, at);
+                }
+                for (const e of plan.embed) {
+                    const v = vector.get(e.id);
+                    if (v) {
+                        this.store.vectors?.set(e.id, v);
+                    }
+                }
+            });
+        } catch (err) {
+            await Promise.all(written.map((f) => forgetFile(this.store.dir, f)));
+            throw err;
         }
 
-        await this.store.commit();
         return {
             ids: plan.ids,
             created,
@@ -268,6 +301,41 @@ export class MemoryIndex {
             files: plan.files.length,
             merged,
         };
+    }
+
+    /**
+     * What the plan assumed about nodes it did not create, asked again of the
+     * graph as it is now: another run may have forgotten or revised them since.
+     * Before any mutation, so a refusal changes nothing.
+     */
+    #recheck(plan: Plan): void {
+        const minted = new Set(plan.nodes.filter((n) => !n.existing).map((n) => n.id));
+        for (const item of plan.nodes) {
+            if (!item.existing) {
+                continue;
+            }
+            const current = this.graph.get(item.id);
+            if (!current) {
+                throw new MemoryError(
+                    `${item.id}: no such memory`,
+                    'another run forgot it while this one was committing',
+                );
+            }
+            const expected = item.patch.expectedRevision;
+            if (expected !== undefined && expected !== current.revision) {
+                throw new RevisionMismatch(item.id, expected, current.revision);
+            }
+        }
+        for (const edge of plan.edges) {
+            for (const end of [edge.source, edge.target]) {
+                if (!minted.has(end) && !this.graph.has(end)) {
+                    throw new MemoryError(
+                        `"${end}" is no longer a memory`,
+                        'another run forgot it while this one was committing',
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -337,6 +405,7 @@ export class MemoryIndex {
     }
 
     async forget(ids: readonly string[], sees: readonly string[]): Promise<MemoryNode[]> {
+        this.refresh();
         const doomed = ids.map((id) => {
             const node = this.graph.get(id);
             if (!node || !visible(node, sees)) {
@@ -344,14 +413,19 @@ export class MemoryIndex {
             }
             return node;
         });
-        for (const node of doomed) {
-            this.graph.forget(node.id);
-            this.store.vectors?.remove(node.id);
+        // Gone already is what was asked for, so another run beating this one to it is fine.
+        const removed = this.store.write(() =>
+            doomed.filter((node) => {
+                this.store.vectors?.remove(node.id);
+                return this.graph.forget(node.id) !== undefined;
+            }),
+        );
+        // Bytes after the graph: a node naming a missing file is worse than a stray file.
+        for (const node of removed) {
             if (node.file) {
                 await forgetFile(this.store.dir, node.file);
             }
         }
-        await this.store.commit();
         return doomed;
     }
 

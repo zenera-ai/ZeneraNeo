@@ -22,7 +22,7 @@ one silently replaced; an `--out` that already exists is a usage error until
 | `--out <file>` | Where the archive goes                                       |
 | `--no-vectors` | Leave out `assets/**/lance/` - much smaller, needs a restore |
 | `--no-memory`  | Leave out `memory/` entirely                                 |
-| `--force`      | Overwrite the target, and export past a held memory lock     |
+| `--force`      | Overwrite the target                                         |
 
 ### What travels
 
@@ -44,8 +44,10 @@ knows which credentials to supply without being handed any.
 
 This is the decision the command is built around. A rag index without its
 `lance/` tree looks built and cannot search, and memory has no fallback at all:
-a graph without `vectors.f32` recalls by term overlap until every node is
-written again. So the default archive works when it is opened.
+a memory without its vectors recalls by term overlap until every node is
+written again. So the default archive works when it is opened. The memory
+travels as a snapshot of its database taken at one moment, so a run writing to
+it meanwhile cannot tear the archive.
 
 `--no-vectors` makes a much smaller one for someone who will run
 `zen rag <subject> restore` on arrival. The manifest records the choice and
@@ -53,9 +55,8 @@ written again. So the default archive works when it is opened.
 
 ### What it refuses
 
-Only one thing: memory held by a live run, because a graph copied mid-write is
-an archive that opens and is wrong. `--force` overrides it, and
-`--no-memory` sidesteps it.
+Nothing for being busy: memory is copied as of one moment, so a run writing
+to it meanwhile cannot tear the archive.
 
 A project that fails `zen check` is exported anyway, with a warning. Sending
 someone a broken project to ask for help is a legitimate reason to export one.

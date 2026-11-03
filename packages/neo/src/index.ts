@@ -17,6 +17,7 @@ export * from './memory/graph.ts';
 export * from './memory/grep.ts';
 export * from './memory/index.ts';
 export * from './memory/merge.ts';
+export * from './memory/migrate.ts';
 export * from './memory/page.ts';
 export * from './memory/recall.ts';
 export * from './memory/render.ts';

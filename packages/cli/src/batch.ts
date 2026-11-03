@@ -2,8 +2,9 @@ import { display, stamp } from '@zenera/engine';
 import type { ContentPart, Input, ModelUsage, RunIdentity } from '@zenera/neo';
 import {
     addUsage,
-    lockHolder,
-    MANIFEST_FILE as MEMORY_MANIFEST,
+    copyMemory,
+    isMemory,
+    LEGACY_GRAPH_FILE,
     memoryDir,
     MemoryStore,
     mergeModelUsage,
@@ -14,8 +15,8 @@ import {
     zeroUsage,
 } from '@zenera/neo';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import * as Engine from './engine.ts';
 import { duration } from './narrate.ts';
 import { assertLocks } from './podman.ts';
@@ -124,24 +125,18 @@ export async function runBatch(opts: BatchOptions): Promise<void> {
     // A project declares its memory directory; it is the first run that makes
     // one. So a batch may legitimately be pointed at a graph that is not there
     // yet - which is the whole of warming a cold project.
-    const seeded = source !== undefined && existsSync(source);
+    const seeded = source !== undefined && isMemory(source);
+    if (source && !seeded && existsSync(join(source, LEGACY_GRAPH_FILE))) {
+        throw invalidError(
+            `${source} holds a version 1 memory`,
+            `convert it first: zen memory migrate --dir ${source}`,
+        );
+    }
     if (opts.memoryReadOnly && !source) {
         throw usageError(
             '--memory-read-only, but this project has no memory',
             'give one with --memory, or drop the flag',
         );
-    }
-    if (source && seeded) {
-        // A graph is three files that only mean anything together. Reading one
-        // mid-commit is a wrong answer and copying one is a wrong archive, so
-        // both modes wait rather than race.
-        const held = lockHolder(source);
-        if (held) {
-            throw invalidError(
-                `that memory is in use (pid ${held.pid}, since ${held.startedAt})`,
-                'wait for that run to finish, or point --memory at another directory',
-            );
-        }
     }
 
     // Serially, and before anything runs: sixteen recursive copies of the same
@@ -479,8 +474,8 @@ export function concurrency(value: string | undefined): number {
  * Each item's memory, made before any of them runs.
  *
  * In the copying mode every item gets its own graph to write into, so that
- * sixteen runs at once are sixteen private histories rather than one contended
- * lock. A source that is not there yet is not an error: a project declares its
+ * sixteen runs at once are sixteen private histories rather than one shared
+ * one. A source that is not there yet is not an error: a project declares its
  * memory directory and the first run makes it, so warming a cold project means
  * copying from nothing, and nothing is what each item starts with.
  */
@@ -494,7 +489,7 @@ export async function prepareMemories(
         if (at.mode === 'copied' && at.source) {
             const mine = join(at.dir, item.id, 'memory');
             if (at.seeded) {
-                await cp(at.source, mine, { recursive: true, filter: notLock });
+                await copyMemory(at.source, mine);
             }
             prepared.set(item.id, mine);
         } else if (at.mode === 'read-only' && at.source) {
@@ -507,15 +502,15 @@ export async function prepareMemories(
 /**
  * Drops the memories nothing was committed to, and counts the ones left.
  *
- * A memory is its manifest and the two files beside it; a directory without
- * one is not a memory and `merge` refuses it by name. Leaving those behind
+ * A memory is its database; a directory without one is not a memory and
+ * `merge` refuses it by name. Leaving those behind
  * would mean the `merge` line this command prints is advice that fails, so an
  * item that learned nothing leaves nothing.
  */
 export async function keepWritten(prepared: ReadonlyMap<string, string>): Promise<number> {
     let kept = 0;
     for (const at of prepared.values()) {
-        if (existsSync(join(at, MEMORY_MANIFEST))) {
+        if (isMemory(at)) {
             kept += 1;
         } else {
             await rm(at, { recursive: true, force: true });
@@ -534,8 +529,6 @@ function memorySource(projectDir: string, override?: string): string | undefined
     }
 }
 
-/** The lock belongs to the run that took it, never to a copy of its memory. */
-const notLock = (src: string): boolean => basename(src) !== '.lock';
 /**
  * The question, for the index — text whole, media named rather than repeated.
  * Every byte is already in the item's own run input file, and a combined file

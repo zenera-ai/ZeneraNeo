@@ -14,9 +14,9 @@
 //
 // When a with-memory run passes, `checkpoint <run>` makes the candidate the last
 // good memory: it renames the directory and only then repoints
-// finetune/memory/last-good.json at it. `zen memory merge` writes its files one
-// after another, so a merge killed half-way can leave a graph whose files
-// disagree - but only ever a candidate, never the one the pointer names. Stop the
+// finetune/memory/last-good.json at it. A merge killed half-way leaves the
+// candidate it was writing without that merge, and never touches the one the
+// pointer names. Stop the
 // tuning at any moment and `memory.mjs path` still names a usable graph.
 //
 // Needs `zen` on PATH. Run it from anywhere; it finds the project root from its
@@ -34,6 +34,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 const NAME = 'memory.mjs';
@@ -81,7 +82,17 @@ function writeAtomic(path, value) {
 }
 
 /** @param {string} dir @returns {number} */
-const nodesIn = (dir) => Number(json(join(dir, 'manifest.json'))?.nodes) || 0;
+function nodesIn(dir) {
+    if (!existsSync(join(dir, 'memory.db'))) {
+        return 0;
+    }
+    const db = new DatabaseSync(join(dir, 'memory.db'), { readOnly: true });
+    try {
+        return Number(db.prepare('SELECT count(*) AS n FROM nodes').get()?.n) || 0;
+    } finally {
+        db.close();
+    }
+}
 
 /** @param {string} run */
 function passed(run) {
@@ -178,17 +189,20 @@ if (command === 'candidate') {
         die(`batch ${batch} is already in the last good memory`);
     }
 
-    // Only case memories with a manifest: a case that committed nothing has none.
+    // Only case memories with a database: a case that committed nothing has none.
     const dir = join(RUNS, arg, 'batch');
     const sources = (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }) : [])
-        .filter((e) => e.isDirectory() && existsSync(join(dir, e.name, 'memory', 'manifest.json')))
+        .filter((e) => e.isDirectory() && existsSync(join(dir, e.name, 'memory', 'memory.db')))
         .map((e) => join(dir, e.name, 'memory'));
 
     const target = join(ROOT, `candidate-batch${pad}`);
     rmSync(target, { recursive: true, force: true });
     mkdirSync(ROOT, { recursive: true });
     if (pointer && existsSync(pointer.dir)) {
-        cpSync(pointer.dir, target, { recursive: true, filter: (src) => !src.endsWith('/.lock') });
+        cpSync(pointer.dir, target, {
+            recursive: true,
+            filter: (src) => !/\/(\.lock|memory\.db-(wal|shm))$/.test(src),
+        });
     } else {
         mkdirSync(target, { recursive: true });
     }

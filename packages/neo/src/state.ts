@@ -1,6 +1,6 @@
 import type { PayloadResolver } from './payload.ts';
 import { lastOfType, totalUsage, type TrajectoryNode } from './trajectory.ts';
-import type { JsonSchema, TokenUsage } from './types.ts';
+import type { JsonSchema, Suspension, TokenUsage } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Run state — plain JSON, no prototypes, no functions
@@ -58,6 +58,11 @@ export interface AgentState {
     pendingToolCalls: string[];
     /** the in-flight fork, if any, and its branches still lacking a result */
     pendingFork?: { callId: string; branches: string[] };
+    /**
+     * Pending tool calls the run is suspended on, waiting for a person (see
+     * `suspend`). Each is also in `pendingToolCalls`; `runner.resume` answers them.
+     */
+    suspended?: Suspension[];
     /** derived cache; always recomputable from the trajectory */
     usage: TokenUsage;
     /** serialized user context (must be JSON) */
@@ -72,7 +77,8 @@ export interface RunResult<T = string> {
     agent: string;
     state: AgentState;
     usage: TokenUsage;
-    stopReason: 'final' | 'aborted' | 'failed';
+    /** suspended: waiting on `state.suspended`; `runner.resume` continues it */
+    stopReason: 'final' | 'aborted' | 'failed' | 'suspended';
 }
 
 /**

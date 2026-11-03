@@ -1,5 +1,5 @@
 import { buildSandbox, sessionPaths } from '@zenera/engine';
-import { parseConfig, type AgentEvent } from '@zenera/neo';
+import { MemoryStore, parseConfig, type AgentEvent } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -244,24 +244,35 @@ describe('the memory each item is given', () => {
         await rm(dir, { recursive: true, force: true });
     });
 
-    it('copies the graph per item, and leaves the lock behind', async () => {
+    it('copies the graph per item, as of one moment, while a run is still writing it', async () => {
         const source = join(dir, 'memory');
-        await mkdir(source, { recursive: true });
-        await writeFile(join(source, 'manifest.json'), '{"version":1}');
-        await writeFile(join(source, '.lock'), '{"pid":1}');
+        const live = await MemoryStore.open(source);
+        live.write(() =>
+            live.graph.add(
+                { id: 'N1', kind: 'fact', text: 'kept', audience: ['*'] },
+                '2026-01-01T00:00:00.000Z',
+            ),
+        );
 
         const out = join(dir, 'batch');
-        const prepared = await prepareMemories(items, {
-            dir: out,
-            mode: 'copied',
-            source,
-            seeded: true,
-        });
+        let prepared;
+        try {
+            prepared = await prepareMemories(items, {
+                dir: out,
+                mode: 'copied',
+                source,
+                seeded: true,
+            });
+        } finally {
+            live.release();
+        }
 
         expect(prepared.get('one')).toBe(join(out, 'one', 'memory'));
         expect(prepared.get('two')).toBe(join(out, 'two', 'memory'));
-        expect(existsSync(join(out, 'one', 'memory', 'manifest.json'))).toBe(true);
-        expect(existsSync(join(out, 'one', 'memory', '.lock'))).toBe(false);
+        expect(existsSync(join(out, 'one', 'memory', 'memory.db-wal'))).toBe(false);
+        const copy = await MemoryStore.open(join(out, 'one', 'memory'), { readOnly: true });
+        expect(copy.graph.get('N1')?.text).toBe('kept');
+        copy.release();
     });
 
     /**
@@ -318,7 +329,7 @@ describe('the memory each item is given', () => {
         const did_not = join(dir, 'two', 'memory');
         await mkdir(wrote, { recursive: true });
         await mkdir(join(did_not, 'files'), { recursive: true });
-        await writeFile(join(wrote, 'manifest.json'), '{"version":1}');
+        await writeFile(join(wrote, 'memory.db'), '');
 
         const kept = await keepWritten(
             new Map([

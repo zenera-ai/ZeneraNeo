@@ -222,6 +222,67 @@ export function isToolReturn(v: unknown): v is ToolReturn {
     return v !== null && typeof v === 'object' && TOOL_RETURN in v;
 }
 
+// ---------------------------------------------------------------------------
+// Suspending a run
+//
+// Some tools cannot finish without a person: an account to connect, a value
+// only someone knows, an approval. Such a tool returns `suspend(...)` instead
+// of a result. The run then stops with the call still pending - nothing is
+// held while it waits - and a later `runner.resume(state, { answers })` either
+// runs the call again (the person did what was needed) or hands the call an
+// answer as its result. What the pause is about is the host's business: the
+// runner only carries `reason`, `message` and `data` through to whoever shows
+// it, and `responseSchema` to whoever collects the answer.
+// ---------------------------------------------------------------------------
+
+// Registered (`Symbol.for`) so a plugin with no dependencies can suspend too:
+// `{ [Symbol.for('zenera.neo.toolSuspend')]: true, spec }` is what `suspend` makes.
+const TOOL_SUSPEND = Symbol.for('zenera.neo.toolSuspend');
+
+export interface SuspendSpec {
+    /** what the run waits for, in the host's own words (e.g. "mcp_auth", "input") */
+    reason: string;
+    /** a human-readable prompt for whoever answers */
+    message?: string;
+    /** anything the host needs to resolve it; must be JSON */
+    data?: unknown;
+    /** the shape of the answer expected, when the answer becomes the result */
+    responseSchema?: Record<string, unknown>;
+}
+
+export interface ToolSuspend {
+    [TOOL_SUSPEND]: true;
+    spec: SuspendSpec;
+}
+
+export function suspend(spec: SuspendSpec): ToolSuspend {
+    return { [TOOL_SUSPEND]: true, spec };
+}
+
+export function isToolSuspend(v: unknown): v is ToolSuspend {
+    return v !== null && typeof v === 'object' && TOOL_SUSPEND in v;
+}
+
+/** A pending tool call a run is suspended on. Lives in `AgentState.suspended`. */
+export interface Suspension extends SuspendSpec {
+    callId: string;
+    /** the tool that suspended */
+    name: string;
+    /** when it suspended, as the run's clock writes times */
+    at: string;
+}
+
+/**
+ * The answer to one suspension, given to `runner.resume`.
+ *   resolved + rerun   - what was needed is done; run the call again
+ *   resolved + payload - the payload is the call's result
+ *   cancelled          - nobody will answer; the call gets `message` as an error
+ */
+export type ResumeAnswer =
+    | { status: 'resolved'; rerun: true }
+    | { status: 'resolved'; payload: unknown }
+    | { status: 'cancelled'; message?: string };
+
 export interface Tool<TArgs = unknown, TCtx = unknown> extends ToolSchema {
     /**
      * The family this tool belongs to, so config can name the whole set at
