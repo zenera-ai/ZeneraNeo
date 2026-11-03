@@ -22,6 +22,7 @@ import {
     type AgentProject,
     type AgentState,
     type Input,
+    type ResumeAnswer,
     type MemoryIndex,
     type RunIdentity,
     type RunResult,
@@ -491,6 +492,45 @@ export async function runEngine(
     const durationMs = Date.now() - startedAt.getTime();
 
     engine.state = result.state;
+    const outcome = await record(engine, input, result, startedAt, durationMs);
+    if (result.stopReason === 'failed') {
+        throw new EngineError(
+            result.state.error ?? 'the run failed',
+            EXIT.failed,
+            `report: ${outcome.run.report}`,
+        );
+    }
+    return outcome;
+}
+
+/**
+ * Continues a session whose last run stopped `suspended`: `answers` answer its
+ * suspended calls (re-run, a result, or cancelled - see `ResumeAnswer`). The
+ * run is recorded like any other turn; its input reads as the answers given.
+ * Calls left unanswered keep it suspended.
+ */
+export async function resumeEngine(
+    engine: Engine,
+    answers: Record<string, ResumeAnswer>,
+    onEvent?: (event: AgentEvent) => void,
+    signal?: AbortSignal,
+): Promise<RunOutcome> {
+    if (!engine.state?.suspended?.length) {
+        throw usageError('this session is not waiting on anything to resume');
+    }
+    const startedAt = new Date();
+    const stream = engine.runner.resume<string>(engine.state, { answers, signal });
+    if (onEvent) {
+        for await (const event of stream) {
+            onEvent(event);
+        }
+    }
+    const result = await stream.final();
+    const durationMs = Date.now() - startedAt.getTime();
+    engine.state = result.state;
+    const input = `(resumed: ${Object.entries(answers)
+        .map(([id, a]) => `${id} ${a.status}`)
+        .join(', ')})`;
     const outcome = await record(engine, input, result, startedAt, durationMs);
     if (result.stopReason === 'failed') {
         throw new EngineError(

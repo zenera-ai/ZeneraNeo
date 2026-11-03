@@ -53,6 +53,8 @@ import {
     type AnyTool,
     type Input,
     type JsonSchema,
+    type SuspendSpec,
+    type Suspension,
     type TokenUsage,
     type ToolOutcome,
     type ToolSchema,
@@ -900,7 +902,37 @@ export async function applyToolResult(
         : state.pendingFork?.branches.length
           ? 'awaiting_branches'
           : 'awaiting_llm';
-    return b.commit({ phase, pendingToolCalls, agentName });
+    const suspended = state.suspended?.filter((s) => s.callId !== callId);
+    return b.commit({
+        phase,
+        pendingToolCalls,
+        agentName,
+        suspended: suspended?.length ? suspended : undefined,
+    });
+}
+
+/**
+ * Records that a pending call suspended the run. The call stays pending - no
+ * result is written - so the model still sees it unanswered until it is.
+ */
+export function applySuspension(
+    state: AgentState,
+    call: { callId: string; name: string },
+    spec: SuspendSpec,
+    at: string,
+): AgentState {
+    if (!state.pendingToolCalls.includes(call.callId)) {
+        throw new Error(`no pending tool call ${call.callId} in run ${state.runId}`);
+    }
+    const others = (state.suspended ?? []).filter((s) => s.callId !== call.callId);
+    const entry: Suspension = { callId: call.callId, name: call.name, at, ...spec };
+    return { ...state, suspended: [...others, entry] };
+}
+
+/** Lets a suspended call run again: what it waited for is done. */
+export function releaseSuspension(state: AgentState, callId: string): AgentState {
+    const suspended = (state.suspended ?? []).filter((s) => s.callId !== callId);
+    return { ...state, suspended: suspended.length ? suspended : undefined };
 }
 
 function asReason(call: ToolCallNode): string | undefined {
