@@ -1,6 +1,7 @@
 import {
     AgentRunner,
     FilePayloadStore,
+    MemoryError,
     SANDBOX_MOUNT,
     SKILLS_MOUNT,
     Workspace,
@@ -42,7 +43,6 @@ import {
 } from './errors.ts';
 import { readJson, writeJson } from './home.ts';
 import { KeyStore, assertUsable } from './keys.ts';
-import { projectMounts, type Project } from './projects.ts';
 import {
     envPlugins,
     loadPlugins,
@@ -50,6 +50,7 @@ import {
     type LoadedPlugins,
     type ZenPlugin,
 } from './plugins.ts';
+import { projectMounts, type Project } from './projects.ts';
 import {
     buildSandbox,
     prepareHome,
@@ -101,9 +102,9 @@ export interface EngineOptions {
     /** recall only: nothing is written and several runs may share one graph */
     memoryReadOnly?: boolean;
     /**
-     * An already-open graph to remember into instead of opening `memoryDir`. A
-     * memory directory is locked by whoever opens it, so a host running several
-     * sessions over one graph opens it once and hands the same index to each.
+     * An already-open graph to remember into instead of opening `memoryDir`.
+     * Sessions may each open the same directory; handing them one index saves
+     * every session loading the graph again.
      * Name its directory in `memoryDir` too: that is what is mounted at `/memory`.
      */
     memory?: MemoryIndex;
@@ -299,7 +300,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         await plugins?.close();
         throw invalidError(
             err instanceof Error ? err.message : String(err),
-            `while loading ${opts.project.dir}`,
+            err instanceof MemoryError && err.hint ? err.hint : `while loading ${opts.project.dir}`,
         );
     }
     const loaded = plugins;

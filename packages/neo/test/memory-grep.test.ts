@@ -33,7 +33,7 @@ const AT = '2026-01-01T00:00:00.000Z';
 async function store(): Promise<MemoryStore> {
     const dir = mkdtempSync(join(tmpdir(), 'zn-memgrep-'));
     dirs.push(dir);
-    return MemoryStore.open(dir, { lock: false });
+    return MemoryStore.open(dir);
 }
 
 /** Writes a remembered file the way `rememberFile` would name it. */

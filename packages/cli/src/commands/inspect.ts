@@ -19,6 +19,7 @@ import {
     assertState,
     buildRunReport,
     FilePayloadStore,
+    isMemory,
     memoryDir,
     MemoryStore,
     PayloadResolver,
@@ -32,7 +33,7 @@ import {
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse } from '../args.ts';
 import { buildDiagnostic, parseRecordedRequest, pickModel } from '../ask.ts';
@@ -941,11 +942,11 @@ async function memory(
     cwd: string,
 ): Promise<MemoryStore | undefined> {
     const at = override ? resolve(cwd, override) : memoryPath(dir, await readRunMeta(run));
-    if (!at || !existsSync(join(at, 'manifest.json'))) {
+    if (!at || !isMemory(at)) {
         return undefined;
     }
     try {
-        return await MemoryStore.open(at, { lock: false });
+        return await MemoryStore.open(at, { readOnly: true });
     } catch {
         return undefined;
     }
@@ -965,7 +966,7 @@ function memoryPath(dir: string, meta: Partial<RunMeta>): string | undefined {
             return undefined;
         }
     }
-    return at && existsSync(join(at, 'manifest.json')) ? at : undefined;
+    return at && isMemory(at) ? at : undefined;
 }
 
 /**

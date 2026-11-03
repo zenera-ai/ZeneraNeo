@@ -37,8 +37,8 @@ directory of memories comes out, and `zen memory merge` folds them into one.
 
 ## What the Command Already Does
 
-Warmup used to be a script's problem: a memory per run because the lock is per
-directory, a fresh workspace per run, a bounded number of background jobs, and
+Warmup used to be a script's problem: a memory per run so that no run learns
+from another mid-round, a fresh workspace per run, a bounded number of background jobs, and
 a merge at the end. `zen run batch` is that fan-out made into a command, so
 none of it is the script's problem any more.
 

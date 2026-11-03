@@ -1,3 +1,4 @@
+import { MemoryStore } from '@zenera/neo';
 import { type ChildProcess, spawn } from 'node:child_process';
 import {
     appendFileSync,
@@ -24,6 +25,26 @@ import { Journal } from '../src/meta/finetune/journal.ts';
 import { SystemVersions } from '../src/meta/finetune/system.ts';
 import { FAILURES_IN_A_ROW, type Zen } from '../src/meta/finetune/tuning.ts';
 import { runMetrics } from '../src/meta/finetune/usage.ts';
+
+/** A real memory of this size, which is all the tuning reads of one. */
+async function fakeMemory(dir: string, nodes: number, edges: number): Promise<void> {
+    const store = await MemoryStore.open(dir);
+    const at = '2026-01-01T00:00:00.000Z';
+    store.write(() => {
+        for (let i = 0; i < nodes; i++) {
+            if (!store.graph.has(`n${i}`)) {
+                store.graph.add(
+                    { id: `n${i}`, kind: 'fact', text: `fact ${i}`, audience: ['*'] },
+                    at,
+                );
+            }
+        }
+        for (let i = 0; i < edges; i++) {
+            store.graph.link(`n${i}`, `n${i + 1}`, 'INFORMED', at);
+        }
+    });
+    store.release();
+}
 
 let root: string;
 
@@ -218,8 +239,7 @@ function fakeZen(
             );
             writeFileSync(join(dir, 'report.html'), '<html></html>');
             const memory = args[args.indexOf('--memory') + 1];
-            mkdirSync(memory, { recursive: true });
-            writeFileSync(join(memory, 'manifest.json'), '{}');
+            await fakeMemory(memory, 1, 0);
             writeFileSync(args[args.indexOf('--out') + 1], JSON.stringify({ run: { dir } }));
             return { code: 0, stdout: '' };
         }
@@ -229,11 +249,7 @@ function fakeZen(
         if (args[0] === 'memory' && args[1] === 'merge') {
             const target = args[args.indexOf('--dir') + 1];
             const sources = args.slice(2, args.indexOf('--dir'));
-            mkdirSync(target, { recursive: true });
-            writeFileSync(
-                join(target, 'manifest.json'),
-                JSON.stringify({ nodes: sources.length * 10, edges: sources.length }),
-            );
+            await fakeMemory(target, sources.length * 10, sources.length);
             return { code: 0, stdout: '' };
         }
         if (args[0] === 'meta' && args.includes('/zen-finetune-apply')) {

@@ -843,7 +843,7 @@ last thing this phase does — read the trajectories before the numbers, or the
 numbers decide what you look at.
 
 **Every question about a run has a command.** Never open `output.json`,
-`batch.json`, `state.json` or a memory's `graph.json` with `node -e`,
+`batch.json`, `state.json` or a memory's `memory.db` with `node -e`,
 `python -c` or `jq` — the formats are the CLI's, and a guess at one costs a
 probe call to find out it was wrong.
 

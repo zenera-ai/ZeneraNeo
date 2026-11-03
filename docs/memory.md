@@ -66,9 +66,15 @@ same provider as the model, and leaves it out for a provider that publishes no
 embeddings API - Anthropic - rather than writing an entry that would fail to
 load.
 
-The store is a directory in the project (`memory/` by default). `zen init`
-git-ignores its vectors, because they are derived and large; the graph itself is
-worth committing if the team shares one.
+The store is a directory in the project (`memory/` by default): one SQLite
+database, `memory.db`, holding the graph and its vectors, and `files/` beside it
+for what agents remembered byte for byte. Any number of runs may use one memory
+at once - each write is a transaction, so they never lose each other's work, and
+a run killed mid-write leaves the last commit intact. The database is worth
+committing if the team shares one; `zen init` git-ignores only the write-ahead
+log beside it, which is folded back in when the last run closes. A memory
+written by an older version (`graph.json`) is converted once with
+`zen memory migrate`.
 
 `zen run --memory <dir>` points one run at a different directory - a scratch
 graph for a trial, one graph per branch, or a shared one kept outside the
@@ -172,14 +178,13 @@ it cannot, it falls back to term overlap and says so.
 and a ranking returns the top of a list, so it can say what is closest but never
 that nothing is there. `grep` reads every node exactly - the text, the metadata
 and the bytes of remembered files - reports the lines it matched on, and reports
-the true total even when `--limit` cut the list. It is the only subcommand that
-does not take the directory lock, so it works on a memory a run is writing, and
-on the read-only `/memory` mount inside a sandbox. Agents get the same thing as
-`memory_grep`.
+the true total even when `--limit` cut the list. Every subcommand reads one
+consistent snapshot, so all of them work on a memory a run is writing. Agents
+get the same thing as `memory_grep`.
 
 `--dir <dir>` reads a memory directory as it stands, with no project around it:
-the graph a run was given with `zen run --memory`, or a copy taken out of a
-running session - copy the directory, delete its `.lock`, read the copy.
+the graph a run was given with `zen run --memory`, or the one a running session
+is writing to.
 
 `forget` is for what should never have been written down - it removes the node,
 its vector and its file bytes together. A memory that is merely out of date
@@ -187,9 +192,10 @@ should be superseded instead.
 
 ## Merging several memories
 
-The lock is per directory, so two runs cannot write one memory at the same
-time. Warming a memory in parallel therefore means N runs writing N memories,
-and `merge` is how they come back together:
+Runs can share one memory, but a warmup usually should not: N runs learning
+from one graph at once each see what the others committed mid-round, so no run
+is an independent sample. Warming in parallel therefore means N runs writing N
+memories, and `merge` is how they come back together:
 
 ```sh
 zen memory merge .tmp/warmup-20260923/memory-*
@@ -213,8 +219,8 @@ zen memory merge "$dir"/*/memory
 ```
 
 When the batch is asking questions rather than learning, `--memory-read-only`
-is the other half of the same fact: nobody writes, so nobody needs the lock,
-and all sixteen runs recall from the one graph. It works on a single `zen run`
+is the other half of the same fact: nobody writes, so nothing changes under
+anyone, and all sixteen runs recall from the one graph. It works on a single `zen run`
 too — it is how you ask what the agents know without changing what they know.
 
 Sources are positional, the target is the project you are in or whatever

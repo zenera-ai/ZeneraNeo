@@ -1,5 +1,5 @@
-import { MemoryStore, type MemoryNode } from '@zenera/neo';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { MemoryGraph, MemoryStore, type MemoryNode } from '@zenera/neo';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,10 +91,11 @@ describe('zen memory merge', () => {
         expect(err).toBeUndefined();
         expect(out).toMatchObject({ added: 3, shared: 0, twins: 0 });
         expect(out.sources.map((s: { added: number }) => s.added)).toEqual([2, 1]);
-        expect(existsSync(join(root, 'into', 'manifest.json'))).toBe(true);
+        expect(existsSync(join(root, 'into', 'memory.db'))).toBe(true);
 
-        const back = await MemoryStore.open(join(root, 'into'), { lock: false });
+        const back = await MemoryStore.open(join(root, 'into'), { readOnly: true });
         expect(back.graph.order).toBe(3);
+        back.release();
     });
 
     it('adds nothing on a dry run', async () => {
@@ -103,7 +104,7 @@ describe('zen memory merge', () => {
         const { out } = await run('merge', 'a', '--dir', 'into', '--dry-run');
 
         expect(out).toMatchObject({ added: 1, dryRun: true });
-        expect(existsSync(join(root, 'into', 'manifest.json'))).toBe(false);
+        expect(existsSync(join(root, 'into', 'memory.db'))).toBe(false);
     });
 
     it('merges into a memory that already holds something when told to', async () => {
@@ -115,8 +116,9 @@ describe('zen memory merge', () => {
 
         expect(err).toBeUndefined();
         expect(out).toMatchObject({ added: 1 });
-        const back = await MemoryStore.open(join(root, 'into'), { lock: false });
+        const back = await MemoryStore.open(join(root, 'into'), { readOnly: true });
         expect(back.graph.order).toBe(2);
+        back.release();
     });
 
     it('fails with the ids to look at when two copies of a memory disagree', async () => {
@@ -130,7 +132,7 @@ describe('zen memory merge', () => {
         expect(out.conflicts).toEqual([
             { id: 'D1', dir: join(root, 'b'), mine: 2, theirs: 3, text: 'the right answer' },
         ]);
-        expect(existsSync(join(root, 'into', 'manifest.json'))).toBe(false);
+        expect(existsSync(join(root, 'into', 'memory.db'))).toBe(false);
     });
 
     it('picks the newest of two disagreeing copies under --force', async () => {
@@ -141,8 +143,9 @@ describe('zen memory merge', () => {
 
         expect(err).toBeUndefined();
         expect(out).toMatchObject({ added: 1, shared: 1 });
-        const back = await MemoryStore.open(join(root, 'into'), { lock: false });
+        const back = await MemoryStore.open(join(root, 'into'), { readOnly: true });
         expect(back.graph.get('D1')).toMatchObject({ text: 'the right answer', revision: 3 });
+        back.release();
     });
 
     it('keeps memories that read alike when told not to dedupe', async () => {
@@ -157,5 +160,24 @@ describe('zen memory merge', () => {
             added: 2,
             twins: 0,
         });
+    });
+
+    it('converts a version 1 memory once, and says how when one is opened', async () => {
+        const dir = join(root, 'old');
+        mkdirSync(dir);
+        const graph = new MemoryGraph();
+        graph.adopt(node('V1'));
+        writeFileSync(join(dir, 'graph.json'), JSON.stringify(graph.export()));
+        writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ version: 1 }));
+
+        const refused = await run('stats', '--dir', 'old');
+        expect(refused.err).toBeInstanceOf(CliError);
+        expect((refused.err as CliError).hint).toMatch(/zen memory migrate/);
+
+        const { out, err } = await run('migrate', '--dir', 'old');
+        expect(err).toBeUndefined();
+        expect(out).toMatchObject({ nodes: 1, edges: 0 });
+        expect((await run('stats', '--dir', 'old')).err).toBeUndefined();
+        expect((await run('migrate', '--dir', 'old')).err).toBeInstanceOf(CliError);
     });
 });

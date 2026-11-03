@@ -1,6 +1,7 @@
 import { ENV_FILE, isBusy, Registry, sessionIds, sessionsDir, stamp } from '@zenera/engine';
-import { lockHolder, memoryDir, readProjectConfig } from '@zenera/neo';
-import { existsSync, readFileSync } from 'node:fs';
+import { isMemory, MEMORY_DB, memoryDir, readProjectConfig, snapshotMemory } from '@zenera/neo';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
     ARCHIVE_FORMAT,
@@ -24,7 +25,6 @@ import {
     dim,
     green,
     bytes as human,
-    invalidError,
     json,
     note,
     progress,
@@ -92,8 +92,8 @@ export const pack: Command = {
         '',
         'A project that fails `zen check` is still exported, with a warning:',
         'sending someone a broken project to ask for help is the point.',
-        'A memory held by a live run is refused — half a graph is not an',
-        'archive — and --force overrides that.',
+        'Memory is copied as of one moment, so a run writing to it meanwhile',
+        'cannot tear the archive.',
     ],
     run: async (ctx) => {
         const { values, positionals } = parse<Flags>(
@@ -116,61 +116,68 @@ export const pack: Command = {
         const vectors = values['no-vectors'] !== true;
         const memory = values['no-memory'] !== true;
 
-        settled(dir, force, memory);
+        settled(dir, force);
         const out = destination(ctx.cwd, found.name, values.out, force);
 
         const collected = collect(dir, { vectors, memory });
-        const extra = new Map<string, string>();
-        const env = join(dir, ENV_FILE);
-        // A project's own `.env.example` is the curated one and travels as is.
-        if (existsSync(env) && !existsSync(join(dir, ENV_EXAMPLE))) {
-            extra.set(ENV_EXAMPLE, envExample(readFileSync(env, 'utf8')));
-        }
+        const snapshot = memory ? snapshotOf(dir, collected) : undefined;
+        try {
+            const extra = new Map<string, string>();
+            const env = join(dir, ENV_FILE);
+            // A project's own `.env.example` is the curated one and travels as is.
+            if (existsSync(env) && !existsSync(join(dir, ENV_EXAMPLE))) {
+                extra.set(ENV_EXAMPLE, envExample(readFileSync(env, 'utf8')));
+            }
 
-        const healthy = await sound(dir, found.name, ctx.json);
+            const healthy = await sound(dir, found.name, ctx.json);
 
-        const manifest: ArchiveManifest = {
-            format: ARCHIVE_FORMAT,
-            name: found.name,
-            root: safeName(found.name) ?? 'project',
-            exportedAt: new Date().toISOString(),
-            cli: ownVersion(),
-            vectors,
-            memory,
-            files: collected.files.length + extra.size,
-            bytes: collected.bytes,
-        };
-
-        const bar = ctx.json ? undefined : progress();
-        let done = 0;
-        const size = await writeArchive({
-            out,
-            root: manifest.root,
-            entries: collected.files,
-            extra,
-            manifest,
-            onFile: (rel) => {
-                done += 1;
-                bar?.update(`packing ${done}/${collected.files.length} ${dim(rel)}`);
-            },
-        });
-        bar?.done();
-
-        if (ctx.json) {
-            json({
-                file: out,
-                bytes: size,
-                files: manifest.files,
-                project: found.name,
-                root: manifest.root,
+            const manifest: ArchiveManifest = {
+                format: ARCHIVE_FORMAT,
+                name: found.name,
+                root: safeName(found.name) ?? 'project',
+                exportedAt: new Date().toISOString(),
+                cli: ownVersion(),
                 vectors,
                 memory,
-                skipped: collected.skipped,
-                ok: healthy,
+                files: collected.files.length + extra.size,
+                bytes: collected.bytes,
+            };
+
+            const bar = ctx.json ? undefined : progress();
+            let done = 0;
+            const size = await writeArchive({
+                out,
+                root: manifest.root,
+                entries: collected.files,
+                extra,
+                manifest,
+                onFile: (rel) => {
+                    done += 1;
+                    bar?.update(`packing ${done}/${collected.files.length} ${dim(rel)}`);
+                },
             });
-            return;
+            bar?.done();
+
+            if (ctx.json) {
+                json({
+                    file: out,
+                    bytes: size,
+                    files: manifest.files,
+                    project: found.name,
+                    root: manifest.root,
+                    vectors,
+                    memory,
+                    skipped: collected.skipped,
+                    ok: healthy,
+                });
+                return;
+            }
+            report(out, size, collected, extra.size, vectors, memory);
+        } finally {
+            if (snapshot) {
+                rmSync(snapshot, { recursive: true, force: true });
+            }
         }
-        report(out, size, collected, extra.size, vectors, memory);
     },
 };
 
@@ -179,27 +186,36 @@ export const pack: Command = {
 // ---------------------------------------------------------------------------
 
 /**
- * Nothing may be written while something is writing to it.
- *
- * Memory is the hard case: the store is a graph, a manifest and a vector file
- * that only mean anything together, and a copy taken mid-write is an archive
- * that opens and is wrong — which is worse than one that does not open. A run
- * holding a session is milder; the session is not in the archive at all, and
- * the only thing it can disturb is an asset the agent is editing.
+ * A run holding a session is the one thing worth a word: the session is not
+ * in the archive at all, and the only thing it can disturb is an asset the
+ * agent is editing.
  */
-function settled(dir: string, force: boolean, memory: boolean): void {
-    const at = memory ? memoryAt(dir) : undefined;
-    const held = at ? lockHolder(at) : undefined;
-    if (held && !force) {
-        throw invalidError(
-            `this project's memory is in use (pid ${held.pid}, since ${held.startedAt})`,
-            'wait for that run to finish, or: zen export --no-memory',
-        );
-    }
+function settled(dir: string, force: boolean): void {
     const busy = sessionIds(dir).filter((id) => isBusy(join(sessionsDir(dir), id)));
     if (busy.length > 0 && !force) {
         warn(`${count(busy.length, 'session')} still running — the archive is a snapshot`);
     }
+}
+
+/**
+ * Points the memory's database entry at a copy taken as of one moment, so a
+ * run committing while the archive is written cannot tear it. Returns the
+ * scratch directory holding the copy.
+ */
+function snapshotOf(dir: string, collected: Collected): string | undefined {
+    const at = memoryAt(dir);
+    const entry = at && collected.files.find((f) => f.abs === join(at, MEMORY_DB));
+    if (!at || !entry || !isMemory(at)) {
+        return undefined;
+    }
+    const scratch = mkdtempSync(join(tmpdir(), 'zen-export-'));
+    const file = join(scratch, MEMORY_DB);
+    snapshotMemory(at, file);
+    const bytes = statSync(file).size;
+    collected.bytes += bytes - entry.bytes;
+    entry.abs = file;
+    entry.bytes = bytes;
+    return scratch;
 }
 
 /**
