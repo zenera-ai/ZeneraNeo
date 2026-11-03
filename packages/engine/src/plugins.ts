@@ -1,3 +1,7 @@
+// Plugins: tools a host brings to the engine (ZenPlugin) - loading them, checking their names
+// against the built-ins, closing them, and the ones the machine names in ZEN_PLUGINS.
+// Used by: engine.ts (openEngine asks every plugin for its tools); the CLI's `zen check`
+// (machinePluginTools, cli/src/validate.ts); hosts such as ZeneraLite's project pod (EngineOptions.plugins).
 import type { AnyTool, RunIdentity } from '@zenera/neo';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';

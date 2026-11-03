@@ -1,3 +1,5 @@
+// Tests for plugins.ts: loading and closing plugins, name and group clashes, plugin tools selected by
+// `group:*` in a project, ZEN_PLUGINS imports and warnings, and ZEN_PLUGINS refused in a project .env.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
