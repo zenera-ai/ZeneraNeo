@@ -46,8 +46,21 @@ export interface NodePatch {
 export const edgeKey = (source: string, target: string, relation: Relation): string =>
     `${source}|${relation}|${target}`;
 
+/** What changed since the last `settle`, for a store that persists only that. */
+export interface GraphChanges {
+    /** added or changed, and still present */
+    nodes: readonly string[];
+    dropped: readonly string[];
+    /** edge keys added or re-stamped; a dropped node takes its edges with it */
+    edges: readonly string[];
+}
+
 export class MemoryGraph {
     readonly #graph: Graphology = new MultiDirectedGraph<MemoryNode, MemoryEdgeAttrs>();
+    #tracking = true;
+    readonly #changed = new Set<string>();
+    readonly #dropped = new Set<string>();
+    readonly #linked = new Set<string>();
 
     static from(serialized: unknown): MemoryGraph {
         const g = new MemoryGraph();
@@ -75,6 +88,66 @@ export class MemoryGraph {
         return this.#graph.hasNode(id) ? this.#graph.getNodeAttributes(id) : undefined;
     }
 
+    /** One edge by key, with its attributes. */
+    edge(key: string): { source: string; target: string; attrs: MemoryEdgeAttrs } | undefined {
+        if (!this.#graph.hasEdge(key)) {
+            return undefined;
+        }
+        return {
+            source: this.#graph.source(key),
+            target: this.#graph.target(key),
+            attrs: this.#graph.getEdgeAttributes(key),
+        };
+    }
+
+    get dirty(): boolean {
+        return this.#changed.size + this.#dropped.size + this.#linked.size > 0;
+    }
+
+    /** Changed here and not yet persisted, so a reload must not overwrite it. */
+    isDirty(id: string): boolean {
+        return this.#changed.has(id) || this.#dropped.has(id);
+    }
+
+    changes(): GraphChanges {
+        return {
+            nodes: [...this.#changed],
+            dropped: [...this.#dropped],
+            edges: [...this.#linked],
+        };
+    }
+
+    /** The changes reached disk. */
+    settle(): void {
+        this.#changed.clear();
+        this.#dropped.clear();
+        this.#linked.clear();
+    }
+
+    /** Mutations that mirror disk rather than change it: a store applying what another wrote. */
+    untracked<T>(fn: () => T): T {
+        const was = this.#tracking;
+        this.#tracking = false;
+        try {
+            return fn();
+        } finally {
+            this.#tracking = was;
+        }
+    }
+
+    #node(id: string): void {
+        if (this.#tracking) {
+            this.#changed.add(id);
+            this.#dropped.delete(id);
+        }
+    }
+
+    #edge(key: string): void {
+        if (this.#tracking) {
+            this.#linked.add(key);
+        }
+    }
+
     add(draft: NodeDraft, at: string): MemoryNode {
         const node: MemoryNode = {
             id: draft.id,
@@ -90,6 +163,7 @@ export class MemoryGraph {
             ...(draft.file ? { file: draft.file } : {}),
         };
         this.#graph.addNode(node.id, node);
+        this.#node(node.id);
         return node;
     }
 
@@ -105,6 +179,7 @@ export class MemoryGraph {
         } else {
             this.#graph.addNode(node.id, next);
         }
+        this.#node(node.id);
     }
 
     update(id: string, patch: NodePatch, at: string): MemoryNode {
@@ -123,6 +198,7 @@ export class MemoryGraph {
             revision: current.revision + 1,
         };
         this.#graph.replaceNodeAttributes(id, next);
+        this.#node(id);
         return next;
     }
 
@@ -134,27 +210,32 @@ export class MemoryGraph {
         const node = this.#graph.getNodeAttributes(id);
         const next = { ...node, lastUsedAt: at, useCount: node.useCount + 1 };
         this.#graph.replaceNodeAttributes(id, next);
+        this.#node(id);
         return next;
     }
 
     link(source: string, target: string, relation: Relation, at: string): void {
-        this.#graph.mergeEdgeWithKey(edgeKey(source, target, relation), source, target, {
-            relation,
-            createdAt: at,
-        });
+        const key = edgeKey(source, target, relation);
+        this.#graph.mergeEdgeWithKey(key, source, target, { relation, createdAt: at });
+        this.#edge(key);
     }
 
     /** `link` for an edge that already exists elsewhere: it keeps the stamp it had. */
     adoptEdge(source: string, target: string, attrs: MemoryEdgeAttrs): void {
-        this.#graph.mergeEdgeWithKey(edgeKey(source, target, attrs.relation), source, target, {
-            ...attrs,
-        });
+        const key = edgeKey(source, target, attrs.relation);
+        this.#graph.mergeEdgeWithKey(key, source, target, { ...attrs });
+        this.#edge(key);
     }
 
     /** Drops the node and every edge touching it; the file it names is the store's to unlink. */
     forget(id: string): MemoryNode | undefined {
         const node = this.get(id);
         if (node) {
+            if (this.#tracking) {
+                this.#graph.forEachEdge(id, (key) => this.#linked.delete(key));
+                this.#changed.delete(id);
+                this.#dropped.add(id);
+            }
             this.#graph.dropNode(id);
         }
         return node;

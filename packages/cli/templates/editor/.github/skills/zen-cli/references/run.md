@@ -244,10 +244,10 @@ well.
 A memory is a locked directory, so sixteen runs cannot hold one. Which leaves
 two honest arrangements, and the flag picks between them:
 
-| Mode                 | What happens                                                       |
-| -------------------- | ------------------------------------------------------------------ |
-| `--memory-read-only` | Every item recalls from the one graph. Nothing is written, no lock |
-| default              | Each item gets a copy under `<batch-dir>/<id>/memory`              |
+| Mode                 | What happens                                              |
+| -------------------- | --------------------------------------------------------- |
+| `--memory-read-only` | Every item recalls from the one graph. Nothing is written |
+| default              | Each item gets a copy under `<batch-dir>/<id>/memory`     |
 
 In the copying mode the project's own memory is never touched. Fold what the
 items learned back in afterwards, having read it:
@@ -265,7 +265,7 @@ source that does not exist yet is not an error in the copying mode: a project
 declares its memory directory and the first run makes it, so every item simply
 starts from an empty graph. That is how a cold project is warmed, and pointing
 `--memory` at a directory that is not there is how you ask for it deliberately.
-A batch refuses to start while another run holds that memory's lock.
+Each copy is the source as of one moment, so a run still writing it is fine.
 
 `--memory-read-only` works on a single `zen run` too. It is how you ask a
 question of what the agents know without changing what they know.

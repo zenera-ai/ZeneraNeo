@@ -110,6 +110,7 @@ export async function grepMemory(
     const kinds = filter.kinds?.length ? new Set(filter.kinds) : undefined;
     const cap = filter.hitsPerNode ?? HITS_PER_NODE;
     const want = filter.stale ?? 'exclude';
+    store.refresh();
     const superseded = store.graph.superseded(filter.sees);
 
     const matches: MemoryMatch[] = [];

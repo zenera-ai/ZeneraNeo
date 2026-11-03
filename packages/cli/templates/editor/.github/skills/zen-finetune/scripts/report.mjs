@@ -368,7 +368,7 @@ function memory(dir) {
         };
     }
     if (mode === 'copied') {
-        return source && existsSync(join(source, 'graph.json'))
+        return source && existsSync(join(source, 'memory.db'))
             ? {
                   kind: 'with memory',
                   line: `WITH MEMORY — each case got its own copy of an existing graph (${source})`,
@@ -593,7 +593,7 @@ if (mode === 'index') {
     for (const { id } of roster(batch)) {
         const dir = join(batch, id, 'memory');
         say('');
-        if (!existsSync(join(dir, 'manifest.json'))) {
+        if (!existsSync(join(dir, 'memory.db'))) {
             say(`-- ${id}   committed nothing`);
             continue;
         }

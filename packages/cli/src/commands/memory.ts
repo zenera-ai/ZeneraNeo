@@ -7,12 +7,16 @@ import {
     GREP_FIELDS,
     grepMemory,
     hostPath,
+    isMemory,
+    LEGACY_GRAPH_FILE,
+    MEMORY_DB,
     memoryDir,
     MemoryError,
     MemoryIndex,
     MemoryStore,
     MergeConflicts,
     mergeMemories,
+    migrateMemory,
     readProjectConfig,
     renderMemoryHtml,
     renderRecollection,
@@ -56,7 +60,8 @@ import {
     yellow,
 } from '../term.ts';
 
-const USAGE = 'zen memory [stats|ls|search|grep|show|diff|export|merge|forget] [args] [options]';
+const USAGE =
+    'zen memory [stats|ls|search|grep|show|diff|export|merge|forget|migrate] [args] [options]';
 
 interface Flags {
     project?: string;
@@ -83,7 +88,18 @@ interface Flags {
     'no-dedupe'?: boolean;
 }
 
-const SUBCOMMANDS = ['stats', 'ls', 'search', 'grep', 'show', 'diff', 'export', 'merge', 'forget'];
+const SUBCOMMANDS = [
+    'stats',
+    'ls',
+    'search',
+    'grep',
+    'show',
+    'diff',
+    'export',
+    'merge',
+    'forget',
+    'migrate',
+];
 
 /** Enough to see the shape of it; the rest is a number. */
 const LISTED = 30;
@@ -123,6 +139,7 @@ export const memory: Command = {
         '  export [file]          The whole graph as one HTML page.',
         '  merge <dir...>         Fold other memories into this one.',
         '  forget <id...>         Remove nodes, their vectors and their files.',
+        '  migrate                Convert a version 1 memory (graph.json) to memory.db.',
         '',
         '  --project <name|dir>   Which project. Defaults to the one you are in.',
         '  --dir <dir>            Read this memory directory instead of the project’s.',
@@ -173,12 +190,11 @@ export const memory: Command = {
         '',
         '  zen memory grep ‘staging.example.com’ --in metadata --in file',
         '',
-        'Nothing that only reads takes the directory lock, so every subcommand',
-        'here but `merge` and `forget` works on a memory a run is writing, and on',
-        'the read-only /memory mount inside a sandbox.',
+        'Every subcommand reads one consistent snapshot, so all of them work on',
+        'a memory a run is writing to, and runs keep writing while they do.',
         '',
-        '`merge` is for warming a memory in parallel. The lock is per directory,',
-        'so N runs write N memories; this folds them back into one:',
+        '`merge` is for warming a memory in parallel. `zen run batch` gives each',
+        'item its own copy, so N runs write N memories; this folds them back:',
         '',
         '  zen memory merge <batch-dir>/*/memory',
         '',
@@ -225,14 +241,15 @@ export const memory: Command = {
             throw usageError(`unknown subcommand: ${what}`, USAGE);
         }
         const rest = positionals.slice(1);
+        if (what === 'migrate') {
+            return await migrate(await locate(ctx.cwd, values.project, values.dir), ctx.json);
+        }
         // `merge` is the one subcommand that may write a memory into existence;
-        // every other one is an inspector and a missing manifest is a mistake.
-        // And only the two that write take the lock: the moments a reader is
-        // most wanted are while a run is writing and against the read-only
-        // /memory mount, in both of which claiming it fails.
+        // every other one is an inspector and a missing database is a mistake.
+        // Only the two that write open it for writing.
         const opened = await open(ctx.cwd, values.project, values.dir, {
             create: what === 'merge',
-            lock: what === 'merge' || what === 'forget',
+            write: what === 'merge' || what === 'forget',
         });
 
         try {
@@ -287,18 +304,40 @@ interface Opened {
  * `create` drops the requirement that anything be there yet, for `merge`,
  * which has somewhere to put what it reads even when the destination is a name
  * nothing has written to.
- *
- * `lock` is off for a read that must not fail on a busy or read-only memory.
- * The lock exists to stop two writers losing each other's edges; a reader that
- * took it would only be refusing itself.
  */
 async function open(
     cwd: string,
     want: string | undefined,
     at: string | undefined,
-    opts: { create?: boolean; lock?: boolean } = {},
+    opts: { create?: boolean; write?: boolean } = {},
 ): Promise<Opened> {
-    const { create = false, lock = true } = opts;
+    const { create = false, write = false } = opts;
+    const found = await locate(cwd, want, at);
+    // A version 1 directory gets past this so that opening it says how to convert it.
+    if (!create && !isMemory(found.dir) && !existsSync(join(found.dir, LEGACY_GRAPH_FILE))) {
+        throw found.at
+            ? usageError(
+                  `${found.project} has a memory configured but nothing in it yet`,
+                  'it is written the first time an agent commits something',
+              )
+            : usageError(`${found.dir} is not a memory`, `no ${MEMORY_DB} in it`);
+    }
+    try {
+        return { ...found, store: await MemoryStore.open(found.dir, { readOnly: !write }) };
+    } catch (err) {
+        if (err instanceof MemoryError) {
+            throw new CliError(err.message, EXIT.invalid, err.hint);
+        }
+        throw err;
+    }
+}
+
+/** Which memory directory a command means, without opening it. */
+async function locate(
+    cwd: string,
+    want: string | undefined,
+    at: string | undefined,
+): Promise<Omit<Opened, 'store'>> {
     // Standing inside a memory (a merged or batch copy) means that memory, not
     // the project's own one a few directories up.
     if (!at && !want && isMemoryDir(cwd)) {
@@ -306,10 +345,7 @@ async function open(
     }
     if (at) {
         const dir = resolve(cwd, at);
-        if (!create && !existsSync(join(dir, 'manifest.json'))) {
-            throw usageError(`${dir} is not a memory`, 'no manifest.json in it');
-        }
-        return { store: await MemoryStore.open(dir, { lock }), dir, project: basename(dir) };
+        return { dir, project: basename(dir) };
     }
     const project = await resolveProject({ cwd, project: want });
     const { config } = readProjectConfig(project.dir);
@@ -320,23 +356,15 @@ async function open(
             'give an agent `memory: true` in agents.yaml, or add a `memory:` block',
         );
     }
-    if (!create && !existsSync(join(dir, 'manifest.json'))) {
-        throw usageError(
-            `${project.name} has a memory configured but nothing in it yet`,
-            'it is written the first time an agent commits something',
-        );
-    }
-    return {
-        store: await MemoryStore.open(dir, { lock }),
-        dir,
-        project: project.name,
-        at: { root: project.dir, config },
-    };
+    return { dir, project: project.name, at: { root: project.dir, config } };
 }
 
 /** A rag index also has a manifest and a graph.json; only a memory's manifest counts nodes and edges. */
 function isMemoryDir(dir: string): boolean {
-    if (!existsSync(join(dir, 'graph.json'))) {
+    if (isMemory(dir)) {
+        return true;
+    }
+    if (!existsSync(join(dir, LEGACY_GRAPH_FILE))) {
         return false;
     }
     try {
@@ -861,10 +889,10 @@ async function diff(o: Opened, rest: string[], cwd: string, asJson: boolean): Pr
         );
     }
     const at = resolve(cwd, rest[0]!);
-    if (!existsSync(join(at, 'manifest.json'))) {
-        throw usageError(`${at} is not a memory`, 'no manifest.json in it');
+    if (!isMemory(at)) {
+        throw usageError(`${at} is not a memory`, `no ${MEMORY_DB} in it`);
     }
-    const base = await MemoryStore.open(at, { lock: false });
+    const base = await MemoryStore.open(at, { readOnly: true });
     try {
         const d = diffMemories(base, o.store);
         const mine = (n: MemoryNode): MemoryNode => onHost(o, n);
@@ -1014,9 +1042,9 @@ function reveal(target: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Warming a memory is parallel work, and the lock is per directory, so N runs
- * produce N memories rather than one. This is the other half of that: it folds
- * them back together, offline and without a model.
+ * Warming a memory is parallel work, and a batch gives every item its own
+ * copy, so N runs produce N memories rather than one. This is the other half of
+ * that: it folds them back together, offline and without a model.
  *
  * Divergence refuses rather than guesses. Two copies of the same memory that
  * disagree are a question about which piece of work was right, and answering
@@ -1168,6 +1196,33 @@ async function forget(o: Opened, ids: string[], flags: Flags, asJson: boolean): 
     } else {
         note(`${green('forgot')} ${count(found.length, 'node')}`);
     }
+}
+
+// ---------------------------------------------------------------------------
+// migrate
+// ---------------------------------------------------------------------------
+
+/** Once per memory: the version 1 files are kept in `v1/`, not deleted. */
+async function migrate(o: Omit<Opened, 'store'>, asJson: boolean): Promise<void> {
+    let report;
+    try {
+        report = await migrateMemory(o.dir);
+    } catch (err) {
+        if (err instanceof MemoryError) {
+            throw new CliError(err.message, EXIT.failed, err.hint);
+        }
+        throw err;
+    }
+    if (asJson) {
+        json(report);
+        return;
+    }
+    note(
+        `${green('migrated')} ${o.dir} ${dim(
+            `· ${count(report.nodes, 'node')}, ${count(report.edges, 'edge')}, ` +
+                `${count(report.vectors, 'vector')} · the old files are in ${report.legacy}`,
+        )}`,
+    );
 }
 
 // ---------------------------------------------------------------------------

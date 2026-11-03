@@ -1,11 +1,12 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { isMemory, MemoryStore } from '@zenera/neo';
+import { appendFileSync, cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatasetStore } from './dataset/store.ts';
 import type { Case } from './dataset/types.ts';
 import { errorIn, sizeOf } from './failure.ts';
 import { writeFeedback } from './report.ts';
 import type { Run } from './train.ts';
-import { readJson, type Tuning } from './tuning.ts';
+import type { Tuning } from './tuning.ts';
 
 // ---------------------------------------------------------------------------
 // Memories, kept and merged
@@ -58,6 +59,23 @@ function rows<T>(file: string): T[] {
     }
 }
 
+/** How big a memory is, or nothing when there is no memory there to open. */
+async function sizeOfMemory(dir: string): Promise<{ nodes: number; edges: number } | undefined> {
+    if (!isMemory(dir)) {
+        return undefined;
+    }
+    try {
+        const store = await MemoryStore.open(dir, { readOnly: true });
+        try {
+            return { nodes: store.graph.order, edges: store.graph.size };
+        } finally {
+            store.release();
+        }
+    } catch {
+        return undefined;
+    }
+}
+
 export class Memories {
     readonly #t: Tuning;
     #chain: Promise<void> = Promise.resolve();
@@ -97,7 +115,7 @@ export class Memories {
             return;
         }
         const dir = join(this.dir, 'submitted', key);
-        const empty = !existsSync(join(run.memory, 'manifest.json'));
+        const empty = !isMemory(run.memory);
         rmSync(dir, { recursive: true, force: true });
         if (!empty) {
             cpSync(run.memory, dir, {
@@ -178,9 +196,7 @@ export class Memories {
             .finally(() => {
                 this.merging = undefined;
             });
-        const manifest = readJson<{ nodes?: number; edges?: number }>(
-            join(target, 'manifest.json'),
-        );
+        const size = await sizeOfMemory(target);
         const row: MergeRow = {
             n,
             name,
@@ -189,14 +205,13 @@ export class Memories {
             log,
             includes: [...(last?.includes ?? []), ...fresh.map((s) => s.key)],
             added: fresh.map((s) => s.key),
-            ok: res.code === 0 && manifest !== undefined,
-            ...(manifest?.nodes !== undefined ? { nodes: manifest.nodes } : {}),
-            ...(manifest?.edges !== undefined ? { edges: manifest.edges } : {}),
+            ok: res.code === 0 && size !== undefined,
+            ...(size ? { nodes: size.nodes, edges: size.edges } : {}),
         };
         appendFileSync(join(this.dir, 'merges.jsonl'), `${JSON.stringify(row)}\n`);
         if (!row.ok) {
             const e = errorIn(log, from);
-            this.#t.error(`memory ${name}`, e.message ?? 'the merge wrote no manifest', e.log);
+            this.#t.error(`memory ${name}`, e.message ?? 'the merge wrote no memory', e.log);
         }
         const store = DatasetStore.open(this.#t.root);
         for (const s of fresh) {

@@ -218,17 +218,17 @@ below.
 
 ```
 <project>/memory/
-├── manifest.json   written LAST - a half-written memory reads as empty
-├── graph.json      nodes and edges, parsed whole on open
-├── vectors.f32     raw little-endian float32, a quarter the size of JSON
-├── vectors.json    the ids those vectors belong to
-├── files/          remembered bytes, one per node that has any
-└── .lock           held while a run is writing; a dead pid's lock is stale
+├── memory.db       SQLite: nodes, edges and vectors; every write one transaction
+├── memory.db-wal   the write-ahead log while runs have it open; folded in on close
+└── files/          remembered bytes, one per node that has any
 ```
 
-It is committed with the project - everything but `.lock`, which is runtime
-state. The directory is mounted **read-only** at `/memory` in the agent's
-namespace.
+Several runs may read and write one memory at once, and a run killed mid-write
+leaves the last commit intact. It is committed with the project - everything
+but `memory.db-wal`/`memory.db-shm`, which are runtime state. Only `files/` is
+mounted, **read-only**, at `/memory` in the agent's namespace. A memory from an
+older `zen` (`graph.json`, `vectors.f32`) is refused until converted once with
+`zen memory migrate`.
 
 ## Designing a memory strategy
 
@@ -653,7 +653,7 @@ can act on.
 ## Inspecting and repairing it
 
 ```
-zen memory [stats|ls|search|grep|show|export|merge|forget] [args] [options]
+zen memory [stats|ls|search|grep|show|export|merge|forget|migrate] [args] [options]
 ```
 
 `zen memory export --open` is the one to reach for: one self-contained HTML
@@ -683,22 +683,19 @@ memory that is missing from a memory that is merely ranked sixth.
 | Fold parallel warmup graphs into one     | `zen memory merge <dir...>`           |
 | That should never have been written down | `zen memory forget <id>`              |
 
-Never read a memory's `graph.json` or `manifest.json` with code: every question
+Never query a memory's `memory.db` with code: every question
 above has a command, and `--json` on any of them is the stable shape.
 
 The directory is not fixed. `zen run --memory <dir>` sends one run's memory
 somewhere else - a scratch graph for a trial, one per branch, or a shared one
 outside the repository - and `zen memory --dir <dir>` reads any such directory
-with no project around it. Together they are also how you read a graph while a
-run holds its `.lock`: copy the directory, delete the copy's `.lock`, and point
-`--dir` at the copy. `grep` needs none of that - it declines the lock, so it
-reads a memory a run is writing, and the read-only `/memory` mount as well.
+with no project around it, including one a run is writing to right now.
 
 `zen run batch` is where parallel graphs usually come from now. Each item gets
 its own copy to write into and the summary prints the `merge` line; a batch
 that is only asking says `--memory-read-only` instead, and then every item
-recalls from the one graph, because nothing writes and so nothing needs the
-lock.
+recalls from the one graph, because nothing writes and so nothing changes under
+anyone.
 
 `zen inspect` answers the other half: a run report shows the recollection block
 exactly as the model received it, which is how you tell "memory had nothing"
@@ -777,11 +774,11 @@ agents:
 | Recall finds a memory only when reworded            | No embedder. `zen memory stats` says `embedding none`                                                                           |
 | A memory is in the graph but never comes back       | Ask `zen memory search` for it: a score under `0.15` is dropped as noise, and `--audience <label>` shows whether a mask hid it  |
 | `zen memory search` says `ranked by term overlap`   | It could not build the project's embedder - no credential, or the graph holds no vectors. That order is not the one a run gets  |
-| Recall finds nothing after changing the embedder    | Refused rather than mixed - a manifest records the model. Change it back, or start a new memory                                 |
+| Recall finds nothing after changing the embedder    | Refused rather than mixed - the memory records the model. Change it back, or start a new memory                                 |
 | Vectors fewer than nodes                            | Some nodes were committed with no embedder; they are only reachable by term overlap                                             |
 | The graph fills with restated requests              | The commit rule is not in a prompt or skill. State the "would a later run redo this" test                                       |
 | Runs do real work and the graph stays empty         | The agent is bound `read`, or nothing names the moments: empty recall then work, before an answer, a handoff or a fork's return |
-| An agent greps `/memory` or reads `graph.json`      | The house-rules block is missing from `agents/memory-instructions.md` - the system prompt never forbids it                      |
+| An agent greps `/memory` or queries `memory.db`     | The house-rules block is missing from `agents/memory-instructions.md` - the system prompt never forbids it                      |
 | A recalled fact cannot be checked or continued      | Nodes were committed with no provenance. The block's "say where it came from" rule is what prevents it                          |
 | Recall returns pointers and the run re-reads it all | Content was committed as `text` alone. A node's text describes and locates; the content belongs in a file                       |
 | A wrong memory keeps coming back                    | It was edited instead of superseded, or superseded in the wrong direction - the **new** node is the source                      |

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { hostPath } from './files.ts';
 import { DUPLICATE_SCORE, flatten } from './index.ts';
-import { MANIFEST_FILE, MemoryStore, lockHolder, type MemoryEmbedding } from './store.ts';
+import { MEMORY_DB, MemoryStore, isMemory, type MemoryEmbedding } from './store.ts';
 import { comparable, sameContent, twinKey } from './twin.ts';
 import { MemoryError, type MemoryNode } from './types.ts';
 
@@ -11,8 +11,8 @@ import { MemoryError, type MemoryNode } from './types.ts';
 // Folding several memories into one
 //
 // Warming a memory is embarrassingly parallel — N runs, N questions, N answers
-// — but the lock is per directory, so N runs cannot share one. They each write
-// their own, and this puts the results back together.
+// — and a batch gives each run its own copy so that none of them sees what the
+// others are learning mid-round. This puts the results back together.
 //
 // Ids are ULIDs and are preserved, which makes the interesting case the one
 // where the same id appears twice: the runs started from a copy of the same
@@ -109,8 +109,22 @@ export async function mergeMemories(
     sources: readonly string[],
     opts: MergeOptions = {},
 ): Promise<MergeReport> {
+    const opened = await openSources(target, sources);
+    try {
+        return await fold(target, opened, opts);
+    } finally {
+        for (const src of opened) {
+            src.release();
+        }
+    }
+}
+
+async function fold(
+    target: MemoryStore,
+    opened: readonly MemoryStore[],
+    opts: MergeOptions,
+): Promise<MergeReport> {
     const dedupe = opts.dedupe !== false;
-    const opened = await openSources(target, sources, opts.force === true);
     const reports = new Map<MemoryStore, MergeSource>(
         opened.map((src) => [
             src,
@@ -264,14 +278,12 @@ interface Planned {
 async function openSources(
     target: MemoryStore,
     sources: readonly string[],
-    force: boolean,
 ): Promise<MemoryStore[]> {
     if (!sources.length) {
         throw new MemoryError('no memories to merge', 'name at least one memory directory');
     }
     const here = resolve(target.dir);
     const seen = new Set<string>();
-    const out: MemoryStore[] = [];
     for (const dir of sources) {
         const path = resolve(dir);
         if (path === here) {
@@ -284,21 +296,21 @@ async function openSources(
             throw new MemoryError(`${dir} was named twice`, 'name each memory once');
         }
         seen.add(path);
-        // `MemoryStore.open` creates what is missing, so a mistyped path would
-        // otherwise merge an empty memory it had just brought into existence.
-        try {
-            await stat(join(path, MANIFEST_FILE));
-        } catch {
-            throw new MemoryError(`${dir} is not a memory`, `no ${MANIFEST_FILE} in it`);
+        if (!isMemory(path)) {
+            throw new MemoryError(`${dir} is not a memory`, `no ${MEMORY_DB} in it`);
         }
-        const held = lockHolder(path);
-        if (held && !force) {
-            throw new MemoryError(
-                `${dir} is in use (pid ${held.pid}, since ${held.startedAt})`,
-                'wait for that run to finish, or merge with --force',
-            );
+    }
+    const out: MemoryStore[] = [];
+    try {
+        for (const path of seen) {
+            // Read-only: a run may still be writing a source, and a snapshot of it is enough.
+            out.push(await MemoryStore.open(path, { readOnly: true }));
         }
-        out.push(await MemoryStore.open(path, { lock: false }));
+    } catch (err) {
+        for (const src of out) {
+            src.release();
+        }
+        throw err;
     }
     return out;
 }

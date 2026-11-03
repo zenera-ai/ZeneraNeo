@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { IdClock } from '../src/ids.ts';
 import { MemoryIndex } from '../src/memory/index.ts';
-import { MemoryStore } from '../src/memory/store.ts';
+import { MEMORY_DB, MemoryStore } from '../src/memory/store.ts';
 import { MemoryError } from '../src/memory/types.ts';
 
 /**
@@ -48,37 +48,43 @@ describe('a memory opened read-only', () => {
         await expect(store.commit()).rejects.toThrow(/read-only/);
     });
 
-    it('leaves the graph byte-identical after a load', async () => {
-        const graph = join(dir, 'graph.json');
+    it('leaves the database byte-identical after a load', async () => {
+        const db = join(dir, MEMORY_DB);
         const before = createHash('sha256')
-            .update(await readFile(graph))
+            .update(await readFile(db))
             .digest('hex');
 
-        const index = new MemoryIndex({
-            store: await MemoryStore.open(dir, { readOnly: true }),
-        });
+        const store = await MemoryStore.open(dir, { readOnly: true });
+        const index = new MemoryIndex({ store });
         const [loaded] = await index.load(['ID1'], SEES, clockFrom(9));
         expect(loaded?.node.text).toContain('invoice threshold');
+        store.release();
 
         const after = createHash('sha256')
-            .update(await readFile(graph))
+            .update(await readFile(db))
             .digest('hex');
         expect(after).toBe(before);
     });
 
-    it('takes no lock, so any number of readers may share one graph', async () => {
+    it('lets any number of readers share one graph while a writer writes', async () => {
         const readers = await Promise.all(
             Array.from({ length: 4 }, () => MemoryStore.open(dir, { readOnly: true })),
         );
-        expect(readers).toHaveLength(4);
-        expect(existsSync(join(dir, '.lock'))).toBe(false);
-        // And a writer is still refused a second time, which is the rule the
-        // read-only mode exists to step around rather than to remove.
         const writer = await MemoryStore.open(dir);
         try {
-            await expect(MemoryStore.open(dir)).rejects.toThrow(/in use/);
+            writer.write(() =>
+                writer.graph.add(
+                    { id: 'W', kind: 'fact', text: 'written meanwhile', audience: ['*'] },
+                    '2026-01-02T00:00:00.000Z',
+                ),
+            );
+            for (const reader of readers) {
+                reader.refresh();
+                expect(reader.graph.has('W')).toBe(true);
+            }
         } finally {
             writer.release();
+            readers.forEach((r) => r.release());
         }
     });
 

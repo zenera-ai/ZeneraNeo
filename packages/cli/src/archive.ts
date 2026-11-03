@@ -1,4 +1,5 @@
 import { ENV_FILE } from '@zenera/engine';
+import { MEMORY_DB } from '@zenera/neo';
 import { createWriteStream, lstatSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -146,7 +147,8 @@ export function excluded(rel: string, isDir: boolean, opts: CollectOptions = {})
     if (rel === ENV_FILE || (rel.startsWith(`${ENV_FILE}.`) && rel !== ENV_EXAMPLE)) {
         return 'env';
     }
-    if (name === '.lock') {
+    // The memory's write-ahead log: `export` carries a snapshot of the database instead.
+    if (name === '.lock' || name === `${MEMORY_DB}-wal` || name === `${MEMORY_DB}-shm`) {
         return 'locks';
     }
     if (name === '.DS_Store') {

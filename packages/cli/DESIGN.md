@@ -667,8 +667,10 @@ are watching.
 `zen run batch --input cases.json` is an evaluation harness rather than a loop
 with a semaphore, and the difference is forced by two facts about a run. A
 workspace is a directory the agent writes into, so two runs cannot share one.
-A memory takes an exclusive lock on its directory, so two runs cannot share
-that either. A batch is therefore a set of **isolated** runs that happen to
+A memory can be shared - every write is its own transaction - but runs that
+learn from one graph at once see each other's commits mid-round, and an
+evaluation needs each item to be its own sample. A batch is therefore a set of
+**isolated** runs that happen to
 have been asked together, and the batch directory is where the isolation is
 kept:
 
@@ -687,21 +689,21 @@ the model has answered, and the workspace has to be there before it is asked.
 The session still records the workspace, so `zen inspect` on any item's run
 reports the right one.
 
-**Memory comes in two modes because the lock leaves exactly two honest
+**Memory comes in two modes because isolation leaves exactly two honest
 arrangements.** `--memory-read-only` opens one graph for all of them and writes
 nothing; without it each item gets a copy and the project's own memory is never
 touched, with `zen memory merge <batch-dir>/*/memory` printed in the summary.
 The copies are taken serially, before the first model call - sixteen recursive
 copies of one tree at once is the only moment a batch is disk-bound, and it
-would be spent racing itself. The `.lock` is never copied, and a batch refuses
-to start while another run holds the source's.
+would be spent racing itself. Each copy is the database as of one moment
+(`VACUUM INTO`), so a run still writing the source cannot tear it.
 
 Read-only had to become real in the runtime first. `access: read` withheld the
 writing tools but `MemoryIndex.load()` still committed, to persist the
-`lastUsedAt` bump recency decay is computed from - a write, therefore a lock,
-therefore a batch of one. `MemoryStore` now takes `readOnly`, which skips the
-lock, refuses `commit()` loudly rather than dropping it, and refuses a
-directory holding no manifest instead of creating one; `loadProject` clamps
+`lastUsedAt` bump recency decay is computed from - a write to a graph every
+other item is reading. `MemoryStore` takes `readOnly`, which opens the database
+read-only, refuses `commit()` loudly rather than dropping it, and refuses a
+directory holding no `memory.db` instead of creating one; `loadProject` clamps
 every agent's `access` to `read` so the tools and the house rules agree about
 it. The bump still happens in memory and is discarded, which is right: a
 read-only run must not reorder another run's recall.
@@ -1561,21 +1563,20 @@ Three rules keep it honest, and each is there because a raw `grep` over
 - **Nothing is touched.** `lastUsedAt` tracks what an agent opened; a finder
   that bumped it would make every scan look like a read and skew recall.
 
-It is also the one subcommand that opens the store with `lock: false`. The lock
-exists to stop two writers losing each other's edges, and a reader that took it
-would only be refusing itself - at exactly the two moments grep is most wanted:
-while a run is writing, and against the read-only `/memory` mount in a sandbox,
-where claiming a lock fails outright.
+Like every inspector here it opens the store read-only: SQLite in WAL mode lets
+it read one consistent snapshot while a run is writing, so the moment grep is
+most wanted - mid-run - is not the moment it is refused.
 
 ### 10.4 `merge` - putting a fanned-out warmup back together
 
-The memory lock is per directory, which is what keeps two runs of one project
-from interleaving commits. It also means warming a memory in parallel is N runs
-writing N memories. `merge` is the other half of that: it folds them into one,
-offline, with no model and no re-embedding.
+Runs may share one memory - every write is its own transaction - but a warmup
+should not: runs learning from one graph at once see each other's commits
+mid-round. So `zen run batch` gives each item its own copy, and warming a
+memory in parallel is N runs writing N memories. `merge` is the other half of
+that: it folds them into one, offline, with no model and no re-embedding.
 
 It is the only subcommand here that writes a memory into existence. Everything
-else is an inspector, and a target with no `manifest.json` is a mistake worth
+else is an inspector, and a target with no `memory.db` is a mistake worth
 naming; a merge target that does not exist yet is the ordinary case, because
 the warmed graph is usually assembled somewhere new before it is promoted.
 Sources are positional and the target is `--dir`, so the shell expands
@@ -1625,7 +1626,7 @@ half, and `import` reads it back.
 
 What travels is the `.gitignore` rule with one deliberate difference: **the
 vectors travel.** A clone rebuilds a rag index from the documents it already
-carries, and memory has no such fallback - a graph without `vectors.f32` recalls
+carries, and memory has no such fallback - a memory without its vectors recalls
 by term overlap until every node is written again. An archive is not a clone
 with a setup step waiting for it; it is the whole thing, or it is not worth
 sending. `--no-vectors` makes the small archive for someone who will run
@@ -1647,9 +1648,10 @@ with vectors runs to hundreds of megabytes, and a reader that has to hold the
 archive in memory to open it is a reader that fails on the archives worth
 sending.
 
-`export` refuses only one thing - memory held by a live run, because a graph
-copied mid-write is an archive that opens and is wrong, which is worse than one
-that does not open. A project that fails `zen check` is exported with a warning:
+`export` refuses nothing for being busy. Memory travels as a snapshot of its
+database taken at one moment (`VACUUM INTO` to a scratch file), so a run
+committing while the archive is written cannot tear it. A project that fails
+`zen check` is exported with a warning:
 sending someone a broken project to ask for help is the point.
 
 ### 11.1 Import is the suspicious half

@@ -217,18 +217,21 @@ describe('the memory store', () => {
         ).rejects.toThrow(MemoryError);
     });
 
-    it('refuses a second holder of the lock, and lets go on release', async () => {
+    it('lets two writers share one directory, each seeing the other', async () => {
         const a = await MemoryStore.open(dir);
-        await expect(MemoryStore.open(dir)).rejects.toThrow(/in use/);
-        a.release();
         const b = await MemoryStore.open(dir);
-        b.release();
-    });
-
-    it('does not lock when told not to', async () => {
-        const a = await MemoryStore.open(dir);
-        const b = await MemoryStore.open(dir, { lock: false });
-        expect(b.graph.order).toBe(0);
-        a.release();
+        try {
+            a.write(() => a.graph.add({ id: 'A', kind: 'fact', text: 'a', audience: ['*'] }, T0));
+            b.write(() => b.graph.add({ id: 'B', kind: 'fact', text: 'b', audience: ['*'] }, T0));
+            a.refresh();
+            expect(a.graph.has('B')).toBe(true);
+            expect(b.graph.has('A')).toBe(true);
+        } finally {
+            a.release();
+            b.release();
+        }
+        const c = await MemoryStore.open(dir);
+        expect(c.graph.order).toBe(2);
+        c.release();
     });
 });

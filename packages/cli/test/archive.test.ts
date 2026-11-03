@@ -75,6 +75,8 @@ function fixture(dir: string): string {
     put(dir, 'memory/graph.json', '{"nodes":[]}\n');
     put(dir, 'memory/vectors.f32', 'floats');
     put(dir, 'memory/.lock', '{"pid":1,"host":"nowhere"}');
+    put(dir, 'memory/memory.db-wal', 'log');
+    put(dir, 'memory/memory.db-shm', 'index');
     put(dir, 'scripts/_setup.sh', '#!/bin/sh\necho hi\n');
     put(dir, 'sandbox/Dockerfile', 'FROM scratch\n');
     put(dir, '.github/skills/zen-cli/SKILL.md', '# skill\n');
@@ -118,6 +120,8 @@ describe('collecting a project', () => {
         expect(rels.some((r) => r.startsWith('node_modules/'))).toBe(false);
         expect(rels).not.toContain('.env');
         expect(rels).not.toContain('memory/.lock');
+        expect(rels).not.toContain('memory/memory.db-wal');
+        expect(rels).not.toContain('memory/memory.db-shm');
         expect(rels).not.toContain('.DS_Store');
     });
 

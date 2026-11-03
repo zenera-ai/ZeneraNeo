@@ -26,6 +26,7 @@ import {
     type ToolContext,
     withEffects,
 } from '../types.ts';
+import { RevisionMismatch } from './graph.ts';
 import { GREP_FIELDS, type GrepField, grepMemory } from './grep.ts';
 import type { CommitEdge, CommitNode, MemoryIndex } from './index.ts';
 import { renderRecollection } from './render.ts';
@@ -511,6 +512,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
             },
             execute: async (args, tc) => {
                 const opId = memoryOpId(tc.state.runId, tc.callId);
+                index.refresh();
                 const before = args.ids.flatMap((id) => {
                     const node = index.graph.get(id);
                     return node ? [{ id, kind: node.kind, revision: node.revision }] : [];
@@ -552,6 +554,12 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
 function refusal(err: unknown): { error: string; hint?: string } {
     if (err instanceof MemoryError) {
         return { error: err.message, hint: err.hint };
+    }
+    if (err instanceof RevisionMismatch) {
+        return {
+            error: err.message,
+            hint: `another run changed it; ${MEMORY_LOAD_TOOL} it again and commit against the new revision`,
+        };
     }
     throw err;
 }
