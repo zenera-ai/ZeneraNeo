@@ -304,8 +304,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             memoryDir: opts.memoryDir,
             memoryReadOnly: opts.memoryReadOnly,
             payloads,
-            resolveFile: (path: string) => files.source(path),
-            writeFile: (path, data, o) => files.write(path, data, o),
+            files,
         });
     } catch (err) {
         await plugins?.close();

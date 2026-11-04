@@ -1,4 +1,4 @@
-import { realpathSync, statSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { cp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path, { type PlatformPath } from 'node:path';
 
@@ -42,8 +42,6 @@ export interface FsDriver {
      * the far side refuses an escape on its own.
      */
     realpathSync(path: string): string;
-    /** Whether a directory is there — asked once, of each mount, when the tools are built. */
-    isDirectorySync(path: string): boolean;
     stat(path: string): Promise<FsStat>;
     readdir(path: string): Promise<FsEntry[]>;
     readFile(path: string): Promise<Buffer>;
@@ -61,7 +59,6 @@ export interface FsDriver {
 export const localFs: FsDriver = {
     path,
     realpathSync: (p) => realpathSync(p),
-    isDirectorySync: (p) => statSync(p).isDirectory(),
     stat: (p) => stat(p),
     readdir: (p) => readdir(p, { withFileTypes: true }),
     readFile: (p) => readFile(p),

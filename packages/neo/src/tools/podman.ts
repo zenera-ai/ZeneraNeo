@@ -6,6 +6,7 @@ import {
     SANDBOX_MOUNT,
     SandboxError,
     type Box,
+    type BoxFactory,
     type ExecOptions,
     type ExecResult,
     type OutOfMemory,
@@ -802,6 +803,9 @@ function resolveSpec(opts: SandboxOptions): Resolved {
         execPaths: opts.execPaths ?? {},
     };
 }
+
+/** A podman container on this machine: the box `zen run` uses, and the pool's default. */
+export const podmanBox: BoxFactory = (opts) => new PodmanBox(opts);
 
 export interface SandboxLimits {
     /** MiB */

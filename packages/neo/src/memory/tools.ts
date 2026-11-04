@@ -345,7 +345,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 additionalProperties: false,
             },
             execute: async (args, tc) => {
-                if (!tc.services.writeFile) {
+                if (!tc.services.files) {
                     return {
                         error: 'this agent has no workspace to copy into',
                         hint: `read the file inline with ${MEMORY_LOAD_TOOL} instead`,
@@ -353,7 +353,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 }
                 try {
                     const { file, bytes } = await index.fileOf(args.id, binding.sees);
-                    const path = await tc.services.writeFile(
+                    const path = await tc.services.files.write(
                         args.to?.trim() || fileName(file),
                         bytes,
                         {
@@ -645,14 +645,14 @@ function extractFilePath(raw: unknown): string {
 }
 
 function source<TCtx>(tc: ToolContext<TCtx>, path: string): FileSource {
-    if (!tc.services.resolveFile) {
+    if (!tc.services.files) {
         throw new MemoryError(
             'this agent cannot remember files',
             'commit the node without `file`, or give the agent a workspace',
         );
     }
     try {
-        return tc.services.resolveFile(path);
+        return tc.services.files.source(path);
     } catch (err) {
         if (err instanceof MemoryError) {
             throw err;

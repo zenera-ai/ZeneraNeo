@@ -38,10 +38,6 @@ export class MemoryFs implements FsDriver {
         return abs;
     }
 
-    isDirectorySync(at: string): boolean {
-        return this.#get(at, 'stat').kind === 'dir';
-    }
-
     async stat(at: string): Promise<FsStat> {
         return info(this.#get(at, 'stat'));
     }

@@ -271,9 +271,6 @@ describe('a mounted tree', () => {
         expect(bad([{ host: assets, at: 'assets' }])).toThrow(/absolute/);
         expect(bad([{ host: assets, at: '/' }])).toThrow(/absolute/);
         expect(bad([{ host: join(assets, 'nope'), at: '/assets' }])).toThrow(/no such directory/);
-        expect(bad([{ host: join(assets, 'handbook.md'), at: '/assets' }])).toThrow(
-            /not a directory/,
-        );
         // One name may not mean two directories, nor sit inside another name.
         expect(bad([{ host: assets, at: '/workspace/assets' }])).toThrow(/overlap/);
         expect(
@@ -282,6 +279,15 @@ describe('a mounted tree', () => {
                 { host: root, at: '/assets/inner' },
             ]),
         ).toThrow(/overlap/);
+    });
+
+    /** Whether a mount is a directory is the first listing's to say, under its own name. */
+    it('says a file mounted as a tree is not a directory when it is first listed', async () => {
+        const mounts = [{ host: join(assets, 'handbook.md'), at: '/assets' }];
+        const [, list] = fileTools({ root, mount: '/workspace', mounts });
+        await expect(list.execute({ path: '/assets' }, {} as never)).rejects.toThrow(
+            '/assets is not a directory',
+        );
     });
 });
 

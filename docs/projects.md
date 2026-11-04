@@ -340,7 +340,7 @@ podman container on this machine:
   a tree in memory, for tests.
 
 A `SandboxBackend` is the pair, because they have to agree: a file `write_file`
-makes must be a file `run_command` sees. `podmanBackend()` is what `zen run`
+makes must be a file `run_command` sees. `podmanBackend` is what `zen run`
 uses. `openEngine({ backend })` takes any other. When `backend.local` is false,
 the file tools use paths inside the sandbox (`/workspace`, `/assets`, ...)
 rather than host paths. Mounts are then described by what they are (each

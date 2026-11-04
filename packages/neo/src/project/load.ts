@@ -4,7 +4,7 @@ import { Agent, AgentRegistry, type ForkOptions } from '../agent.ts';
 import type { Embedder } from '../embedding.ts';
 import { RunStream } from '../events.ts';
 import { frontmatter, toList } from '../frontmatter.ts';
-import type { FileSource, WorkspaceWriter } from '../memory/files.ts';
+import type { WorkspaceFiles } from '../memory/files.ts';
 import { MemoryIndex } from '../memory/index.ts';
 import { DEFAULT_SEEDS } from '../memory/recall.ts';
 import { MemoryStore } from '../memory/store.ts';
@@ -96,10 +96,8 @@ export interface ProjectOptions<TCtx = unknown> {
      * warmed memory at once, which the directory lock otherwise forbids.
      */
     memoryReadOnly?: boolean;
-    /** reads a file the agent names, so it can be remembered */
-    resolveFile?: (path: string) => FileSource;
-    /** writes into the workspace, so a remembered file can be copied back out */
-    writeFile?: WorkspaceWriter;
+    /** the agent's workspace, so files can be remembered and copied back */
+    files?: WorkspaceFiles;
     payloads?: PayloadStore;
     /** extra providers merged with the ones the project declares */
     skills?: SkillProvider[];
@@ -317,8 +315,7 @@ export class AgentProject<TCtx = unknown> {
         const runner = new AgentRunner<TCtx>({
             payloads: this.#options.payloads,
             memory: this.memory,
-            resolveFile: this.#options.resolveFile,
-            writeFile: this.#options.writeFile,
+            files: this.#options.files,
             skills: [...this.skillProviders],
             ...overrides,
         });

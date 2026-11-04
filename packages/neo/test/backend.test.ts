@@ -7,6 +7,7 @@ import { podmanBackend, type SandboxBackend } from '../src/tools/backend.ts';
 import { Workspace, fileTools, type WorkspaceOptions } from '../src/tools/files.ts';
 import { localFs, type FsDriver } from '../src/tools/fs.ts';
 import { MemoryFs } from '../src/tools/memfs.ts';
+import { PodmanBox } from '../src/tools/podman.ts';
 import { logicalMounts } from '../src/tools/mounts.ts';
 import {
     SandboxPool,
@@ -180,7 +181,7 @@ describe.each(trees)('the file tools on %s', (_, make) => {
         const memory = mkdtempSync(join(tmpdir(), 'zen-contract-mem-'));
         try {
             const file = await rememberFile(memory, ws.source('src/b.ts'), 'ID1');
-            expect(file).toMatchObject({ path: '/memory/ID1.ts', format: 'ts', bytes: 10 });
+            expect(file).toMatchObject({ path: 'ID1.ts', format: 'ts', bytes: 10 });
         } finally {
             rmSync(memory, { recursive: true, force: true });
         }
@@ -290,19 +291,23 @@ describe('the sandbox tools on a backend of their own', () => {
         expect(backend.made.find((b) => b.name === 'fake-s2-default')?.disposed).toBe(true);
     });
 
-    it('get podman by default, through the runner it was given', async () => {
+    it('get podman by default, with the engine and runner each box was given', async () => {
         const seen: string[][] = [];
-        const backend = podmanBackend({
-            engine: 'docker',
-            exec: async (bin, args) => {
-                seen.push([bin, ...args]);
-                return { code: 0, stdout: '', stderr: '', truncated: false, timedOut: false };
-            },
-        });
-        expect(backend).toMatchObject({ name: 'docker', local: true, fs: localFs });
-        await backend.box({ root: '/host/ws', key: 'k' }).exec('true');
+        expect(podmanBackend).toMatchObject({ name: 'podman', local: true, fs: localFs });
+        await podmanBackend
+            .box({
+                root: '/host/ws',
+                key: 'k',
+                engine: 'docker',
+                exec: async (bin, args) => {
+                    seen.push([bin, ...args]);
+                    return { code: 0, stdout: '', stderr: '', truncated: false, timedOut: false };
+                },
+            })
+            .exec('true');
         expect(seen.every(([bin]) => bin === 'docker')).toBe(true);
         expect(seen.some((c) => c.includes('exec'))).toBe(true);
+        expect(new SandboxPool({ root: '/host/ws', key: 'k' }).for()).toBeInstanceOf(PodmanBox);
     });
 });
 

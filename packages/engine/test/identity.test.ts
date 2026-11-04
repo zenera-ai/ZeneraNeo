@@ -129,7 +129,7 @@ describe('the sandbox a run gets', () => {
             fs: new MemoryFs(),
             box: (opts) => {
                 asked.push(opts);
-                return podmanBackend().box(opts);
+                return podmanBackend.box(opts);
             },
         };
         const s = buildSandbox({

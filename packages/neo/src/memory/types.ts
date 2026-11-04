@@ -104,11 +104,7 @@ export class MemoryError extends Error {
 }
 
 export interface MemoryFile {
-    /**
-     * `/memory/<id>.<ext>`. Only the file name means anything (see `fileName`):
-     * the prefix is from when the tree was mounted, and is kept so existing
-     * graphs and new ones agree.
-     */
+    /** `<id>.<ext>`; older graphs hold `/memory/<id>.<ext>` — read it through `fileName` */
     path: string;
     bytes: number;
     sha256: string;

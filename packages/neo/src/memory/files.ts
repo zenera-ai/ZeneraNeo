@@ -21,9 +21,6 @@ import { MemoryError, type MemoryFile } from './types.ts';
 // nothing that changes under it while it runs.
 // ---------------------------------------------------------------------------
 
-/** Where remembered files appear in the agent's namespace. */
-export const MEMORY_MOUNT = '/memory';
-
 /**
  * Big enough for any script or config worth re-running, small enough that the
  * memory directory cannot become a place where build outputs go to hide.
@@ -34,28 +31,34 @@ export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_FORMAT_LEN = 16;
 
 /**
- * Where a remembered file's bytes come from: a host path, or a file the caller
- * reads for it — the workspace's own driver, when the workspace is not on this
- * machine. `path` names it, and its extension decides the copy's.
+ * Where a remembered file's bytes come from, read for memory by whoever owns
+ * them — the workspace's own driver, so it does not matter whether the files
+ * are on this machine. `path` names it, and its extension decides the copy's.
  */
-export type FileSource =
-    | string
-    | {
-          path: string;
-          stat(): Promise<{ size: number; isFile(): boolean }>;
-          read(): Promise<Uint8Array>;
-      };
+export interface FileSource {
+    path: string;
+    stat(): Promise<{ size: number; isFile(): boolean }>;
+    read(): Promise<Uint8Array>;
+}
+
+/** A file on this machine's disk, as a source. */
+export function hostFile(path: string): FileSource {
+    return { path, stat: () => stat(path), read: () => readFile(path) };
+}
 
 /**
- * Writes bytes into the agent's workspace, contained and permission-checked as
- * any write there is, and answers with the path the model knows the file by.
- * Refuses to replace an existing file unless told to.
+ * The agent's workspace, as memory needs it: a file to remember is read from
+ * it, and a remembered file is copied back into it. Both are contained and
+ * permission-checked exactly as the file tools are. `Workspace` is one.
  */
-export type WorkspaceWriter = (
-    path: string,
-    data: Uint8Array,
-    opts?: { overwrite?: boolean },
-) => Promise<string>;
+export interface WorkspaceFiles {
+    source(path: string): FileSource;
+    /**
+     * Writes bytes and answers with the path the model knows the file by.
+     * Refuses to replace an existing file unless told to.
+     */
+    write(path: string, data: Uint8Array, opts?: { overwrite?: boolean }): Promise<string>;
+}
 
 export interface RememberOptions {
     maxBytes?: number;
@@ -76,13 +79,9 @@ export async function rememberFile(
     id: string,
     opts: RememberOptions = {},
 ): Promise<MemoryFile> {
-    const from =
-        typeof source === 'string'
-            ? { path: source, stat: () => stat(source), read: () => readFile(source) }
-            : source;
     const maxBytes = opts.maxBytes ?? MAX_FILE_BYTES;
-    const name = opts.path ?? from.path;
-    const info = await describe(from, name);
+    const name = opts.path ?? source.path;
+    const info = await describe(source, name);
     if (!info.isFile()) {
         throw new MemoryError(
             `${name} is not a regular file`,
@@ -96,18 +95,18 @@ export async function rememberFile(
         );
     }
 
-    const bytes = await from.read();
+    const bytes = await source.read();
     if (bytes.byteLength > maxBytes) {
         throw new MemoryError(`${name} grew past the ${maxBytes} byte limit while being read`);
     }
 
-    const format = formatOf(from.path);
-    const fileName = id + (format ? `.${format}` : '');
+    const format = formatOf(source.path);
+    const stored = id + (format ? `.${format}` : '');
     await mkdir(join(dir, FILES_DIR), { recursive: true });
-    await writeFile(join(dir, FILES_DIR, fileName), bytes);
+    await writeFile(join(dir, FILES_DIR, stored), bytes);
 
     return {
-        path: `${MEMORY_MOUNT}/${fileName}`,
+        path: stored,
         bytes: bytes.byteLength,
         sha256: createHash('sha256').update(bytes).digest('hex'),
         format,
@@ -116,8 +115,8 @@ export async function rememberFile(
 
 /**
  * What a remembered file is called: `<id>.<ext>`. The name the model is shown,
- * and where a copy lands by default. The stored path's `/memory/` prefix is
- * from when the tree was mounted; only this part of it means anything now.
+ * and where a copy lands by default. Graphs written while the tree was still
+ * mounted stored `/memory/<id>.<ext>`; the base name is the same for both.
  */
 export function fileName(file: Pick<MemoryFile, 'path'>): string {
     return basename(file.path);
@@ -134,7 +133,7 @@ export async function forgetFile(dir: string, file: MemoryFile): Promise<void> {
     await rm(hostPath(dir, file), { force: true });
 }
 
-async function describe(source: Exclude<FileSource, string>, name: string) {
+async function describe(source: FileSource, name: string) {
     try {
         return await source.stat();
     } catch {

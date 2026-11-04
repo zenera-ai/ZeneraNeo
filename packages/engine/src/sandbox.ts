@@ -189,7 +189,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         }
     }
 
-    const backend = opts.backend ?? podmanBackend();
+    const backend = opts.backend ?? podmanBackend;
     const pool = new SandboxPool({
         ...spec,
         agents,

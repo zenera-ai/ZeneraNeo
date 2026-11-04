@@ -1,5 +1,5 @@
 import { extname } from 'node:path';
-import type { FileSource } from '../memory/files.ts';
+import type { FileSource, WorkspaceFiles } from '../memory/files.ts';
 import { tool, type AnyTool, type ToolContext } from '../types.ts';
 import { localFs, type FsDriver, type FsStat } from './fs.ts';
 import type { MountSource } from './mounts.ts';
@@ -91,7 +91,7 @@ export interface ResolvedMount {
     source?: MountSource;
 }
 
-export class Workspace {
+export class Workspace implements WorkspaceFiles {
     readonly root: string;
     readonly readOnly: boolean;
     readonly mount: string | undefined;
@@ -333,18 +333,17 @@ function under(inner: string, outer: string): boolean {
     return inner.startsWith(outer + '/');
 }
 
-/** The host side of a mount, resolved. It has to exist: a mount of nothing is a typo. */
+/**
+ * The host side of a mount, resolved. It has to exist: a mount of nothing is a
+ * typo. That it is a directory is left to the first listing, which says so in
+ * the model's words — a driver on another machine could not answer sooner.
+ */
 function directory(fs: FsDriver, host: string, at: string): string {
-    let path;
     try {
-        path = fs.realpathSync(fs.path.resolve(host));
+        return fs.realpathSync(fs.path.resolve(host));
     } catch {
         throw new Error(`workspace mount ${at}: no such directory: ${host}`);
     }
-    if (!fs.isDirectorySync(path)) {
-        throw new Error(`workspace mount ${at}: not a directory: ${host}`);
-    }
-    return path;
 }
 
 /** `a`, `a and b`, `a, b and c` — these end up in sentences the model reads. */
@@ -1465,9 +1464,6 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
               ],
     );
 }
-
-/** @deprecated The group has been `files` for a while; this is the old spelling. */
-export const workspaceTools = fileTools;
 
 /** What each errno means, said the way the rest of these tools say things. */
 const ERRNO: Record<string, string> = {

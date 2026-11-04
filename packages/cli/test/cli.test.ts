@@ -30,7 +30,7 @@ import type {
     ProcResult,
     runProcess,
 } from '@zenera/neo';
-import { MEMORY_MOUNT, readProjectConfig } from '@zenera/neo';
+import { readProjectConfig } from '@zenera/neo';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
     chmodSync,
@@ -1900,7 +1900,7 @@ describe('what a run mounts', () => {
         mkdirSync(join(dir, 'assets'));
         const mounts = projectMounts(dir, readProjectConfig(dir).config);
         expect(mounts.map((m) => m.at)).toEqual(['/assets']);
-        expect(mounts.some((m) => m.at === MEMORY_MOUNT)).toBe(false);
+        expect(mounts.some((m) => m.at === '/memory')).toBe(false);
         expect(existsSync(join(dir, 'memory'))).toBe(false);
     });
 });

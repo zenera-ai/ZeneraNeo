@@ -1,5 +1,5 @@
 import { localFs, type FsDriver } from './fs.ts';
-import { PodmanBox, type Runner } from './podman.ts';
+import { podmanBox } from './podman.ts';
 import type { BoxFactory } from './sandbox.ts';
 
 // ---------------------------------------------------------------------------
@@ -28,24 +28,13 @@ export interface SandboxBackend {
     readonly fs: FsDriver;
 }
 
-export interface PodmanBackendOptions {
-    /** the container engine binary; `podman` when unset */
-    engine?: string;
-    /** how processes are spawned — the seam tests replace */
-    exec?: Runner;
-}
-
-/** What `zen run` uses: podman on this machine, and this machine's disk. */
-export function podmanBackend(opts: PodmanBackendOptions = {}): SandboxBackend {
-    return {
-        name: opts.engine ?? 'podman',
-        local: true,
-        box: (o) =>
-            new PodmanBox({
-                ...o,
-                ...(opts.engine ? { engine: opts.engine } : {}),
-                ...(opts.exec ? { exec: opts.exec } : {}),
-            }),
-        fs: localFs,
-    };
-}
+/**
+ * What `zen run` uses: podman on this machine, and this machine's disk. The
+ * engine binary and the process runner are per box, in `SandboxOptions`.
+ */
+export const podmanBackend: SandboxBackend = {
+    name: 'podman',
+    local: true,
+    box: podmanBox,
+    fs: localFs,
+};

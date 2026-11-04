@@ -1,6 +1,6 @@
 import { tool, type AnyTool, type JsonSchema } from '../types.ts';
 import type { MountSource } from './mounts.ts';
-import { PodmanBox, type Runner } from './podman.ts';
+import { podmanBox, type Runner } from './podman.ts';
 
 // ---------------------------------------------------------------------------
 // Sandbox tools
@@ -250,7 +250,7 @@ export class SandboxPool {
         const { agents, box, ...base } = opts;
         this.#base = base;
         this.#agents = agents ?? {};
-        this.#make = box ?? ((o) => new PodmanBox(o));
+        this.#make = box ?? podmanBox;
     }
 
     for(agent?: string): Box {
