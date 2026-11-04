@@ -2,10 +2,15 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { systemClock } from '../src/ids.ts';
 import { MEMORY_MOUNT, forgetFile, hostPath, rememberFile } from '../src/memory/files.ts';
-import { FILES_DIR } from '../src/memory/store.ts';
+import { MemoryIndex } from '../src/memory/index.ts';
+import { FILES_DIR, MemoryStore } from '../src/memory/store.ts';
+import { memoryTools } from '../src/memory/tools.ts';
 import { MemoryError } from '../src/memory/types.ts';
-import { fileTools } from '../src/tools/files.ts';
+import { Workspace } from '../src/tools/files.ts';
+import { MemoryFs } from '../src/tools/memfs.ts';
+import { MEMORY_COPY_FILE_TOOL, type ToolContext } from '../src/types.ts';
 
 const SCRIPT = 'print("risky ports")\n';
 
@@ -101,54 +106,124 @@ describe('remembering a file', () => {
     });
 });
 
-describe('the /memory mount', () => {
+describe('the memory_copy_file tool', () => {
     let dir: string;
-    let root: string;
-    let call: (name: string, args: unknown) => Promise<any>;
+    let work: string;
+    let index: MemoryIndex;
+    let ids: Record<string, string>;
 
     beforeEach(async () => {
         dir = await mkdtemp(join(tmpdir(), 'neo-memfiles-'));
-        root = await mkdtemp(join(tmpdir(), 'neo-work-'));
-        const src = join(root, 'audit.py');
-        await writeFile(src, SCRIPT);
-        await rememberFile(dir, src, 'ID1');
-
-        const opts = {
-            root,
-            mounts: [{ host: join(dir, FILES_DIR), at: MEMORY_MOUNT }],
-        };
-        const tools = fileTools(opts);
-        call = async (name, args) => {
-            const found = tools.find((t) => t.name === name);
-            if (!found) {
-                throw new Error(`no such tool: ${name}`);
-            }
-            return await found.execute(args, {} as never);
-        };
+        work = await mkdtemp(join(tmpdir(), 'neo-work-'));
+        await writeFile(join(work, 'audit.py'), SCRIPT);
+        index = new MemoryIndex({ store: await MemoryStore.open(dir) });
+        ({ ids } = await index.commit(
+            {
+                nodes: [
+                    {
+                        ref: 'script',
+                        kind: 'file',
+                        text: 'audit script',
+                        file: { source: join(work, 'audit.py') },
+                    },
+                    { ref: 'fact', kind: 'fact', text: 'ports 22 and 3389 are risky' },
+                    {
+                        ref: 'secret',
+                        kind: 'file',
+                        text: 'theirs',
+                        audience: ['other'],
+                        file: { source: join(work, 'audit.py') },
+                    },
+                ],
+            },
+            { clock: systemClock, sees: ['*'], writes: ['solo', 'other'] },
+        ));
     });
 
     afterEach(async () => {
+        index.store.release();
         await rm(dir, { recursive: true, force: true });
-        await rm(root, { recursive: true, force: true });
+        await rm(work, { recursive: true, force: true });
     });
 
-    it('reads a remembered file by the path stored on the node', async () => {
-        expect(await call('read_file', { path: `${MEMORY_MOUNT}/ID1.py` })).toMatchObject({
-            path: `${MEMORY_MOUNT}/ID1.py`,
-            content: SCRIPT.trimEnd(),
+    function copier(ws?: Workspace, access: 'read' | 'full' = 'read') {
+        const [tool] = memoryTools({
+            index,
+            binding: { access, sees: ['solo'], writes: ['solo'] },
+        }).filter((t) => t.name === MEMORY_COPY_FILE_TOOL);
+        const tc = {
+            services: {
+                clock: systemClock,
+                writeFile:
+                    ws &&
+                    ((p: string, d: Uint8Array, o?: { overwrite?: boolean }) => ws.write(p, d, o)),
+            },
+        } as unknown as ToolContext;
+        return async (args: Record<string, unknown>): Promise<any> => await tool.execute(args, tc);
+    }
+
+    it('is offered to an agent that can only read memory', () => {
+        const names = memoryTools({
+            index,
+            binding: { access: 'read', sees: ['*'], writes: [] },
+        }).map((t) => t.name);
+        expect(names).toContain(MEMORY_COPY_FILE_TOOL);
+    });
+
+    it('copies under the file’s own name by default', async () => {
+        const out = await copier(new Workspace({ root: work, mount: '/workspace' }))({
+            id: ids.script,
+        });
+        expect(out).toEqual({
+            id: ids.script,
+            path: `/workspace/${ids.script}.py`,
+            bytes: Buffer.byteLength(SCRIPT),
+            copied: true,
+        });
+        expect(await readFile(join(work, `${ids.script}.py`), 'utf8')).toBe(SCRIPT);
+    });
+
+    it('does the same into a workspace that is not on this disk', async () => {
+        const fs = new MemoryFs().dir('/workspace');
+        const out = await copier(new Workspace({ root: '/workspace', mount: '/workspace', fs }))({
+            id: ids.script,
+            to: 'tools/audit.py',
+        });
+        expect(out.path).toBe('/workspace/tools/audit.py');
+        expect((await fs.readFile('/workspace/tools/audit.py')).toString()).toBe(SCRIPT);
+    });
+
+    it('keeps what is already there unless told to replace it', async () => {
+        const copy = copier(new Workspace({ root: work }));
+        const first = await copy({ id: ids.script, to: 'audit.py' });
+        expect(first.error).toMatch(/already exists/);
+        expect(await copy({ id: ids.script, to: 'audit.py', overwrite: true })).toMatchObject({
+            copied: true,
         });
     });
 
-    /** Only a commit puts files here, so every file under /memory has a node. */
-    it('refuses to be written through the file tools', async () => {
-        await expect(
-            call('write_file', { path: `${MEMORY_MOUNT}/sneak.py`, content: 'x' }),
-        ).rejects.toThrow(/read-only/i);
+    it('stays inside a writable workspace', async () => {
+        expect(
+            (await copier(new Workspace({ root: work }))({ id: ids.script, to: '../out.py' }))
+                .error,
+        ).toMatch(/outside/);
+        expect(
+            (await copier(new Workspace({ root: work, readOnly: true }))({ id: ids.script })).error,
+        ).toMatch(/read-only/);
     });
 
-    it('is a name, not a way into the rest of the store', async () => {
-        await expect(
-            call('read_file', { path: `${MEMORY_MOUNT}/../manifest.json` }),
-        ).rejects.toThrow(/outside the workspace/);
+    it('answers a hidden node exactly as a missing one', async () => {
+        const copy = copier(new Workspace({ root: work }));
+        const hidden = await copy({ id: ids.secret });
+        const missing = await copy({ id: 'NOPE' });
+        expect(hidden.error).toBe(`no memory ${ids.secret}`);
+        expect(missing.error).toBe('no memory NOPE');
+    });
+
+    it('says when a node holds no file, or there is nowhere to put one', async () => {
+        expect((await copier(new Workspace({ root: work }))({ id: ids.fact })).error).toMatch(
+            /holds no file/,
+        );
+        expect((await copier()({ id: ids.script })).error).toMatch(/no workspace/);
     });
 });

@@ -6,7 +6,7 @@
 #   check-paths.sh          each candidate, with the file and line it is on
 #   check-paths.sh raw      the tokens alone, unfiltered — the sweep itself
 #
-# A running agent sees four paths: /workspace, /assets, /skills and /memory.
+# A running agent sees three paths: /workspace, /assets and /skills.
 # Everything else printed here is either noise this script has not learned yet
 # or an instruction to open a file that is not there. There is no third case,
 # which is why this exits non-zero whenever it prints one: the list is meant to
@@ -24,9 +24,9 @@ cd "$(dirname "$0")/../../../.."
 # stray `/examples.md`, and that fragment is noise on every run of every project.
 TOKEN='[~.]?/?[A-Za-z0-9_.-]*(/[A-Za-z0-9_.*-]+)+'
 
-# The four mounts, and only those: a token under one of them is a path that
+# The three mounts, and only those: a token under one of them is a path that
 # resolves.
-MOUNTS='^/(workspace|assets|skills|memory)(/|$)'
+MOUNTS='^/(workspace|assets|skills)(/|$)'
 
 # English that happens to contain a slash, and the placeholder paths of a
 # worked example. Add to this rather than teaching a reviewer to skip the same

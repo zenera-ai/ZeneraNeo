@@ -4,10 +4,12 @@ import {
     SANDBOX_GROUP,
     SandboxPool,
     identityEnv,
+    podmanBackend,
     isIdentityEnv,
     type AgentProject,
     type ProjectConfig,
     type RunIdentity,
+    type SandboxBackend,
     type SandboxConfig,
     type SandboxMount,
     type SandboxSpec,
@@ -66,7 +68,12 @@ function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: 
     for (const cred of credentials()) {
         if (cred.holds === 'file') {
             const at = `${KEY_MOUNT}/${basename(cred.value)}`;
-            mounts.push({ host: cred.value, at, readOnly: true });
+            mounts.push({
+                host: cred.value,
+                at,
+                readOnly: true,
+                source: { kind: 'credential', name: cred.env },
+            });
             env[cred.env] = at;
             continue;
         }
@@ -86,6 +93,8 @@ function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: 
 
 export interface SandboxSetup {
     pool: SandboxPool;
+    /** where the boxes run and the files live; podman on this machine for `zen run` */
+    backend: SandboxBackend;
     /** the resolved base spec, for `zn sandbox status` and the image pre-warm */
     spec: SandboxSpec;
     image: string;
@@ -130,6 +139,8 @@ export interface SandboxInputs {
      * on the container — see `execEnv` in the library for why.
      */
     identity?: RunIdentity;
+    /** where the boxes run; podman on this machine when unset */
+    backend?: SandboxBackend;
 }
 
 export function buildSandbox(opts: SandboxInputs): SandboxSetup {
@@ -143,7 +154,10 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     };
     const home = join(opts.session.data, 'sandbox', 'home');
 
-    const mounts: SandboxMount[] = [{ host: home, at: HOME }, ...(opts.mounts ?? [])];
+    const mounts: SandboxMount[] = [
+        { host: home, at: HOME, source: { kind: 'home' } },
+        ...(opts.mounts ?? []),
+    ];
     const keys = base.keys === false ? undefined : forwarded();
     if (keys) {
         mounts.push(...keys.mounts);
@@ -175,9 +189,11 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         }
     }
 
+    const backend = opts.backend ?? podmanBackend();
     const pool = new SandboxPool({
         ...spec,
         agents,
+        box: backend.box,
         root: opts.workspace,
         key: opts.session.id,
         readOnly: opts.readOnly,
@@ -186,7 +202,15 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         execPaths: RUNTIME_PATHS,
     });
 
-    return { pool, spec, image: spec.image ?? DEFAULT_SANDBOX_IMAGE, build, home, mounts };
+    return {
+        pool,
+        backend,
+        spec,
+        image: spec.image ?? DEFAULT_SANDBOX_IMAGE,
+        build,
+        home,
+        mounts,
+    };
 }
 
 /**

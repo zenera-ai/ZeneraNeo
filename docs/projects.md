@@ -327,6 +327,26 @@ tools above; a host embedding the runtime does the same thing itself.
 dedupes by the resulting spec, so identical specs share one container and an
 agent that names its own image gets its own.
 
+### Where the sandbox runs
+
+The tools are written against two seams, so the sandbox does not have to be a
+podman container on this machine:
+
+- `Box` - what the shell tools need of a container: `start`, `exec`, the job
+  calls and `dispose`. `PodmanBox` is the podman one; `new SandboxPool({ ..., box })`
+  takes a factory for any other.
+- `FsDriver` - where the file tools' bytes are. `localFs` is this machine's
+  disk and the default; `fileTools({ ..., fs })` takes another. `MemoryFs` keeps
+  a tree in memory, for tests.
+
+A `SandboxBackend` is the pair, because they have to agree: a file `write_file`
+makes must be a file `run_command` sees. `podmanBackend()` is what `zen run`
+uses. `openEngine({ backend })` takes any other. When `backend.local` is false,
+the file tools use paths inside the sandbox (`/workspace`, `/assets`, ...)
+rather than host paths. Mounts are then described by what they are (each
+mount's `source`) rather than bound from a host directory: `logicalMounts()`
+lists them, with the skill folders merged into one `/skills`.
+
 ## Embeddings
 
 `embeddings:` and `embedding:` declare vectorisers against the same

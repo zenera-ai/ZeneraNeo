@@ -50,7 +50,7 @@ export const KIND_HELP: Readonly<Record<MemoryKind, string>> = {
     plan: 'an approach that worked, worth reusing on a similar request',
     fact: 'a durable truth about the environment or the domain',
     snippet: 'a short piece of code or configuration, too small to be a file',
-    file: 'an artifact kept whole under /memory and re-runnable',
+    file: 'an artifact kept whole, to copy back into the workspace and run again',
     operation: 'an external call that was made — an endpoint, command or query',
     preference: 'a standing instruction from the user that applies to every run',
 };
@@ -104,7 +104,11 @@ export class MemoryError extends Error {
 }
 
 export interface MemoryFile {
-    /** what the agent sees, e.g. `/memory/01J8….py` — a mount path, not a host path */
+    /**
+     * `/memory/<id>.<ext>`. Only the file name means anything (see `fileName`):
+     * the prefix is from when the tree was mounted, and is kept so existing
+     * graphs and new ones agree.
+     */
     path: string;
     bytes: number;
     sha256: string;

@@ -268,7 +268,8 @@ steps 2-3. Otherwise work through these with node ids:
    memory (`--dir <memory dir>`). Today's results are only a findability
    probe: memory may have changed since the run. Do not claim a hit was
    available then, or memory was empty then, without historical evidence.
-5. **Wrong channel.** Any `run_command` or file tool touching `/memory` breaks
+5. **Wrong channel.** A remembered file is reached only by `memory_copy_file`;
+   a `run_command` or file tool guessing a path for one breaks
    `agents/memory-instructions.md`.
 
 ### Memory - saved correctly

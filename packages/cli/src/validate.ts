@@ -17,8 +17,8 @@ import {
 import {
     EXA_GROUP,
     FileSkillProvider,
+    PodmanBox,
     SANDBOX_MOUNT,
-    Sandbox,
     exaTools,
     fileTools,
     frontmatter,
@@ -1910,7 +1910,7 @@ async function probeSandbox(
     }
 
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-check-')));
-    const box = new Sandbox({
+    const box = new PodmanBox({
         root,
         key: 'check',
         image,

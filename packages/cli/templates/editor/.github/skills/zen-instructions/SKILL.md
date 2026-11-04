@@ -177,8 +177,9 @@ a file short.
 ## Paths
 
 Every path-shaped token in these files is read by a model as an instruction to
-open something, and a running agent sees four: `/workspace`, `/assets`,
-`/skills`, `/memory`. The sweep is in the `zen-review` skill:
+open something, and a running agent sees three: `/workspace`, `/assets`,
+`/skills`. Remembered files are not mounted; `memory_copy_file` brings one into
+`/workspace`. The sweep is in the `zen-review` skill:
 
 ```sh
 .github/skills/zen-review/scripts/check-paths.sh

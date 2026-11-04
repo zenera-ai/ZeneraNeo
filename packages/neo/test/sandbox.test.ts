@@ -1,17 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseConfig } from '../src/project/config.ts';
 import {
+    PodmanBox,
     resilient,
-    Sandbox,
-    SANDBOX_GROUP,
-    SANDBOX_MOUNT,
     sandboxLimits,
-    SandboxPool,
-    sandboxTools,
     type ProcOptions,
     type ProcResult,
     type Runner,
-} from '../src/tools/sandbox.ts';
+} from '../src/tools/podman.ts';
+import { SANDBOX_GROUP, SANDBOX_MOUNT, SandboxPool, sandboxTools } from '../src/tools/sandbox.ts';
 import { selectTools, type ToolContext } from '../src/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -62,8 +59,8 @@ function fresh(): Fake {
     return f;
 }
 
-function box(f: Fake, over: Record<string, unknown> = {}): Sandbox {
-    return new Sandbox({ root: '/host/ws', key: '20260827-120000-abcd', exec: f.run, ...over });
+function box(f: Fake, over: Record<string, unknown> = {}): PodmanBox {
+    return new PodmanBox({ root: '/host/ws', key: '20260827-120000-abcd', exec: f.run, ...over });
 }
 
 const find = (f: Fake, verb: string): Call | undefined => f.calls.find((c) => c.args[0] === verb);

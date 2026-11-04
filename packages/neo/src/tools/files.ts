@@ -1,7 +1,8 @@
-import { realpathSync, statSync, type Stats } from 'node:fs';
-import { cp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { extname } from 'node:path';
+import type { FileSource } from '../memory/files.ts';
 import { tool, type AnyTool, type ToolContext } from '../types.ts';
+import { localFs, type FsDriver, type FsStat } from './fs.ts';
+import type { MountSource } from './mounts.ts';
 
 // ---------------------------------------------------------------------------
 // File tools
@@ -50,6 +51,8 @@ export interface WorkspaceMount {
     at: string;
     /** defaults to true — an extra tree is reference material unless said otherwise */
     readOnly?: boolean;
+    /** what the tree is, for a backend that has to supply it rather than bind `host` */
+    source?: MountSource;
 }
 
 export interface WorkspaceOptions {
@@ -66,6 +69,11 @@ export interface WorkspaceOptions {
     mount?: string;
     /** further trees, each under its own name; read-only unless one says otherwise */
     mounts?: readonly WorkspaceMount[];
+    /**
+     * Where the bytes are; this machine's disk when unset. `root` and every
+     * mount's `host` are paths in this driver's namespace.
+     */
+    fs?: FsDriver;
 }
 
 /** One directory the agent can reach, the name it reaches it by, and what it may do there. */
@@ -75,12 +83,22 @@ interface Root {
     readOnly: boolean;
 }
 
+/** A mount as the workspace holds it: resolved, with its permission decided. */
+export interface ResolvedMount {
+    host: string;
+    at: string;
+    readOnly: boolean;
+    source?: MountSource;
+}
+
 export class Workspace {
     readonly root: string;
     readonly readOnly: boolean;
     readonly mount: string | undefined;
     /** the extra trees, resolved — the primary root is not among them */
-    readonly mounts: readonly Required<WorkspaceMount>[];
+    readonly mounts: readonly ResolvedMount[];
+    /** where the bytes are; every resolved path is in its namespace */
+    readonly fs: FsDriver;
 
     /** primary first */
     readonly #roots: Root[];
@@ -90,14 +108,15 @@ export class Workspace {
     readonly #deep: Root[];
 
     constructor(opts: WorkspaceOptions) {
+        this.fs = opts.fs ?? localFs;
         // Resolve the root's own symlinks once, so a workspace that *is* a
         // symlink does not fail every containment check against itself.
-        this.root = realpathSync(resolve(opts.root));
+        this.root = this.fs.realpathSync(this.fs.path.resolve(opts.root));
         this.readOnly = opts.readOnly ?? false;
         this.mount = mountPoint(opts.mount);
 
         const roots: Root[] = [{ path: this.root, at: this.mount, readOnly: this.readOnly }];
-        const mounts: Required<WorkspaceMount>[] = [];
+        const mounts: ResolvedMount[] = [];
         for (const m of opts.mounts ?? []) {
             const at = mountPoint(m.at);
             if (at === undefined) {
@@ -110,10 +129,10 @@ export class Workspace {
                     throw new Error(`workspace mounts overlap: ${at} and ${taken.at}`);
                 }
             }
-            const host = directory(m.host, at);
+            const host = directory(this.fs, m.host, at);
             const readOnly = m.readOnly ?? true;
             roots.push({ path: host, at, readOnly });
-            mounts.push({ host, at, readOnly });
+            mounts.push({ host, at, readOnly, ...(m.source ? { source: m.source } : {}) });
         }
 
         this.mounts = mounts;
@@ -140,6 +159,7 @@ export class Workspace {
             throw new Error('path contains a null byte');
         }
         const { root, rest } = this.#locate(input);
+        const { resolve, sep } = this.fs.path;
         const real = this.#realish(resolve(root.path, rest));
         if (real !== root.path && !real.startsWith(root.path + sep)) {
             throw new Error(`outside the workspace: ${input}`);
@@ -189,6 +209,7 @@ export class Workspace {
 
     /** The root a resolved path belongs to; the primary when nothing else claims it. */
     #owner(path: string): Root {
+        const { sep } = this.fs.path;
         return (
             this.#deep.find((r) => path === r.path || path.startsWith(r.path + sep)) ??
             this.#roots[0]
@@ -196,11 +217,12 @@ export class Workspace {
     }
 
     #realish(path: string): string {
+        const { dirname, join } = this.fs.path;
         const missing: string[] = [];
         let at = path;
         for (;;) {
             try {
-                return join(realpathSync(at), ...missing.reverse());
+                return join(this.fs.realpathSync(at), ...missing.reverse());
             } catch (err) {
                 if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
                     throw err;
@@ -219,6 +241,7 @@ export class Workspace {
 
     /** Where a path sits under its own root, in posix form. `.` is that root. */
     rel(path: string): string {
+        const { relative, sep } = this.fs.path;
         return relative(this.#owner(path).path, path).split(sep).join('/') || '.';
     }
 
@@ -234,7 +257,7 @@ export class Workspace {
      */
     show(path: string): string {
         const root = this.#owner(path);
-        const rel = relative(root.path, path).split(sep).join('/') || '.';
+        const rel = this.rel(path);
         if (root.at === undefined) {
             return rel;
         }
@@ -244,6 +267,49 @@ export class Workspace {
     /** Whether a resolved path *is* one of the roots. Nothing may move or delete one. */
     isRoot(path: string): boolean {
         return this.#roots.some((r) => r.path === path);
+    }
+
+    /** Whether resolved `inner` sits strictly below resolved `outer`. */
+    isInside(inner: string, outer: string): boolean {
+        return inner.startsWith(outer + this.fs.path.sep);
+    }
+
+    /**
+     * A file the agent named, in the form memory copies from: contained like
+     * any read, and read through this workspace's driver, so remembering works
+     * the same whether the bytes are on this machine or in a remote sandbox.
+     */
+    source(path: string): FileSource {
+        const at = this.within(path);
+        const fs = this.fs;
+        return { path: at, stat: () => fs.stat(at), read: () => fs.readFile(at) };
+    }
+
+    /**
+     * Writes bytes the agent did not type — a remembered file being copied
+     * back — under the same rules as `write_file`: contained, refused in a
+     * read-only tree or run, and never over an existing file unless asked.
+     */
+    async write(
+        path: string,
+        data: Uint8Array,
+        opts: { overwrite?: boolean } = {},
+    ): Promise<string> {
+        this.mutable();
+        const at = this.within(path, { write: true });
+        if (this.isRoot(at)) {
+            throw new Error('refusing to overwrite the workspace root');
+        }
+        const there = await this.fs.stat(at).catch(() => undefined);
+        if (there?.isDirectory()) {
+            throw new Error(`${this.show(at)} is a directory`);
+        }
+        if (there && !opts.overwrite) {
+            throw new Error(`${this.show(at)} already exists — pass overwrite to replace it`);
+        }
+        await this.fs.mkdirp(this.fs.path.dirname(at));
+        await this.fs.writeFile(at, data);
+        return this.show(at);
     }
 
     mutable(): void {
@@ -268,14 +334,14 @@ function under(inner: string, outer: string): boolean {
 }
 
 /** The host side of a mount, resolved. It has to exist: a mount of nothing is a typo. */
-function directory(host: string, at: string): string {
+function directory(fs: FsDriver, host: string, at: string): string {
     let path;
     try {
-        path = realpathSync(resolve(host));
+        path = fs.realpathSync(fs.path.resolve(host));
     } catch {
         throw new Error(`workspace mount ${at}: no such directory: ${host}`);
     }
-    if (!statSync(path).isDirectory()) {
+    if (!fs.isDirectorySync(path)) {
         throw new Error(`workspace mount ${at}: not a directory: ${host}`);
     }
     return path;
@@ -396,6 +462,7 @@ function lineCount(text: string): number {
  * not read a gigabyte to report line counts nobody asked for.
  */
 async function inspectFile(
+    fs: FsDriver,
     at: string,
     bytes: number,
     scan: boolean,
@@ -408,36 +475,25 @@ async function inspectFile(
         return { format: 'text', lines: 0 };
     }
     if (scan && bytes <= MAX_SCAN) {
-        const buf = await readFile(at);
+        const buf = await fs.readFile(at);
         return looksBinary(buf, false)
             ? { format: 'binary' }
             : { format: 'text', lines: countLines(buf) };
     }
-    const handle = await open(at, 'r');
-    try {
-        const buf = Buffer.alloc(Math.min(bytes, SNIFF_BYTES));
-        const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-        return {
-            format: looksBinary(buf.subarray(0, bytesRead), bytesRead < bytes) ? 'binary' : 'text',
-        };
-    } finally {
-        await handle.close();
-    }
+    const buf = await fs.readHead(at, Math.min(bytes, SNIFF_BYTES));
+    return { format: looksBinary(buf, buf.length < bytes) ? 'binary' : 'text' };
 }
 
 /** Reads a file as text, taking only the head of one too large to hold. */
-async function readText(at: string, bytes: number): Promise<{ body: string; whole: boolean }> {
+async function readText(
+    fs: FsDriver,
+    at: string,
+    bytes: number,
+): Promise<{ body: string; whole: boolean }> {
     if (bytes <= MAX_OPEN) {
-        return { body: await readFile(at, 'utf8'), whole: true };
+        return { body: (await fs.readFile(at)).toString('utf8'), whole: true };
     }
-    const handle = await open(at, 'r');
-    try {
-        const buf = Buffer.alloc(MAX_OPEN);
-        const { bytesRead } = await handle.read(buf, 0, MAX_OPEN, 0);
-        return { body: buf.subarray(0, bytesRead).toString('utf8'), whole: false };
-    } finally {
-        await handle.close();
-    }
+    return { body: (await fs.readHead(at, MAX_OPEN)).toString('utf8'), whole: false };
 }
 
 /** Splits into lines without inventing a trailing empty one. */
@@ -902,6 +958,8 @@ const GROUP = 'files';
 
 export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>[] {
     const ws = new Workspace(opts);
+    const fs = ws.fs;
+    const { dirname, join } = fs.path;
 
     // What the model is told about naming a file. The long form goes in
     // `read_file`, which is the first of these any model reaches for; the short
@@ -971,11 +1029,11 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         },
         execute: async ({ path, start_line, end_line }) => {
             const at = ws.within(path);
-            const info = await stat(at);
+            const info = await fs.stat(at);
             if (info.isDirectory()) {
                 return { error: `${ws.show(at)} is a directory`, hint: 'use list_dir' };
             }
-            const shape = await inspectFile(at, info.size, false);
+            const shape = await inspectFile(fs, at, info.size, false);
             if (shape.format !== 'text') {
                 return {
                     error: `${ws.show(at)} is not a text file`,
@@ -983,7 +1041,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                     bytes: info.size,
                 };
             }
-            const { body, whole } = await readText(at, info.size);
+            const { body, whole } = await readText(fs, at, info.size);
             const all = toLines(body);
             const total = all.length;
             const from = Math.max(1, Math.trunc(start_line ?? 1));
@@ -1047,7 +1105,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                 return { path: '/', entries: trees };
             }
             const at = root(path);
-            const entries = await readdir(at, { withFileTypes: true });
+            const entries = await fs.readdir(at);
             const listed: FileInfo[] = [];
             let budget = LIST_SCAN_BUDGET;
             for (const entry of entries.slice(0, MAX_ENTRIES)) {
@@ -1066,8 +1124,9 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                 // A file can vanish between the readdir and the stat; that is a
                 // race, not a failure of the listing.
                 try {
-                    const info = await stat(join(at, entry.name));
+                    const info = await fs.stat(join(at, entry.name));
                     const shape = await inspectFile(
+                        fs,
                         join(at, entry.name),
                         info.size,
                         info.size <= budget,
@@ -1107,8 +1166,8 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                 return { error: `content exceeds ${MAX_WRITE} bytes` };
             }
             const at = ws.within(path, { write: true });
-            await mkdir(dirname(at), { recursive: true });
-            await writeFile(at, content, 'utf8');
+            await fs.mkdirp(dirname(at));
+            await fs.writeFile(at, content);
             return {
                 path: ws.show(at),
                 bytes: Buffer.byteLength(content),
@@ -1203,11 +1262,11 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             if (source === target) {
                 return { error: 'the source and the destination are the same path' };
             }
-            if (target.startsWith(source + sep)) {
+            if (ws.isInside(target, source)) {
                 return { error: `cannot move ${ws.show(source)} into itself` };
             }
-            await stat(source); // ENOENT here is the honest error
-            if (await statOrNull(target)) {
+            await fs.stat(source); // ENOENT here is the honest error
+            if (await statOrNull(fs, target)) {
                 if (!overwrite) {
                     return {
                         error: `${ws.show(target)} already exists`,
@@ -1215,10 +1274,10 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                     };
                 }
                 // rename() will not replace a non-empty directory on its own.
-                await rm(target, { recursive: true, force: true });
+                await fs.rm(target, { recursive: true, force: true });
             }
-            await mkdir(dirname(target), { recursive: true });
-            await rename(source, target);
+            await fs.mkdirp(dirname(target));
+            await fs.rename(source, target);
             return { from: ws.show(source), to: ws.show(target), moved: true };
         },
     });
@@ -1268,7 +1327,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             if (source === target) {
                 return { error: 'the source and the destination are the same path' };
             }
-            const info = await stat(source); // ENOENT here is the honest error
+            const info = await fs.stat(source); // ENOENT here is the honest error
             if (info.isDirectory()) {
                 if (!recursive) {
                     return {
@@ -1276,11 +1335,11 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                         hint: 'pass recursive to copy it and everything in it',
                     };
                 }
-                if (target.startsWith(source + sep)) {
+                if (ws.isInside(target, source)) {
                     return { error: `cannot copy ${ws.show(source)} into itself` };
                 }
             }
-            if (await statOrNull(target)) {
+            if (await statOrNull(fs, target)) {
                 if (!overwrite) {
                     return {
                         error: `${ws.show(target)} already exists`,
@@ -1288,10 +1347,10 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                     };
                 }
                 // cp() will not replace a directory with a file, or the reverse.
-                await rm(target, { recursive: true, force: true });
+                await fs.rm(target, { recursive: true, force: true });
             }
-            await mkdir(dirname(target), { recursive: true });
-            await cp(source, target, { recursive: recursive === true });
+            await fs.mkdirp(dirname(target));
+            await fs.copy(source, target, { recursive: recursive === true });
             const out = { from: ws.show(source), to: ws.show(target), copied: true };
             return info.isDirectory() ? { ...out, directory: true } : { ...out, bytes: info.size };
         },
@@ -1321,7 +1380,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             if (ws.isRoot(at)) {
                 return { error: 'refusing to delete the workspace root' };
             }
-            const info = await stat(at);
+            const info = await fs.stat(at);
             if (info.isDirectory()) {
                 if (!recursive) {
                     return {
@@ -1329,10 +1388,10 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                         hint: 'pass recursive to delete it and everything in it',
                     };
                 }
-                await rm(at, { recursive: true });
+                await fs.rm(at, { recursive: true });
                 return { path: ws.show(at), deleted: true, directory: true };
             }
-            await rm(at);
+            await fs.rm(at);
             return { path: ws.show(at), deleted: true };
         },
     });
@@ -1465,6 +1524,8 @@ type PatchStep =
     | { kind: 'delete'; at: string };
 
 async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
+    const fs = ws.fs;
+    const { dirname } = fs.path;
     const ops = parsePatch(patch);
     const steps: PatchStep[] = [];
     const touched: Record<string, unknown>[] = [];
@@ -1495,7 +1556,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
         seen.add(at);
 
         if (op.kind === 'delete') {
-            const info = await statOrNull(at);
+            const info = await statOrNull(fs, at);
             if (!info) {
                 throw new PatchError(`${ws.show(at)} does not exist`);
             }
@@ -1509,7 +1570,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
         }
 
         if (op.kind === 'add') {
-            if (await statOrNull(at)) {
+            if (await statOrNull(fs, at)) {
                 throw new PatchError(
                     `${ws.show(at)} already exists — update it instead of adding it`,
                 );
@@ -1528,7 +1589,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
             continue;
         }
 
-        const info = await statOrNull(at);
+        const info = await statOrNull(fs, at);
         if (!info) {
             throw new PatchError(`${ws.show(at)} does not exist`);
         }
@@ -1538,11 +1599,11 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
         if (info.size > MAX_WRITE) {
             throw new PatchError(`${ws.show(at)} is too large to patch`);
         }
-        const shape = await inspectFile(at, info.size, false);
+        const shape = await inspectFile(fs, at, info.size, false);
         if (shape.format !== 'text') {
             throw new PatchError(`${ws.show(at)} is a ${shape.format} file, not text`);
         }
-        const body = await readFile(at, 'utf8');
+        const body = (await fs.readFile(at)).toString('utf8');
         // Matched against LF-only lines. A patch never carries a CR, so a CRLF
         // file would miss exactly, match on the trailing-whitespace pass, and be
         // spliced with bare LF — mixed endings behind a successful apply.
@@ -1579,7 +1640,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
                         `${ws.show(to)} is already written by another part of this patch`,
                     );
                 }
-                if (!removed.has(to) && (await statOrNull(to))) {
+                if (!removed.has(to) && (await statOrNull(fs, to))) {
                     throw new PatchError(`${ws.show(to)} already exists`);
                 }
                 targets.add(to);
@@ -1594,15 +1655,15 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
     for (const step of steps) {
         switch (step.kind) {
             case 'write':
-                await mkdir(dirname(step.at), { recursive: true });
-                await writeFile(step.at, step.content, 'utf8');
+                await fs.mkdirp(dirname(step.at));
+                await fs.writeFile(step.at, step.content);
                 break;
             case 'move':
-                await mkdir(dirname(step.to), { recursive: true });
-                await rename(step.from, step.to);
+                await fs.mkdirp(dirname(step.to));
+                await fs.rename(step.from, step.to);
                 break;
             case 'delete':
-                await rm(step.at);
+                await fs.rm(step.at);
                 break;
         }
     }
@@ -1619,9 +1680,9 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
     };
 }
 
-async function statOrNull(at: string): Promise<Stats | null> {
+async function statOrNull(fs: FsDriver, at: string): Promise<FsStat | null> {
     try {
-        return await stat(at);
+        return await fs.stat(at);
     } catch {
         return null;
     }
@@ -1652,7 +1713,7 @@ async function walk(
 ): Promise<boolean> {
     let entries;
     try {
-        entries = await readdir(dir, { withFileTypes: true });
+        entries = await ws.fs.readdir(dir);
     } catch {
         return true;
     }
@@ -1660,7 +1721,7 @@ async function walk(
         if (SKIP.has(entry.name)) {
             continue;
         }
-        const child = join(dir, entry.name);
+        const child = ws.fs.path.join(dir, entry.name);
         // Symlinks are not followed: a link out of the workspace would
         // otherwise let a listing report paths the tools cannot open anyway.
         if (entry.isSymbolicLink()) {

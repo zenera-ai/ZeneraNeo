@@ -736,12 +736,13 @@ the model afterwards is refused rather than silently mixing two vector spaces.
 
 ### Remembered files
 
-An agent that writes a working script can keep it. The file is copied under a
-generated id and mounted read-only at `/memory`, so a later run can execute it
-directly:
+An agent that writes a working script can keep it. The file is copied into the
+memory directory under a generated id. It is not mounted into the sandbox: a
+later run copies it into the workspace with `memory_copy_file`, then runs it:
 
 ```
-run_command  python3 /memory/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+memory_copy_file  { "id": "01JD9Q7X8N2K4M6P8R0T2V4W6Y" }   → /workspace/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+run_command       python3 01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
 ```
 
 The graph holds the provenance around it - what asked for it, what plan it came
@@ -794,18 +795,18 @@ agents:
 
 | Field        | Type                       | Default          | Meaning                                      |
 | ------------ | -------------------------- | ---------------- | -------------------------------------------- |
-| `access`     | `read`/`read-write`/`full` | `read-write`     | Which of the five tools this agent gets      |
+| `access`     | `read`/`read-write`/`full` | `read-write`     | Which of the six tools this agent gets       |
 | `sees`       | name[]                     | `[]`             | Private slices this agent may read, plus `*` |
 | `writes`     | name[]                     | `[*]`            | Labels it may write under                    |
 | `autoRecall` | boolean or `{ limit }`     | `true`, limit 10 | Recall before a turn that follows user input |
 
 `access` decides the tools, and nothing else does:
 
-| Level        | Tools                                         |
-| ------------ | --------------------------------------------- |
-| `read`       | `memory_search`, `memory_grep`, `memory_load` |
-| `read-write` | the above, plus `memory_commit`               |
-| `full`       | the above, plus `memory_forget`               |
+| Level        | Tools                                                             |
+| ------------ | ----------------------------------------------------------------- |
+| `read`       | `memory_search`, `memory_grep`, `memory_load`, `memory_copy_file` |
+| `read-write` | the above, plus `memory_commit`                                   |
+| `full`       | the above, plus `memory_forget`                                   |
 
 **One memory, masked - not one memory each.** Every node carries an audience,
 and `sees` is the set of audiences an agent reads. `*` is the public slice and

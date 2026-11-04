@@ -9,7 +9,7 @@ import {
     identityTools,
     type RunIdentity,
 } from '../src/tools/identity.ts';
-import { Sandbox, type ProcOptions, type Runner } from '../src/tools/sandbox.ts';
+import { PodmanBox, type ProcOptions, type Runner } from '../src/tools/podman.ts';
 import { tool, type ToolContext } from '../src/types.ts';
 
 const roots: string[] = [];
@@ -137,7 +137,7 @@ describe('the identity in the sandbox', () => {
         opts?: ProcOptions;
     }
 
-    function box(over: Record<string, unknown> = {}): { b: Sandbox; calls: Call[] } {
+    function box(over: Record<string, unknown> = {}): { b: PodmanBox; calls: Call[] } {
         const calls: Call[] = [];
         const run: Runner = (_bin, args, opts) => {
             calls.push({ args: [...args], opts });
@@ -150,7 +150,7 @@ describe('the identity in the sandbox', () => {
                 timedOut: false,
             });
         };
-        const b = new Sandbox({ root: '/host/ws', key: 'session-1', exec: run, ...over });
+        const b = new PodmanBox({ root: '/host/ws', key: 'session-1', exec: run, ...over });
         return { b, calls };
     }
 

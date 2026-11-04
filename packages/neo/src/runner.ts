@@ -13,6 +13,7 @@ import {
 } from './events.ts';
 import { systemClock, type IdClock } from './ids.ts';
 import * as Kernel from './kernel.ts';
+import type { FileSource, WorkspaceWriter } from './memory/files.ts';
 import type { MemoryIndex } from './memory/index.ts';
 import { renderRecollection } from './memory/render.ts';
 import type { Model, ModelRequest } from './model.ts';
@@ -121,8 +122,10 @@ export interface RunnerOptions<TCtx = unknown> {
     services?: Services;
     payloads?: PayloadStore | PayloadResolver;
     memory?: MemoryIndex;
-    /** turns an agent-visible path into a host path, so files can be remembered */
-    resolveFile?: (path: string) => string;
+    /** reads a file the agent names, so it can be remembered */
+    resolveFile?: (path: string) => FileSource;
+    /** writes into the workspace, so a remembered file can be copied back out */
+    writeFile?: WorkspaceWriter;
     skills?: SkillProvider[];
     handoffPolicy?: HandoffPolicy;
     /** renders the nodes a policy selected; defaults to a structural note */
@@ -199,6 +202,7 @@ export class AgentRunner<TCtx = unknown> {
                 payloads: opts.payloads,
                 memory: opts.memory,
                 resolveFile: opts.resolveFile,
+                writeFile: opts.writeFile,
                 skills: opts.skills,
                 clock: this.#clock,
             });

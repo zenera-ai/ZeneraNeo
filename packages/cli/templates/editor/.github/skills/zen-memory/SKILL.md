@@ -1,6 +1,6 @@
 ---
 name: zen-memory
-description: Agent memory in Zenera projects - the `memory:` block and per-agent `access`/`sees`/`writes`/`autoRecall`, the five `memory_*` tools (when to use `memory_grep` instead of `memory_search`), kinds, relations and how recall ranks, inspecting a graph with `zen memory`, designing a memory strategy, `agents/memory-instructions.md` vs `agents/memory-policy-instructions.md`, remembering files under `/memory`, and putting memory in front of a `zen rag` index.
+description: Agent memory in Zenera projects - the `memory:` block and per-agent `access`/`sees`/`writes`/`autoRecall`, the six `memory_*` tools (when to use `memory_grep` instead of `memory_search`), kinds, relations and how recall ranks, inspecting a graph with `zen memory`, designing a memory strategy, `agents/memory-instructions.md` vs `agents/memory-policy-instructions.md`, remembering files and copying them back with `memory_copy_file`, and putting memory in front of a `zen rag` index.
 user-invocable: false
 ---
 
@@ -120,8 +120,8 @@ are the same result - and the second is what you need when the question is
 whether a host, a flag or a command was already written down. Grep reads the
 text, the metadata and the bytes of remembered files, applies the mask, leaves
 out superseded nodes unless asked, and names any file it could not read. It is
-also what an agent is supposed to reach for instead of running a shell `grep`
-over `/memory`, which the house rules forbid.
+also what an agent is supposed to reach for instead of looking for the files
+some other way: they are never mounted, so the tools are the only way in.
 
 It is not a diagnostic instrument, though - it is ordinary retrieval, and an
 agent is expected to reach for it mid-run as readily as for search. The line
@@ -160,7 +160,7 @@ later.
 | `plan`       | an approach that worked, worth reusing on a similar request    |
 | `fact`       | a durable truth about the environment or the domain            |
 | `snippet`    | a short piece of code or configuration, too small to be a file |
-| `file`       | an artifact kept whole under `/memory` and re-runnable         |
+| `file`       | an artifact kept whole, to copy back and run again             |
 | `operation`  | an external call that was made - an endpoint, command or query |
 | `preference` | a standing instruction from the user that applies to every run |
 
@@ -225,8 +225,9 @@ below.
 
 Several runs may read and write one memory at once, and a run killed mid-write
 leaves the last commit intact. It is committed with the project - everything
-but `memory.db-wal`/`memory.db-shm`, which are runtime state. Only `files/` is
-mounted, **read-only**, at `/memory` in the agent's namespace. A memory from an
+but `memory.db-wal`/`memory.db-shm`, which are runtime state. Nothing here is
+mounted into the sandbox: a remembered file reaches the workspace only as a copy
+made by `memory_copy_file`. A memory from an
 older `zen` (`graph.json`, `vectors.f32`) is refused until converted once with
 `zen memory migrate`.
 
@@ -386,18 +387,16 @@ a `file` argument on a node instead, and copies the **bytes** out:
 ```
 
 The path is the one the **file tools** use, resolved the same way. The copy
-lands at `<project>/memory/files/<id>.<ext>` and appears to the agent as:
-
-```
-/memory/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
-```
+lands at `<project>/memory/files/<id>.<ext>`, and the agent knows it by that
+name - `01JD9Q7X8N2K4M6P8R0T2V4W6Y.py` - and by its node id. It is not on any
+path the agent can open.
 
 | Rule      | Value                                                            |
 | --------- | ---------------------------------------------------------------- |
 | Size cap  | 2 MiB. Over it, keep the artifact and commit a `snippet` instead |
 | Inlined   | under 32 KiB - `memory_load` returns the contents                |
-| Larger    | `memory_load` returns the path; open or run it                   |
-| Mount     | `/memory`, **read-only**                                         |
+| Larger    | `memory_load` returns the name; `memory_copy_file` to open it    |
+| Mount     | none - `memory_copy_file` copies into `/workspace`               |
 | Extension | preserved, because it decides how the file runs and renders      |
 
 ### The agent has to be able to write the file first
@@ -415,7 +414,7 @@ text no matter how much the memory design leans on `file` nodes.
 | Neither                      | No. Everything worth keeping has to fit on one line of `text`           |
 
 The workspace is the only tree that round-trips, because it is the only
-writable one. `/assets`, `/skills` and `/memory` resolve as well - they are
+writable one. `/assets` and `/skills` resolve as well - they are
 mounts the file tools know by name - but they are **read-only**, so nothing can
 be put there to be remembered. Every other absolute path is real to
 `run_command` and outside the workspace root, so a file written to `/tmp` comes
@@ -434,10 +433,13 @@ context ever uses workspace vocabulary and the model has no reason to prefer
 `/workspace` over `/tmp`. Either give it the file tools, or say in its prompt
 that work it means to keep goes in `/workspace`.
 
-Reusing one is the point of keeping it:
+Reusing one is the point of keeping it. `memory_copy_file` needs only `read`
+access, puts the file at `/workspace/<id>.<ext>` unless given a `to`, and will
+not replace an existing file without `overwrite`:
 
 ```
-run_command  python3 /memory/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+memory_copy_file  { "id": "01JD9Q7X8N2K4M6P8R0T2V4W6Y" }   → /workspace/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+run_command       python3 01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
 ```
 
 Which means the file has to be **self-contained**. A script that reads
@@ -445,10 +447,10 @@ Which means the file has to be **self-contained**. A script that reads
 that takes its inputs as arguments will. If it needs a credential, it should
 read it from the environment and say so in the node text.
 
-Nothing writes to `/memory` through the file tools, so every file under it has a
-node explaining what it is and the graph cannot acquire orphans. To change a
-remembered file: copy it into the workspace, edit it there, commit the new one
-and link it with `SUPERSEDES` to the old.
+Only a commit puts a file in the store, so every file there has a node
+explaining what it is and the graph cannot acquire orphans. The copy in the
+workspace is the agent's to edit. To change a remembered file: copy it, edit the
+copy, commit the new one and link it with `SUPERSEDES` to the old.
 
 The node text describes and locates; the file carries the content. Reach for a
 node with no file only when the whole of what you know fits on one line.
@@ -559,7 +561,8 @@ gets whether it loads the skill or not.
 
 **Every project that enables memory carries `agents/memory-instructions.md`**,
 as shipped by `zen`. That file is how the agent is told to use the store: read
-and search it only through the tools, never through `/memory` itself, and what a
+and search it only through the tools, copy a file out with `memory_copy_file`
+before running it, and what a
 node must carry to still be worth having.
 
 `zen init` writes it, because the projects it scaffolds have memory on from the
@@ -778,7 +781,7 @@ agents:
 | Vectors fewer than nodes                            | Some nodes were committed with no embedder; they are only reachable by term overlap                                             |
 | The graph fills with restated requests              | The commit rule is not in a prompt or skill. State the "would a later run redo this" test                                       |
 | Runs do real work and the graph stays empty         | The agent is bound `read`, or nothing names the moments: empty recall then work, before an answer, a handoff or a fork's return |
-| An agent greps `/memory` or queries `memory.db`     | The house-rules block is missing from `agents/memory-instructions.md` - the system prompt never forbids it                      |
+| An agent guesses a path for a remembered file       | The house-rules block is missing from `agents/memory-instructions.md` - nothing tells it to use `memory_copy_file`              |
 | A recalled fact cannot be checked or continued      | Nodes were committed with no provenance. The block's "say where it came from" rule is what prevents it                          |
 | Recall returns pointers and the run re-reads it all | Content was committed as `text` alone. A node's text describes and locates; the content belongs in a file                       |
 | A wrong memory keeps coming back                    | It was edited instead of superseded, or superseded in the wrong direction - the **new** node is the source                      |

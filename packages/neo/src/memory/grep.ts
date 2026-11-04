@@ -21,8 +21,8 @@ import { MemoryError, type MemoryNode } from './types.ts';
 // the bytes of a remembered file are the thing itself. An exact match belongs
 // against all three.
 //
-// Two rules keep this honest against raw `grep` over /memory, which is what it
-// exists to replace. Superseded nodes are excluded unless asked for, and come
+// Two rules keep this honest against a raw `grep` over the memory directory,
+// which is what it exists to replace. Superseded nodes are excluded unless asked for, and come
 // back flagged when they are — serving a withdrawn correction as current is
 // the failure mode the mount is warned about. And reading here is not use:
 // recency decay is meant to track what an agent actually opened, and a finder

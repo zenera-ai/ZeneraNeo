@@ -1,4 +1,13 @@
-import { parseConfig, type RunIdentity } from '@zenera/neo';
+import {
+    MemoryFs,
+    logicalMounts,
+    parseConfig,
+    podmanBackend,
+    type PodmanBox,
+    type RunIdentity,
+    type SandboxBackend,
+    type SandboxOptions,
+} from '@zenera/neo';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -94,7 +103,7 @@ describe('the sandbox a run gets', () => {
     it('carries the user on every agent’s container, never by name from the host', () => {
         const s = setup(ANN);
         for (const agent of ['solo', 'own']) {
-            const box = s.pool.for(agent);
+            const box = s.pool.for(agent) as PodmanBox;
             expect(box.spec.execEnv).toMatchObject({ ZEN_USER_ID: 'u-1', ZEN_USER_ROLE: 'editor' });
             expect(box.spec.execPaths.PYTHONPATH).toEqual([RUNTIME_PYTHON]);
             expect(box.spec.secrets).not.toContain('ZEN_USER_ID');
@@ -111,8 +120,38 @@ describe('the sandbox a run gets', () => {
         expect(new Set(names).size).toBe(1);
     });
 
+    it('runs where the backend says, with the mounts labelled for one that cannot bind them', () => {
+        const root = scratch();
+        const asked: SandboxOptions[] = [];
+        const backend: SandboxBackend = {
+            name: 'remote',
+            local: false,
+            fs: new MemoryFs(),
+            box: (opts) => {
+                asked.push(opts);
+                return podmanBackend().box(opts);
+            },
+        };
+        const s = buildSandbox({
+            config: parseConfig('agents:\n  - name: solo\n', 'agents.yaml'),
+            session: createSessionAt(join(root, 'session'), join(root, 'ws')),
+            workspace: join(root, 'ws'),
+            root,
+            keys: false,
+            identity: ANN,
+            backend,
+        });
+        s.pool.for('solo');
+        expect(s.backend).toBe(backend);
+        expect(asked).toHaveLength(1);
+        expect(asked[0].execEnv).toMatchObject({ ZEN_USER_ID: 'u-1' });
+        expect(logicalMounts(s.mounts)).toEqual([
+            { at: '/home/agent', readOnly: false, source: { kind: 'home' } },
+        ]);
+    });
+
     it('has no user at all when the run has none', () => {
-        expect(setup().pool.for('solo').spec.execEnv).toEqual({});
+        expect((setup().pool.for('solo') as PodmanBox).spec.execEnv).toEqual({});
     });
 });
 

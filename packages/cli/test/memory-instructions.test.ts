@@ -1,6 +1,7 @@
 import {
     frontmatter,
     MEMORY_COMMIT_TOOL,
+    MEMORY_COPY_FILE_TOOL,
     MEMORY_FORGET_TOOL,
     MEMORY_GREP_TOOL,
     MEMORY_LOAD_TOOL,
@@ -45,6 +46,7 @@ const TOOLS = [
     MEMORY_LOAD_TOOL,
     MEMORY_COMMIT_TOOL,
     MEMORY_FORGET_TOOL,
+    MEMORY_COPY_FILE_TOOL,
 ];
 
 describe('the tools the house rules name', () => {
@@ -145,9 +147,10 @@ describe('the house rules match what the renderer emits', () => {
         expect(out).toContain('  \u2192produced  file  F1');
     });
 
-    it('claims a file shows path, size and use, and it does', () => {
-        expect(rules).toContain('/memory/<id>.<ext>');
-        expect(out).toContain('/memory/F1.py \u00b7 4.2 KB \u00b7 unused');
+    it('claims a file shows name, size and use, and it does', () => {
+        expect(rules).toContain('`<id>.<ext>` name, size, and use count');
+        expect(out).toContain(' F1.py \u00b7 4.2 KB \u00b7 unused');
+        expect(out).not.toContain('/memory/');
     });
 
     it('claims indentation is the graph, and the child is indented under its parent', () => {

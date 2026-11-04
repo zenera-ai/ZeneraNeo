@@ -87,7 +87,8 @@ Use `copy_file` to duplicate a file, never `read_file` + `write_file`. The bytes
 conversation, so there is no size cap and binaries arrive intact.
 
 - The source may be in a read-only mount; only the destination must be writable.
-  This is how something under `/assets`, `/skills` or `/memory` reaches `/workspace`.
+  This is how something under `/assets` or `/skills` reaches `/workspace`. Remembered
+  files are not mounted; `memory_copy_file` brings one into the workspace.
 - Set `overwrite: true` only when intentionally replacing an existing destination.
 - Copying a directory and its contents requires `recursive: true`.
 
@@ -103,6 +104,6 @@ All file operations are confined to mounted trees:
 
 - `/workspace`: The primary writable directory for the project. Paths inside the workspace
   (such as `/workspace/src/main.ts`) are where project files reside.
-- `/assets`, `/skills`, `/memory`: Read-only mounts. You may read, list, and search them,
+- `/assets`, `/skills`: Read-only mounts. You may read, list, and search them,
   but you cannot write, move, or delete files inside them.
 - Any attempt to reach outside these mounts fails with a containment error.

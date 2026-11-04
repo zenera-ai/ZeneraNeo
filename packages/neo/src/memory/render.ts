@@ -1,3 +1,4 @@
+import { fileName } from './files.ts';
 import {
     SPINE_RELATIONS,
     type MemoryEdge,
@@ -216,7 +217,7 @@ function block(entry: Placed, opts: RenderOptions): string[] {
 
     const lines = [`${' '.repeat(entry.depth * STEP)}${header(entry)}`];
     if (node.file) {
-        const facts = [node.file.path, bytes(node.file.bytes), used(node, now)];
+        const facts = [fileName(node.file), bytes(node.file.bytes), used(node, now)];
         lines.push(`${indent}${facts.join(' · ')}`);
     }
     const summary = clipped(node.text, opts.clip ?? TEXT_CLIP);

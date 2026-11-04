@@ -3,10 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fileTools } from '../src/tools/files.ts';
+import { PodmanBox, runProcess } from '../src/tools/podman.ts';
 import {
     DEFAULT_SANDBOX_IMAGE,
-    runProcess,
-    Sandbox,
     SANDBOX_MOUNT,
     SandboxPool,
     sandboxTools,
@@ -51,7 +50,7 @@ if (!ENABLED) {
 
 describe.skipIf(!ENABLED)('a real container', () => {
     let root = '';
-    let box: Sandbox;
+    let box: PodmanBox;
 
     /** Container names, so cleanup can be checked against the engine itself. */
     const exists = async (name: string): Promise<boolean> =>
@@ -71,7 +70,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
             }
         }
 
-        box = new Sandbox({ root, key: 'live-sandbox', image: IMAGE, engine: ENGINE });
+        box = new PodmanBox({ root, key: 'live-sandbox', image: IMAGE, engine: ENGINE });
         await box.start();
     }, 12 * MINUTE);
 
@@ -237,7 +236,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'is refused by the engine, not by us',
             async () => {
-                const ro = new Sandbox({
+                const ro = new PodmanBox({
                     root,
                     key: 'live-sandbox-ro',
                     image: IMAGE,
@@ -275,8 +274,8 @@ describe.skipIf(!ENABLED)('a real container', () => {
         // `head` and `tr` only, so it does not assume the image's interpreter.
         const HOG = String.raw`x=$(head -c 512000000 /dev/zero | tr "\0" a); echo survived`;
 
-        const tight = (key: string): Sandbox =>
-            new Sandbox({ root, key, image: IMAGE, engine: ENGINE, memory: 256 });
+        const tight = (key: string): PodmanBox =>
+            new PodmanBox({ root, key, image: IMAGE, engine: ENGINE, memory: 256 });
 
         it(
             'blames the limit rather than the machine, and leaves other failures alone',
@@ -561,7 +560,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'removes an ephemeral container and leaves the workspace behind',
             async () => {
-                const one = new Sandbox({
+                const one = new PodmanBox({
                     root,
                     key: 'live-sandbox-gone',
                     image: IMAGE,
@@ -581,7 +580,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'only stops one that asked to persist',
             async () => {
-                const kept = new Sandbox({
+                const kept = new PodmanBox({
                     root,
                     key: 'live-sandbox-kept',
                     image: IMAGE,
@@ -620,7 +619,7 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
     let root = '';
     let assets = '';
     let skills = '';
-    let box: Sandbox;
+    let box: PodmanBox;
     let file: AnyTool[];
     let shell: AnyTool[];
 
@@ -664,7 +663,7 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
             mounts,
             env: { PYTHONDONTWRITEBYTECODE: '1' },
         });
-        box = new Sandbox({
+        box = new PodmanBox({
             root,
             key: 'live-mounts',
             image: IMAGE,

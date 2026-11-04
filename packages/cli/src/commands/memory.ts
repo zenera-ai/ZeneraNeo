@@ -1249,7 +1249,7 @@ function textLast(rows: string[][], texts: string[]): string[] {
     return table(rows.map((r, i) => [...r, clip(texts[i] ?? '', room)]));
 }
 
-/** The stored `/memory/<id>.<ext>` is the agent's mount path; a terminal needs the host one. */
+/** The stored `/memory/<id>.<ext>` names the file, not where it is; a terminal needs the host path. */
 function onHost<T extends { file?: MemoryFile }>(o: Opened, n: T): T {
     return n.file ? { ...n, file: { ...n.file, path: hostPath(o.dir, n.file) } } : n;
 }

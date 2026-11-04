@@ -1,5 +1,5 @@
 import { buildSandbox, sessionPaths } from '@zenera/engine';
-import { MemoryStore, parseConfig, type AgentEvent } from '@zenera/neo';
+import { MemoryStore, parseConfig, type AgentEvent, type PodmanBox } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -54,12 +54,12 @@ describe('a batch item\u2019s sandbox', () => {
             });
 
         const kept = setup();
-        expect(kept.pool.for('a').spec.persist).toBe(true);
-        expect(kept.pool.for('b').spec.persist).toBe(true);
+        expect((kept.pool.for('a') as PodmanBox).spec.persist).toBe(true);
+        expect((kept.pool.for('b') as PodmanBox).spec.persist).toBe(true);
 
         const dropped = setup(false);
-        expect(dropped.pool.for('a').spec.persist).toBe(false);
-        expect(dropped.pool.for('b').spec.persist).toBe(false);
+        expect((dropped.pool.for('a') as PodmanBox).spec.persist).toBe(false);
+        expect((dropped.pool.for('b') as PodmanBox).spec.persist).toBe(false);
     });
 
     it('counts the containers one item can start, so the locks are asked for up front', async () => {

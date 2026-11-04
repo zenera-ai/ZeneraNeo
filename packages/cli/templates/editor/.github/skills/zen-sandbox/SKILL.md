@@ -95,7 +95,6 @@ Inside the container, paths are isolated to designated mount points:
 | `/workspace`          | Session workspace         | read-write* | The work itself. Changes survive session completion.   |
 | `/home/agent`         | `.data/sandbox/home`      | read-write  | User home (`$HOME`). Persists across sessions.         |
 | `/tmp`                | In-memory / host tmpfs    | read-write  | Ephemeral scratch; holds `/tmp/zenera-jobs`.           |
-| `/memory`             | Session memory directory  | read-only   | Generated memory files (when `memory:` is enabled).    |
 | `/assets`             | Project assets directory  | read-only   | Reference assets declared in `SPECIFICATION.md`.       |
 | `/skills`             | Project skills directory  | read-only   | Custom skill files available to agents.                |
 | `/run/zenera/keys`    | Keychain / temp directory | read-only   | Forwarded file credentials (e.g. Vertex service keys). |

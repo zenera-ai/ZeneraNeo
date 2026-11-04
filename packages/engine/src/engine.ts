@@ -14,6 +14,7 @@ import {
     identityTools,
     lastText,
     loadProject,
+    logicalMounts,
     memoryDir,
     readProjectConfig,
     renderReportHtml,
@@ -27,6 +28,8 @@ import {
     type MemoryIndex,
     type RunIdentity,
     type RunResult,
+    type SandboxBackend,
+    type WorkspaceOptions,
 } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -106,7 +109,6 @@ export interface EngineOptions {
      * An already-open graph to remember into instead of opening `memoryDir`.
      * Sessions may each open the same directory; handing them one index saves
      * every session loading the graph again.
-     * Name its directory in `memoryDir` too: that is what is mounted at `/memory`.
      */
     memory?: MemoryIndex;
     /** whether credentials reach the sandbox — `--no-keys` sets this false */
@@ -130,6 +132,12 @@ export interface EngineOptions {
     onIssue?: (issue: ModelIssue) => void;
     /** readies the container engine when the project can shell out; nothing when unset */
     preflight?: Preflight;
+    /**
+     * Where the sandbox runs and its files live. Podman on this machine when
+     * unset, which is what `zen run` is; a host with a sandbox service passes
+     * its own, and the file tools then read the files where the box keeps them.
+     */
+    backend?: SandboxBackend;
     /** draws each finished run as `graph.mmd`; no graph when unset */
     graph?: GraphRenderer;
     /**
@@ -244,7 +252,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         }
         memory = memoryDir(root, config, opts.memoryDir);
         // Assets and the skill catalog are mounted for both, under one name.
-        const mounts = projectMounts(root, config, opts.memoryDir);
+        const mounts = projectMounts(root, config);
         sandbox = buildSandbox({
             config,
             root,
@@ -256,14 +264,15 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             env: env?.names,
             mounts,
             identity: user,
+            backend: opts.backend,
             ...(opts.disposable ? { persist: false } : {}),
         });
-        const workspaceOptions = {
+        const workspaceOptions = fileView(sandbox, {
             root: workspace,
             readOnly: opts.readOnly,
             mount: sandbox.spec.workdir ?? SANDBOX_MOUNT,
             mounts,
-        };
+        });
         // The same view the file tools have, so a path the agent just wrote
         // resolves the same way when it asks memory to keep a copy.
         files = new Workspace(workspaceOptions);
@@ -295,7 +304,8 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             memoryDir: opts.memoryDir,
             memoryReadOnly: opts.memoryReadOnly,
             payloads,
-            resolveFile: (path: string) => files.within(path),
+            resolveFile: (path: string) => files.source(path),
+            writeFile: (path, data, o) => files.write(path, data, o),
         });
     } catch (err) {
         await plugins?.close();
@@ -314,7 +324,9 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         // container engine costs an error instead of a round trip. Nothing is
         // started: the container itself waits until something actually runs.
         if (usesSandbox(project)) {
-            prepareHome(sandbox);
+            if (sandbox.backend.local) {
+                prepareHome(sandbox);
+            }
             await opts.preflight?.(sandbox, opts.yes);
         }
 
@@ -361,6 +373,28 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             await loaded.close();
             lock.release();
         },
+    };
+}
+
+/**
+ * The trees the file tools reach, named the way the backend can reach them.
+ * Locally that is the host directories the container binds. A backend that
+ * keeps the files with the box has no host paths: there the workspace is its
+ * mount point and each tree is found where the box has it, so a path the
+ * model writes means one file to both the tools and the shell.
+ */
+function fileView(sandbox: SandboxSetup, local: WorkspaceOptions): WorkspaceOptions {
+    const fs = sandbox.backend.fs;
+    if (sandbox.backend.local) {
+        return { ...local, fs };
+    }
+    const mount = local.mount ?? SANDBOX_MOUNT;
+    return {
+        ...local,
+        root: mount,
+        mount,
+        mounts: logicalMounts(local.mounts ?? []).map((m) => ({ ...m, host: m.at })),
+        fs,
     };
 }
 

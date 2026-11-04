@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Embedder } from '../embedding.ts';
 import type { IdClock } from '../ids.ts';
-import { forgetFile, hostPath, rememberFile } from './files.ts';
+import { forgetFile, hostPath, rememberFile, type FileSource } from './files.ts';
 import { type MemoryGraph, type NodeDraft, type NodePatch, RevisionMismatch } from './graph.ts';
 import { recall } from './recall.ts';
 import type { MemoryStore } from './store.ts';
@@ -67,8 +67,8 @@ export interface CommitNode {
     text?: string;
     audience?: string[];
     metadata?: Record<string, unknown>;
-    /** absolute host path of a file to copy in, already resolved by the caller */
-    file?: { source: string; path?: string };
+    /** the file to copy in, already resolved and contained by the caller */
+    file?: { source: FileSource; path?: string };
     expectedRevision?: number;
 }
 
@@ -226,6 +226,33 @@ export class MemoryIndex {
             });
         }
         return out;
+    }
+
+    /**
+     * A remembered file's record and bytes, for copying it back into a
+     * workspace. Visible nodes only, and missing reads the same as hidden.
+     * Not a load: copying a file is not reading the memory, so recency is
+     * left alone.
+     */
+    async fileOf(
+        id: string,
+        sees: readonly string[],
+    ): Promise<{ file: MemoryFile; bytes: Buffer }> {
+        this.refresh();
+        const node = this.graph.get(id);
+        if (!node || !visible(node, sees)) {
+            throw new MemoryError(
+                `no memory ${id}`,
+                'use an id from the legend of a memory_search result',
+            );
+        }
+        if (!node.file) {
+            throw new MemoryError(
+                `${id} holds no file`,
+                'only nodes committed with a `file` have one to copy',
+            );
+        }
+        return { file: node.file, bytes: await readFile(hostPath(this.store.dir, node.file)) };
     }
 
     async commit(tx: MemoryTransaction, opts: CommitOptions): Promise<CommitResult> {
@@ -621,7 +648,7 @@ export function flatten(text: string): string {
 
 interface PlannedFile {
     id: string;
-    source: string;
+    source: FileSource;
     path?: string;
     /** the draft or patch the copied file's record is written into */
     target: { file?: MemoryFile };

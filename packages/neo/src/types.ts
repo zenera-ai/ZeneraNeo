@@ -456,6 +456,7 @@ export const MEMORY_GREP_TOOL = 'memory_grep';
 export const MEMORY_LOAD_TOOL = 'memory_load';
 export const MEMORY_COMMIT_TOOL = 'memory_commit';
 export const MEMORY_FORGET_TOOL = 'memory_forget';
+export const MEMORY_COPY_FILE_TOOL = 'memory_copy_file';
 export const SKILL_SEARCH_TOOL = 'skill_search';
 export const SKILL_LOAD_TOOL = 'skill_load';
 
