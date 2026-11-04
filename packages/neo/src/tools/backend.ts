@@ -1,4 +1,6 @@
+import type { WorkspaceOptions } from './files.ts';
 import { localFs, type FsDriver } from './fs.ts';
+import { logicalMounts, WORKSPACE_MOUNT } from './mounts.ts';
 import { podmanBox } from './podman.ts';
 import type { BoxFactory } from './sandbox.ts';
 
@@ -17,24 +19,43 @@ export interface SandboxBackend {
     /** for messages and status lines: `podman`, `remote`, ... */
     readonly name: string;
     /**
-     * Whether mounts are host directories bound from this machine. When they
-     * are, the host prepares them (the container's `$HOME`, the runtime
-     * libraries in it); when not, the backend supplies each by its `source`.
+     * Whether each mount's `host` directory is bound into the box from this
+     * machine. When it is, the host prepares those directories (the
+     * container's `$HOME`, the runtime libraries in it); when not, the backend
+     * supplies each tree by its `source`.
      */
-    readonly local: boolean;
-    /** the box for one spec */
-    readonly box: BoxFactory;
+    readonly bindsHostPaths: boolean;
+    /** makes the box for one spec */
+    readonly newBox: BoxFactory;
     /** how the file tools reach the same trees the boxes see */
     readonly fs: FsDriver;
 }
 
-/**
- * What `zen run` uses: podman on this machine, and this machine's disk. The
- * engine binary and the process runner are per box, in `SandboxOptions`.
- */
+/** What `zen run` uses: podman on this machine, and this machine's disk. */
 export const podmanBackend: SandboxBackend = {
     name: 'podman',
-    local: true,
-    box: podmanBox,
+    bindsHostPaths: true,
+    newBox: podmanBox(),
     fs: localFs,
 };
+
+/**
+ * The file tools' view of a session, in the backend's own paths. A backend
+ * that binds host directories reads them where they are. One that keeps the
+ * files with the box has no host paths: the workspace is its mount point and
+ * each tree is found where the box has it, so a path the model writes means
+ * one file to both the tools and the shell.
+ */
+export function workspaceFor(backend: SandboxBackend, opts: WorkspaceOptions): WorkspaceOptions {
+    if (backend.bindsHostPaths) {
+        return { ...opts, fs: backend.fs };
+    }
+    const mount = opts.mount ?? WORKSPACE_MOUNT;
+    return {
+        ...opts,
+        root: mount,
+        mount,
+        mounts: logicalMounts(opts.mounts ?? []).map((m) => ({ ...m, host: m.at })),
+        fs: backend.fs,
+    };
+}

@@ -6,7 +6,7 @@ import {
     skillMounts,
     SKILLS_MOUNT,
     type ProjectConfig,
-    type SandboxMount,
+    type Mount,
 } from '@zenera/neo';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -55,8 +55,8 @@ export interface Project {
  * and does not edit — and the paths are resolved, because the podman machine on
  * macOS shares the real path or nothing.
  */
-export function projectMounts(root: string, config: ProjectConfig): SandboxMount[] {
-    const mounts: SandboxMount[] = [];
+export function projectMounts(root: string, config: ProjectConfig): Mount[] {
+    const mounts: Mount[] = [];
     const assets = assetsDir(root, config);
     if (assets) {
         mounts.push({

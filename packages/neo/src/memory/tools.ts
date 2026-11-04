@@ -28,7 +28,7 @@ import {
     type ToolContext,
     withEffects,
 } from '../types.ts';
-import { fileName, type FileSource } from './files.ts';
+import { storedName, type FileSource } from './files.ts';
 import { RevisionMismatch } from './graph.ts';
 import { GREP_FIELDS, type GrepField, grepMemory } from './grep.ts';
 import type { CommitEdge, CommitNode, MemoryIndex } from './index.ts';
@@ -212,7 +212,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                         revision: l.node.revision,
                         metadata: l.node.metadata,
                         file: l.node.file
-                            ? { name: fileName(l.node.file), bytes: l.node.file.bytes }
+                            ? { name: storedName(l.node.file), bytes: l.node.file.bytes }
                             : undefined,
                         content: l.content,
                     })),
@@ -303,7 +303,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                             id: m.node.id,
                             kind: m.node.kind,
                             stale: m.stale || undefined,
-                            file: m.node.file && fileName(m.node.file),
+                            file: m.node.file && storedName(m.node.file),
                             hits: m.hits.map((h) => ({ in: h.where, line: h.line, text: h.text })),
                             more: m.more || undefined,
                         })),
@@ -354,7 +354,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 try {
                     const { file, bytes } = await index.fileOf(args.id, binding.sees);
                     const path = await tc.services.files.write(
-                        args.to?.trim() || fileName(file),
+                        args.to?.trim() || storedName(file),
                         bytes,
                         {
                             overwrite: args.overwrite,

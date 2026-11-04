@@ -2,7 +2,6 @@ import {
     AgentRunner,
     FilePayloadStore,
     MemoryError,
-    SANDBOX_MOUNT,
     SKILLS_MOUNT,
     Workspace,
     assertState,
@@ -14,12 +13,12 @@ import {
     identityTools,
     lastText,
     loadProject,
-    logicalMounts,
     memoryDir,
     readProjectConfig,
     renderReportHtml,
     sandboxTools,
     turns,
+    workspaceFor,
     type AgentEvent,
     type AgentProject,
     type AgentState,
@@ -29,7 +28,6 @@ import {
     type RunIdentity,
     type RunResult,
     type SandboxBackend,
-    type WorkspaceOptions,
 } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -267,10 +265,10 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             backend: opts.backend,
             ...(opts.disposable ? { persist: false } : {}),
         });
-        const workspaceOptions = fileView(sandbox, {
+        const workspaceOptions = workspaceFor(sandbox.backend, {
             root: workspace,
             readOnly: opts.readOnly,
-            mount: sandbox.spec.workdir ?? SANDBOX_MOUNT,
+            mount: sandbox.workdir,
             mounts,
         });
         // The same view the file tools have, so a path the agent just wrote
@@ -323,7 +321,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         // container engine costs an error instead of a round trip. Nothing is
         // started: the container itself waits until something actually runs.
         if (usesSandbox(project)) {
-            if (sandbox.backend.local) {
+            if (sandbox.backend.bindsHostPaths) {
                 prepareHome(sandbox);
             }
             await opts.preflight?.(sandbox, opts.yes);
@@ -353,7 +351,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         runner,
         name: opts.project.name,
         workspace,
-        workspaceMount: sandbox.spec.workdir ?? SANDBOX_MOUNT,
+        workspaceMount: sandbox.workdir,
         files,
         readOnly: Boolean(opts.readOnly),
         session: opts.session,
@@ -372,28 +370,6 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             await loaded.close();
             lock.release();
         },
-    };
-}
-
-/**
- * The trees the file tools reach, named the way the backend can reach them.
- * Locally that is the host directories the container binds. A backend that
- * keeps the files with the box has no host paths: there the workspace is its
- * mount point and each tree is found where the box has it, so a path the
- * model writes means one file to both the tools and the shell.
- */
-function fileView(sandbox: SandboxSetup, local: WorkspaceOptions): WorkspaceOptions {
-    const fs = sandbox.backend.fs;
-    if (sandbox.backend.local) {
-        return { ...local, fs };
-    }
-    const mount = local.mount ?? SANDBOX_MOUNT;
-    return {
-        ...local,
-        root: mount,
-        mount,
-        mounts: logicalMounts(local.mounts ?? []).map((m) => ({ ...m, host: m.at })),
-        fs,
     };
 }
 

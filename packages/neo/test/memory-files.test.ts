@@ -9,7 +9,7 @@ import { FILES_DIR, MemoryStore } from '../src/memory/store.ts';
 import { memoryTools } from '../src/memory/tools.ts';
 import { MemoryError } from '../src/memory/types.ts';
 import { Workspace } from '../src/tools/files.ts';
-import { MemoryFs } from '../src/tools/memfs.ts';
+import { InMemoryFs } from '../src/tools/in-memory-fs.ts';
 import { MEMORY_COPY_FILE_TOOL, type ToolContext } from '../src/types.ts';
 
 const SCRIPT = 'print("risky ports")\n';
@@ -188,7 +188,7 @@ describe('the memory_copy_file tool', () => {
     });
 
     it('does the same into a workspace that is not on this disk', async () => {
-        const fs = new MemoryFs().dir('/workspace');
+        const fs = new InMemoryFs().dir('/workspace');
         const out = await copier(new Workspace({ root: '/workspace', mount: '/workspace', fs }))({
             id: ids.script,
             to: 'tools/audit.py',

@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fileTools } from '../src/tools/files.ts';
-import { PodmanBox, runProcess } from '../src/tools/podman.ts';
+import { WORKSPACE_MOUNT } from '../src/tools/mounts.ts';
+import { PodmanBox, podmanBox } from '../src/tools/podman.ts';
+import { runProcess } from '../src/tools/process.ts';
 import {
     DEFAULT_SANDBOX_IMAGE,
-    SANDBOX_MOUNT,
     SandboxPool,
     sandboxTools,
     type OutOfMemory,
@@ -70,7 +71,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
             }
         }
 
-        box = new PodmanBox({ root, key: 'live-sandbox', image: IMAGE, engine: ENGINE });
+        box = new PodmanBox({ root, key: 'live-sandbox', image: IMAGE }, { engine: ENGINE });
         await box.start();
     }, 12 * MINUTE);
 
@@ -133,7 +134,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         async () => {
             await writeFile(join(root, 'from-host.txt'), 'written outside\n');
 
-            const read = await box.exec(`cat ${SANDBOX_MOUNT}/from-host.txt`);
+            const read = await box.exec(`cat ${WORKSPACE_MOUNT}/from-host.txt`);
             expect(read.exit_code).toBe(0);
             expect(read.stdout).toBe('written outside\n');
 
@@ -147,10 +148,10 @@ describe.skipIf(!ENABLED)('a real container', () => {
     it(
         'runs in the workspace by default and in a subdirectory on request',
         async () => {
-            expect((await box.exec('pwd')).stdout.trim()).toBe(SANDBOX_MOUNT);
+            expect((await box.exec('pwd')).stdout.trim()).toBe(WORKSPACE_MOUNT);
             await box.exec('mkdir -p sub/dir');
             expect((await box.exec('pwd', { cwd: 'sub/dir' })).stdout.trim()).toBe(
-                `${SANDBOX_MOUNT}/sub/dir`,
+                `${WORKSPACE_MOUNT}/sub/dir`,
             );
         },
         MINUTE,
@@ -181,18 +182,18 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'outlives the call that started it, and is readable in windows',
             async () => {
-                const job = await box.startJob(
+                const id = await box.startJob(
                     'for i in 1 2 3 4 5; do echo line-$i; sleep 1; done; echo done',
                 );
 
-                const first = (await box.readJob(job.id)) as Record<string, unknown>;
+                const first = await box.readJob(id);
                 expect(first.running).toBe(true);
-                expect(first.job_id).toBe(job.id);
+                expect(first.job_id).toBe(id);
 
                 let last = first;
                 for (let i = 0; i < 30 && last.running === true; i++) {
                     await new Promise((r) => setTimeout(r, 1000));
-                    last = (await box.readJob(job.id)) as Record<string, unknown>;
+                    last = await box.readJob(id);
                 }
 
                 expect(last.running).toBe(false);
@@ -200,7 +201,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 expect(String(last.output)).toContain('line-5');
                 expect(last.lines).toBe(6);
 
-                const tail = (await box.readJob(job.id, 6)) as Record<string, unknown>;
+                const tail = await box.readJob(id, 6);
                 expect(tail.start_line).toBe(6);
                 expect(tail.output).toBe('done\n');
             },
@@ -220,11 +221,11 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     return Number(res.stdout.trim());
                 };
 
-                const job = await box.startJob('sleep 313131 & sleep 313131 & wait');
+                const id = await box.startJob('sleep 313131 & sleep 313131 & wait');
                 await new Promise((r) => setTimeout(r, 1000));
                 expect(await children()).toBe(2);
 
-                await box.stopJob(job.id);
+                await box.stopJob(id);
                 await new Promise((r) => setTimeout(r, 1500));
                 expect(await children()).toBe(0);
             },
@@ -236,14 +237,16 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'is refused by the engine, not by us',
             async () => {
-                const ro = new PodmanBox({
-                    root,
-                    key: 'live-sandbox-ro',
-                    image: IMAGE,
-                    engine: ENGINE,
-                    readOnly: true,
-                    env: { ZENERA_LIVE: 'yes' },
-                });
+                const ro = new PodmanBox(
+                    {
+                        root,
+                        key: 'live-sandbox-ro',
+                        image: IMAGE,
+                        readOnly: true,
+                        env: { ZENERA_LIVE: 'yes' },
+                    },
+                    { engine: ENGINE },
+                );
                 try {
                     const write = await ro.exec('printf x > refused.txt');
                     expect(write.exit_code).not.toBe(0);
@@ -275,7 +278,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         const HOG = String.raw`x=$(head -c 512000000 /dev/zero | tr "\0" a); echo survived`;
 
         const tight = (key: string): PodmanBox =>
-            new PodmanBox({ root, key, image: IMAGE, engine: ENGINE, memory: 256 });
+            new PodmanBox({ root, key, image: IMAGE, memory: 256 }, { engine: ENGINE });
 
         it(
             'blames the limit rather than the machine, and leaves other failures alone',
@@ -304,15 +307,15 @@ describe.skipIf(!ENABLED)('a real container', () => {
             async () => {
                 const small = tight('live-sandbox-oom-job');
                 try {
-                    const job = await small.startJob(HOG);
+                    const id = await small.startJob(HOG);
                     // Waits by the clock, not by a count: on a loaded machine a
                     // poll costs seconds, and counting them shortens the wait
                     // exactly when the job needs it to be longer.
                     const until = Date.now() + 60_000;
-                    let last = (await small.readJob(job.id)) as Record<string, unknown>;
+                    let last = await small.readJob(id);
                     while (last.running === true && Date.now() < until) {
                         await new Promise((r) => setTimeout(r, 1000));
-                        last = (await small.readJob(job.id)) as Record<string, unknown>;
+                        last = await small.readJob(id);
                     }
 
                     expect(last.running).toBe(false);
@@ -322,7 +325,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
 
                     // The second read cannot see the counter move, so only the
                     // cache keeps it from calling this the machine's doing.
-                    const again = (await small.readJob(job.id)) as Record<string, unknown>;
+                    const again = await small.readJob(id);
                     expect(again.out_of_memory).toEqual(verdict);
                 } finally {
                     await small.dispose();
@@ -340,7 +343,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     root,
                     key: 'live-sandbox-pool',
                     image: IMAGE,
-                    engine: ENGINE,
+                    newBox: podmanBox({ engine: ENGINE }),
                     agents: { analyst: { memory: 512 } },
                 });
                 try {
@@ -388,8 +391,15 @@ describe.skipIf(!ENABLED)('a real container', () => {
          * container, and `afterAll`'s dispose covers this one too.
          */
         const toolsets = (): { file: AnyTool[]; shell: AnyTool[] } => ({
-            file: fileTools({ root, mount: SANDBOX_MOUNT }),
-            shell: sandboxTools({ root, key: 'live-sandbox', image: IMAGE, engine: ENGINE }),
+            file: fileTools({ root, mount: WORKSPACE_MOUNT }),
+            shell: sandboxTools(
+                new SandboxPool({
+                    root,
+                    key: 'live-sandbox',
+                    image: IMAGE,
+                    newBox: podmanBox({ engine: ENGINE }),
+                }),
+            ),
         });
 
         it(
@@ -408,7 +418,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
 
                 // ...and the file tools see them under theirs. Paths come back
                 // relative whichever spelling went in.
-                const listed = await call(file, 'list_dir', { path: `${SANDBOX_MOUNT}/both` });
+                const listed = await call(file, 'list_dir', { path: `${WORKSPACE_MOUNT}/both` });
                 const names = (out: any): string[] =>
                     out.entries.map((e: any) => e.name).sort() as string[];
                 expect(names(listed)).toEqual(['shell-1.txt', 'shell-2.txt', 'shell-3.txt']);
@@ -419,21 +429,21 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 expect(await call(file, 'list_dir', { path: 'both' })).toEqual(listed);
 
                 const read = await call(file, 'read_file', {
-                    path: `${SANDBOX_MOUNT}/both/shell-2.txt`,
+                    path: `${WORKSPACE_MOUNT}/both/shell-2.txt`,
                 });
                 expect(read.content).toBe('from the shell 2');
                 // Out under the name the shell prints, whichever name went in.
-                expect(read.path).toBe(`${SANDBOX_MOUNT}/both/shell-2.txt`);
+                expect(read.path).toBe(`${WORKSPACE_MOUNT}/both/shell-2.txt`);
                 expect(await call(file, 'read_file', { path: 'both/shell-2.txt' })).toEqual(read);
 
                 const found = await call(file, 'find_files', {
                     pattern: 'shell-',
-                    path: `${SANDBOX_MOUNT}/both`,
+                    path: `${WORKSPACE_MOUNT}/both`,
                 });
                 expect(found.matches.sort()).toEqual([
-                    `${SANDBOX_MOUNT}/both/shell-1.txt`,
-                    `${SANDBOX_MOUNT}/both/shell-2.txt`,
-                    `${SANDBOX_MOUNT}/both/shell-3.txt`,
+                    `${WORKSPACE_MOUNT}/both/shell-1.txt`,
+                    `${WORKSPACE_MOUNT}/both/shell-2.txt`,
+                    `${WORKSPACE_MOUNT}/both/shell-3.txt`,
                 ]);
 
                 // ...so a path taken straight out of a command's output is a
@@ -442,7 +452,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     command: 'find /workspace/both -name shell-3.txt',
                 });
                 const printed = listing.stdout.trim();
-                expect(printed).toBe(`${SANDBOX_MOUNT}/both/shell-3.txt`);
+                expect(printed).toBe(`${WORKSPACE_MOUNT}/both/shell-3.txt`);
                 expect((await call(file, 'read_file', { path: printed })).content).toBe(
                     'from the shell 3',
                 );
@@ -450,7 +460,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 // The other direction: written by the file tools, once under
                 // each spelling, and read back inside the container.
                 await call(file, 'write_file', {
-                    path: `${SANDBOX_MOUNT}/both/tools-1.txt`,
+                    path: `${WORKSPACE_MOUNT}/both/tools-1.txt`,
                     content: 'from the file tools 1\n',
                 });
                 await call(file, 'write_file', {
@@ -482,13 +492,13 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 const { file, shell } = toolsets();
 
                 const dot = await call(file, 'list_dir', { path: '.' });
-                expect(dot.path).toBe(SANDBOX_MOUNT);
+                expect(dot.path).toBe(WORKSPACE_MOUNT);
                 expect(await call(file, 'list_dir', { path: '/' })).toEqual(dot);
-                expect(await call(file, 'list_dir', { path: SANDBOX_MOUNT })).toEqual(dot);
+                expect(await call(file, 'list_dir', { path: WORKSPACE_MOUNT })).toEqual(dot);
 
                 // ...and it is the directory the container starts in.
                 const pwd = await call(shell, 'run_command', { command: 'pwd' });
-                expect(pwd.stdout.trim()).toBe(SANDBOX_MOUNT);
+                expect(pwd.stdout.trim()).toBe(WORKSPACE_MOUNT);
 
                 const inside = await call(shell, 'run_command', {
                     command: 'ls -A /workspace | sort',
@@ -512,7 +522,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 const patched = await call(file, 'apply_patch', {
                     patch: [
                         '*** Begin Patch',
-                        `*** Update File: ${SANDBOX_MOUNT}/both/report.sh`,
+                        `*** Update File: ${WORKSPACE_MOUNT}/both/report.sh`,
                         '@@',
                         ' #!/bin/sh',
                         '-echo draft',
@@ -522,7 +532,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     ].join('\n'),
                 });
                 expect(patched.applied).toBe(1);
-                expect(patched.files[0].path).toBe(`${SANDBOX_MOUNT}/both/report.sh`);
+                expect(patched.files[0].path).toBe(`${WORKSPACE_MOUNT}/both/report.sh`);
 
                 const ran = await call(shell, 'run_command', {
                     command: 'sh /workspace/both/report.sh',
@@ -534,12 +544,12 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 // directory lookups for about a second, so an immediate
                 // "is it gone?" would be asking the cache, not the mount.
                 const moved = await call(file, 'move_file', {
-                    from: `${SANDBOX_MOUNT}/both/report.sh`,
+                    from: `${WORKSPACE_MOUNT}/both/report.sh`,
                     to: 'both/final.sh',
                 });
                 expect(moved).toMatchObject({
-                    from: `${SANDBOX_MOUNT}/both/report.sh`,
-                    to: `${SANDBOX_MOUNT}/both/final.sh`,
+                    from: `${WORKSPACE_MOUNT}/both/report.sh`,
+                    to: `${WORKSPACE_MOUNT}/both/final.sh`,
                     moved: true,
                 });
                 const after = await call(shell, 'run_command', {
@@ -547,7 +557,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 });
                 expect(after.stdout).toBe('final\n');
 
-                const left = await call(file, 'list_dir', { path: SANDBOX_MOUNT + '/both' });
+                const left = await call(file, 'list_dir', { path: WORKSPACE_MOUNT + '/both' });
                 const names = left.entries.map((e: any) => e.name);
                 expect(names).toContain('final.sh');
                 expect(names).not.toContain('report.sh');
@@ -560,12 +570,14 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'removes an ephemeral container and leaves the workspace behind',
             async () => {
-                const one = new PodmanBox({
-                    root,
-                    key: 'live-sandbox-gone',
-                    image: IMAGE,
-                    engine: ENGINE,
-                });
+                const one = new PodmanBox(
+                    {
+                        root,
+                        key: 'live-sandbox-gone',
+                        image: IMAGE,
+                    },
+                    { engine: ENGINE },
+                );
                 await one.exec('echo survives > disposed.txt');
                 expect(await exists(one.name)).toBe(true);
 
@@ -580,13 +592,15 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'only stops one that asked to persist',
             async () => {
-                const kept = new PodmanBox({
-                    root,
-                    key: 'live-sandbox-kept',
-                    image: IMAGE,
-                    engine: ENGINE,
-                    persist: true,
-                });
+                const kept = new PodmanBox(
+                    {
+                        root,
+                        key: 'live-sandbox-kept',
+                        image: IMAGE,
+                        persist: true,
+                    },
+                    { engine: ENGINE },
+                );
                 try {
                     await kept.exec('true');
                     await kept.dispose();
@@ -654,23 +668,27 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
             { host: assets, at: '/assets', readOnly: true },
             { host: skills, at: '/skills', readOnly: true },
         ];
-        file = fileTools({ root, mount: SANDBOX_MOUNT, mounts });
-        shell = sandboxTools({
-            root,
-            key: 'live-mounts',
-            image: IMAGE,
-            engine: ENGINE,
-            mounts,
-            env: { PYTHONDONTWRITEBYTECODE: '1' },
-        });
-        box = new PodmanBox({
-            root,
-            key: 'live-mounts',
-            image: IMAGE,
-            engine: ENGINE,
-            mounts,
-            env: { PYTHONDONTWRITEBYTECODE: '1' },
-        });
+        file = fileTools({ root, mount: WORKSPACE_MOUNT, mounts });
+        shell = sandboxTools(
+            new SandboxPool({
+                root,
+                key: 'live-mounts',
+                image: IMAGE,
+                newBox: podmanBox({ engine: ENGINE }),
+                mounts,
+                env: { PYTHONDONTWRITEBYTECODE: '1' },
+            }),
+        );
+        box = new PodmanBox(
+            {
+                root,
+                key: 'live-mounts',
+                image: IMAGE,
+                mounts,
+                env: { PYTHONDONTWRITEBYTECODE: '1' },
+            },
+            { engine: ENGINE },
+        );
         await box.start();
     }, 12 * MINUTE);
 

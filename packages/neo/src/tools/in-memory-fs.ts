@@ -12,7 +12,7 @@ import { fsError, type FsDriver, type FsEntry, type FsStat } from './fs.ts';
 
 type Node = { kind: 'dir' } | { kind: 'file'; data: Buffer };
 
-export class MemoryFs implements FsDriver {
+export class InMemoryFs implements FsDriver {
     readonly path = posix;
     readonly #nodes = new Map<string, Node>([['/', { kind: 'dir' }]]);
 

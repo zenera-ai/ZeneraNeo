@@ -3,6 +3,7 @@ import {
     GATEWAY_URL_ENV,
     SANDBOX_GROUP,
     SandboxPool,
+    WORKSPACE_MOUNT,
     identityEnv,
     podmanBackend,
     isIdentityEnv,
@@ -11,7 +12,7 @@ import {
     type RunIdentity,
     type SandboxBackend,
     type SandboxConfig,
-    type SandboxMount,
+    type Mount,
     type SandboxSpec,
 } from '@zenera/neo';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
@@ -61,10 +62,10 @@ const KEY_MOUNT = '/run/zenera/keys';
  * is a key it can send. `keys: false`, or `network: none`, is the answer for a
  * project where that is not an acceptable trade.
  */
-function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: SandboxMount[] } {
+function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: Mount[] } {
     const secrets: string[] = [];
     const env: Record<string, string> = {};
-    const mounts: SandboxMount[] = [];
+    const mounts: Mount[] = [];
     for (const cred of credentials()) {
         if (cred.holds === 'file') {
             const at = `${KEY_MOUNT}/${basename(cred.value)}`;
@@ -97,13 +98,15 @@ export interface SandboxSetup {
     backend: SandboxBackend;
     /** the resolved base spec, for `zn sandbox status` and the image pre-warm */
     spec: SandboxSpec;
+    /** where the workspace is in the box, and so the name the file tools answer with */
+    workdir: string;
     image: string;
     /** the Dockerfile behind `image`, when it came from one */
     build?: ResolvedBuild;
     /** host side of the container's `$HOME`, created only if it is ever needed */
     home: string;
     /** every tree bound into the container besides the workspace itself */
-    mounts: readonly SandboxMount[];
+    mounts: readonly Mount[];
 }
 
 export interface SandboxInputs {
@@ -118,7 +121,7 @@ export interface SandboxInputs {
      * and its skill catalog. The same array goes to the file tools, so a path
      * a command prints is a path `read_file` accepts.
      */
-    mounts?: readonly SandboxMount[];
+    mounts?: readonly Mount[];
     /** `--image` */
     image?: string;
     /** `--no-keys`: refuse to forward credentials, whatever the config says */
@@ -154,7 +157,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     };
     const home = join(opts.session.data, 'sandbox', 'home');
 
-    const mounts: SandboxMount[] = [
+    const mounts: Mount[] = [
         { host: home, at: HOME, source: { kind: 'home' } },
         ...(opts.mounts ?? []),
     ];
@@ -193,7 +196,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     const pool = new SandboxPool({
         ...spec,
         agents,
-        box: backend.box,
+        newBox: backend.newBox,
         root: opts.workspace,
         key: opts.session.id,
         readOnly: opts.readOnly,
@@ -206,6 +209,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         pool,
         backend,
         spec,
+        workdir: spec.workdir ?? WORKSPACE_MOUNT,
         image: spec.image ?? DEFAULT_SANDBOX_IMAGE,
         build,
         home,

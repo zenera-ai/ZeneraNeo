@@ -25,12 +25,8 @@ export interface FsStat {
     isSymbolicLink(): boolean;
 }
 
-export interface FsEntry {
-    name: string;
-    isFile(): boolean;
-    isDirectory(): boolean;
-    isSymbolicLink(): boolean;
-}
+/** One name in a listing: what `stat` says of it, less the size. */
+export type FsEntry = Omit<FsStat, 'size'> & { name: string };
 
 export interface FsDriver {
     /** how this driver's paths are spelled: the host's for `localFs`, posix otherwise */

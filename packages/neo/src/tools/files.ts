@@ -2,7 +2,7 @@ import { extname } from 'node:path';
 import type { FileSource, WorkspaceFiles } from '../memory/files.ts';
 import { tool, type AnyTool, type ToolContext } from '../types.ts';
 import { localFs, type FsDriver, type FsStat } from './fs.ts';
-import type { MountSource } from './mounts.ts';
+import type { Mount } from './mounts.ts';
 
 // ---------------------------------------------------------------------------
 // File tools
@@ -32,29 +32,6 @@ const MAX_SCAN = 1024 * 1024;
 /** ...and one listing only spends this much on line counting in total. */
 const LIST_SCAN_BUDGET = 8 * 1024 * 1024;
 
-/** Where a project's `assets/` directory appears in the agent's namespace. */
-export const ASSETS_MOUNT = '/assets';
-
-/** ...and where its skill catalog does, so a skill's scripts can be run. */
-export const SKILLS_MOUNT = '/skills';
-
-/**
- * A second tree the agent can reach, under a name of its own. Structurally the
- * same as a `SandboxMount` on purpose: one directory is one mount, and the host
- * hands the identical array to the file tools and to the container so that both
- * call it by the same name.
- */
-export interface WorkspaceMount {
-    /** absolute host path; must already exist */
-    host: string;
-    /** absolute path the agent names it by, e.g. `/assets` */
-    at: string;
-    /** defaults to true — an extra tree is reference material unless said otherwise */
-    readOnly?: boolean;
-    /** what the tree is, for a backend that has to supply it rather than bind `host` */
-    source?: MountSource;
-}
-
 export interface WorkspaceOptions {
     root: string;
     /** refuse every mutating tool; `zen run --read-only` */
@@ -68,7 +45,7 @@ export interface WorkspaceOptions {
      */
     mount?: string;
     /** further trees, each under its own name; read-only unless one says otherwise */
-    mounts?: readonly WorkspaceMount[];
+    mounts?: readonly Mount[];
     /**
      * Where the bytes are; this machine's disk when unset. `root` and every
      * mount's `host` are paths in this driver's namespace.
@@ -84,12 +61,7 @@ interface Root {
 }
 
 /** A mount as the workspace holds it: resolved, with its permission decided. */
-export interface ResolvedMount {
-    host: string;
-    at: string;
-    readOnly: boolean;
-    source?: MountSource;
-}
+export type ResolvedMount = Mount & { readOnly: boolean };
 
 export class Workspace implements WorkspaceFiles {
     readonly root: string;

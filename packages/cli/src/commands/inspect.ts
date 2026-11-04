@@ -26,7 +26,7 @@ import {
     projectRegistry,
     readProjectConfig,
     renderReportHtml,
-    SANDBOX_MOUNT,
+    WORKSPACE_MOUNT,
     text,
     type AgentState,
 } from '@zenera/neo';
@@ -903,7 +903,7 @@ async function rebuild(session: SessionPaths, run: RunPaths, store?: MemoryStore
         title: run.id,
         memory: store,
         // The run never recorded a `workdir:`, so the default name is the guess.
-        mounts: workspace ? [{ at: SANDBOX_MOUNT, href: pathToFileURL(workspace).href }] : [],
+        mounts: workspace ? [{ at: WORKSPACE_MOUNT, href: pathToFileURL(workspace).href }] : [],
     });
     await writeFile(run.report, renderReportHtml(report), 'utf8');
 }

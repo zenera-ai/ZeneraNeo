@@ -1,6 +1,6 @@
 import { tool, type AnyTool, type JsonSchema } from '../types.ts';
-import type { MountSource } from './mounts.ts';
-import { podmanBox, type Runner } from './podman.ts';
+import { WORKSPACE_MOUNT, type Mount } from './mounts.ts';
+import { podmanBox } from './podman.ts';
 
 // ---------------------------------------------------------------------------
 // Sandbox tools
@@ -24,8 +24,6 @@ import { podmanBox, type Runner } from './podman.ts';
 // the engine did not answer.
 // ---------------------------------------------------------------------------
 
-/** Where the workspace appears inside the container. */
-export const SANDBOX_MOUNT = '/workspace';
 /** The image a project gets when it does not name one. */
 export const DEFAULT_SANDBOX_IMAGE = 'docker.io/library/python:3.14-slim-bookworm';
 
@@ -95,16 +93,6 @@ export type SandboxNetwork = 'bridge' | 'none' | 'host';
  */
 export type SandboxHardening = 'standard' | 'strict';
 
-export interface SandboxMount {
-    /** absolute host path */
-    host: string;
-    /** absolute path inside the container */
-    at: string;
-    readOnly?: boolean;
-    /** what the tree is, for a backend that has to supply it rather than bind `host` */
-    source?: MountSource;
-}
-
 export interface SandboxOptions extends SandboxSpec {
     /** host directory mounted at `workdir` */
     root: string;
@@ -117,7 +105,7 @@ export interface SandboxOptions extends SandboxSpec {
     /** refuse to mount the workspace writable */
     readOnly?: boolean;
     /** extra bind mounts; the host side must already exist */
-    mounts?: readonly SandboxMount[];
+    mounts?: readonly Mount[];
     /**
      * Environment set on every command rather than on the container: values
      * that belong to the run, not to the box — the user it is acting for.
@@ -137,10 +125,6 @@ export interface SandboxOptions extends SandboxSpec {
      * its own `PYTHONPATH` would break on the first `python`.
      */
     execPaths?: Record<string, readonly string[]>;
-    /** the container engine binary */
-    engine?: string;
-    /** how processes are spawned — the seam tests replace */
-    exec?: Runner;
 }
 
 /**
@@ -150,8 +134,8 @@ export interface SandboxOptions extends SandboxSpec {
  */
 export interface SandboxPoolOptions extends SandboxOptions {
     agents?: Record<string, SandboxSpec>;
-    /** what a box is made of; a podman container on this machine when unset */
-    box?: BoxFactory;
+    /** makes each box; podman containers on this machine when unset */
+    newBox?: BoxFactory;
 }
 
 /**
@@ -170,10 +154,15 @@ export interface Box {
     /** idempotent and single-flight; every other call starts the box itself */
     start(): Promise<void>;
     exec(command: string, opts?: ExecOptions): Promise<ExecResult>;
-    startJob(command: string, opts?: ExecOptions): Promise<{ id: string }>;
-    /** a window of a job's log, plus whether it is still going */
-    readJob(id: string, from?: number): Promise<unknown>;
-    stopJob(id: string): Promise<unknown>;
+    /** starts a command and returns its job id; the output goes to a log */
+    startJob(command: string, opts?: ExecOptions): Promise<string>;
+    /**
+     * A window of a job's log, from line `from` (1-based), plus whether it is
+     * still going. An unknown id is a `SandboxError`.
+     */
+    readJob(id: string, from?: number): Promise<JobOutput>;
+    /** Signals the job and everything it started. An unknown id is a `SandboxError`. */
+    stopJob(id: string): Promise<JobStopped>;
     /** stops a persisted box, removes an ephemeral one */
     dispose(): Promise<void>;
 }
@@ -207,6 +196,29 @@ export interface ExecResult {
     timed_out?: boolean;
     duration_ms: number;
     out_of_memory?: OutOfMemory;
+}
+
+export interface JobOutput {
+    job_id: string;
+    command: string;
+    running: boolean;
+    /** once it has ended */
+    exit_code?: number;
+    duration_ms: number;
+    /** the window returned, 1-based and inclusive */
+    start_line: number;
+    end_line: number;
+    /** how long the log is now */
+    lines: number;
+    /** more of the log follows `end_line` */
+    truncated?: boolean;
+    output: string;
+    out_of_memory?: OutOfMemory;
+}
+
+export interface JobStopped {
+    job_id: string;
+    stopped: boolean;
 }
 
 /**
@@ -247,10 +259,10 @@ export class SandboxPool {
     readonly #boxes = new Map<string, Box>();
 
     constructor(opts: SandboxPoolOptions) {
-        const { agents, box, ...base } = opts;
+        const { agents, newBox, ...base } = opts;
         this.#base = base;
         this.#agents = agents ?? {};
-        this.#make = box ?? podmanBox;
+        this.#make = newBox ?? podmanBox();
     }
 
     for(agent?: string): Box {
@@ -278,11 +290,7 @@ export class SandboxPool {
 // The tools
 // ---------------------------------------------------------------------------
 
-export function sandboxTools<TCtx = unknown>(
-    opts: SandboxPoolOptions | SandboxPool,
-): AnyTool<TCtx>[] {
-    const pool = opts instanceof SandboxPool ? opts : new SandboxPool(opts);
-
+export function sandboxTools<TCtx = unknown>(pool: SandboxPool): AnyTool<TCtx>[] {
     const where: JsonSchema = {
         type: 'object',
         properties: {
@@ -292,7 +300,7 @@ export function sandboxTools<TCtx = unknown>(
             },
             cwd: {
                 type: 'string',
-                description: `Directory to run in, relative to ${SANDBOX_MOUNT}.`,
+                description: `Directory to run in, relative to ${WORKSPACE_MOUNT}.`,
             },
         },
         required: ['command'],
@@ -304,7 +312,7 @@ export function sandboxTools<TCtx = unknown>(
         group: SANDBOX_GROUP,
         description:
             'Runs a shell command in a Linux container and waits for it to finish. The ' +
-            `workspace is mounted at ${SANDBOX_MOUNT} and is the working directory, so files you ` +
+            `workspace is mounted at ${WORKSPACE_MOUNT} and is the working directory, so files you ` +
             'read and write here are the same files the file tools see. Everything ' +
             'else is throwaway. Use this for builds, tests, and package installs; use ' +
             'run_command_background for anything that does not end on its own, such as a ' +
@@ -337,9 +345,9 @@ export function sandboxTools<TCtx = unknown>(
         parameters: where,
         execute: (args, tc) =>
             guard(async () => {
-                const job = await pool.for(tc.agent.name).startJob(args.command, { cwd: args.cwd });
+                const id = await pool.for(tc.agent.name).startJob(args.command, { cwd: args.cwd });
                 return {
-                    job_id: job.id,
+                    job_id: id,
                     started: true,
                     hint: 'read_command_output shows what it has printed so far',
                 };

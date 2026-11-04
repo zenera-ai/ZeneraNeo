@@ -118,14 +118,14 @@ export async function rememberFile(
  * and where a copy lands by default. Graphs written while the tree was still
  * mounted stored `/memory/<id>.<ext>`; the base name is the same for both.
  */
-export function fileName(file: Pick<MemoryFile, 'path'>): string {
+export function storedName(file: Pick<MemoryFile, 'path'>): string {
     return basename(file.path);
 }
 
 /** The host path of a remembered file, for reading it back or deleting it. */
 export function hostPath(dir: string, file: Pick<MemoryFile, 'path'>): string {
     // Through `basename` so a stored path can never climb out of the tree.
-    return join(dir, FILES_DIR, fileName(file));
+    return join(dir, FILES_DIR, storedName(file));
 }
 
 /** Drop the bytes of a forgotten node. Missing is success — the goal is absence. */

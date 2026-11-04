@@ -104,7 +104,7 @@ export class MemoryError extends Error {
 }
 
 export interface MemoryFile {
-    /** `<id>.<ext>`; older graphs hold `/memory/<id>.<ext>` — read it through `fileName` */
+    /** `<id>.<ext>`; older graphs hold `/memory/<id>.<ext>` — read it through `storedName` */
     path: string;
     bytes: number;
     sha256: string;

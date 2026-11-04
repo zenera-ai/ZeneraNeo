@@ -1,5 +1,5 @@
 import {
-    MemoryFs,
+    InMemoryFs,
     logicalMounts,
     parseConfig,
     podmanBackend,
@@ -125,11 +125,11 @@ describe('the sandbox a run gets', () => {
         const asked: SandboxOptions[] = [];
         const backend: SandboxBackend = {
             name: 'remote',
-            local: false,
-            fs: new MemoryFs(),
-            box: (opts) => {
+            bindsHostPaths: false,
+            fs: new InMemoryFs(),
+            newBox: (opts) => {
                 asked.push(opts);
-                return podmanBackend.box(opts);
+                return podmanBackend.newBox(opts);
             },
         };
         const s = buildSandbox({

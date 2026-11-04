@@ -296,10 +296,10 @@ is what keeps a loaded project from being able to touch anything the host did
 not hand it.
 
 ```ts
-import { loadProject, fileTools, sandboxTools, SANDBOX_MOUNT } from '@zenera/neo';
+import { loadProject, fileTools, sandboxTools, WORKSPACE_MOUNT } from '@zenera/neo';
 
 const project = await loadProject('./my-project', {
-    tools: [...fileTools({ root: workspace, mount: SANDBOX_MOUNT }), ...sandboxTools(pool)],
+    tools: [...fileTools({ root: workspace, mount: WORKSPACE_MOUNT }), ...sandboxTools(pool)],
 });
 ```
 
@@ -333,19 +333,23 @@ The tools are written against two seams, so the sandbox does not have to be a
 podman container on this machine:
 
 - `Box` - what the shell tools need of a container: `start`, `exec`, the job
-  calls and `dispose`. `PodmanBox` is the podman one; `new SandboxPool({ ..., box })`
-  takes a factory for any other.
+  calls (`startJob` returns an id, `readJob` a `JobOutput`, `stopJob` a
+  `JobStopped`; an unknown id is a `SandboxError`) and `dispose`. `PodmanBox`
+  is the podman one, and `podmanBox({ engine, exec })` makes them for another
+  binary or a fake runner. `new SandboxPool({ ..., newBox })` takes a factory
+  for any other kind.
 - `FsDriver` - where the file tools' bytes are. `localFs` is this machine's
-  disk and the default; `fileTools({ ..., fs })` takes another. `MemoryFs` keeps
-  a tree in memory, for tests.
+  disk and the default; `fileTools({ ..., fs })` takes another. `InMemoryFs`
+  keeps a tree in memory, for tests.
 
 A `SandboxBackend` is the pair, because they have to agree: a file `write_file`
 makes must be a file `run_command` sees. `podmanBackend` is what `zen run`
-uses. `openEngine({ backend })` takes any other. When `backend.local` is false,
-the file tools use paths inside the sandbox (`/workspace`, `/assets`, ...)
-rather than host paths. Mounts are then described by what they are (each
-mount's `source`) rather than bound from a host directory: `logicalMounts()`
-lists them, with the skill folders merged into one `/skills`.
+uses. `openEngine({ backend })` takes any other. `workspaceFor(backend, opts)`
+gives the file tools' view: when `backend.bindsHostPaths` is false, the tools
+use paths inside the sandbox (`/workspace`, `/assets`, ...) rather than host
+paths, and mounts are described by what they are (each `Mount`'s `source`)
+rather than bound from a host directory. `logicalMounts()` lists them, with
+the skill folders merged into one `/skills`.
 
 ## Embeddings
 

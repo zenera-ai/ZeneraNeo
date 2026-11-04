@@ -9,7 +9,8 @@ import {
     identityTools,
     type RunIdentity,
 } from '../src/tools/identity.ts';
-import { PodmanBox, type ProcOptions, type Runner } from '../src/tools/podman.ts';
+import { PodmanBox } from '../src/tools/podman.ts';
+import type { ProcOptions, Runner } from '../src/tools/process.ts';
 import { tool, type ToolContext } from '../src/types.ts';
 
 const roots: string[] = [];
@@ -150,7 +151,7 @@ describe('the identity in the sandbox', () => {
                 timedOut: false,
             });
         };
-        const b = new PodmanBox({ root: '/host/ws', key: 'session-1', exec: run, ...over });
+        const b = new PodmanBox({ root: '/host/ws', key: 'session-1', ...over }, { exec: run });
         return { b, calls };
     }
 

@@ -3,18 +3,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { rememberFile } from '../src/memory/files.ts';
-import { podmanBackend, type SandboxBackend } from '../src/tools/backend.ts';
+import { podmanBackend, workspaceFor, type SandboxBackend } from '../src/tools/backend.ts';
 import { Workspace, fileTools, type WorkspaceOptions } from '../src/tools/files.ts';
 import { localFs, type FsDriver } from '../src/tools/fs.ts';
-import { MemoryFs } from '../src/tools/memfs.ts';
-import { PodmanBox } from '../src/tools/podman.ts';
+import { InMemoryFs } from '../src/tools/in-memory-fs.ts';
+import { PodmanBox, podmanBox } from '../src/tools/podman.ts';
 import { logicalMounts } from '../src/tools/mounts.ts';
 import {
+    SandboxError,
     SandboxPool,
     sandboxTools,
     type Box,
     type ExecOptions,
     type ExecResult,
+    type JobOutput,
+    type JobStopped,
     type SandboxOptions,
 } from '../src/tools/sandbox.ts';
 import type { ToolContext } from '../src/types.ts';
@@ -61,7 +64,7 @@ const trees: [string, () => Tree][] = [
     [
         'a filesystem in memory',
         () => {
-            const fs = new MemoryFs().dir('/workspace').dir('/assets');
+            const fs = new InMemoryFs().dir('/workspace').dir('/assets');
             return {
                 fs,
                 root: '/workspace',
@@ -214,19 +217,38 @@ class FakeBox implements Box {
         return { exit_code: 0, stdout: `ran in ${opts.cwd ?? '.'}`, stderr: '', duration_ms: 0 };
     }
 
-    async startJob(command: string): Promise<{ id: string }> {
+    async startJob(command: string): Promise<string> {
         await this.start();
         const id = `job-${this.#jobs.size + 1}`;
         this.#jobs.set(id, command);
-        return { id };
+        return id;
     }
 
-    async readJob(id: string): Promise<unknown> {
-        return { job_id: id, command: this.#jobs.get(id), running: this.#jobs.has(id) };
+    async readJob(id: string, from = 1): Promise<JobOutput> {
+        const command = this.#command(id);
+        return {
+            job_id: id,
+            command,
+            running: true,
+            duration_ms: 0,
+            start_line: from,
+            end_line: from - 1,
+            lines: 0,
+            output: '',
+        };
     }
 
-    async stopJob(id: string): Promise<unknown> {
+    async stopJob(id: string): Promise<JobStopped> {
+        this.#command(id);
         return { job_id: id, stopped: this.#jobs.delete(id) };
+    }
+
+    #command(id: string): string {
+        const command = this.#jobs.get(id);
+        if (command === undefined) {
+            throw new SandboxError(`no such job: ${id}`);
+        }
+        return command;
     }
 
     async dispose(): Promise<void> {
@@ -240,14 +262,14 @@ function fakeBackend(): SandboxBackend & { made: FakeBox[] } {
     const made: FakeBox[] = [];
     return {
         name: 'fake',
-        local: false,
+        bindsHostPaths: false,
         made,
-        box: (opts) => {
+        newBox: (opts) => {
             const box = new FakeBox(opts);
             made.push(box);
             return box;
         },
-        fs: new MemoryFs().dir('/workspace'),
+        fs: new InMemoryFs().dir('/workspace'),
     };
 }
 
@@ -256,7 +278,7 @@ describe('the sandbox tools on a backend of their own', () => {
 
     it('run through whatever box the backend makes', async () => {
         const backend = fakeBackend();
-        const pool = new SandboxPool({ root: '/workspace', key: 's1', box: backend.box });
+        const pool = new SandboxPool({ root: '/workspace', key: 's1', newBox: backend.newBox });
         const [run, background, read, stop] = sandboxTools(pool);
 
         expect(await run.execute({ command: 'ls', cwd: 'src' }, tc('a'))).toMatchObject({
@@ -271,6 +293,10 @@ describe('the sandbox tools on a backend of their own', () => {
         expect(await stop.execute({ job_id: job.job_id }, tc('a'))).toMatchObject({
             stopped: true,
         });
+        expect(await read.execute({ job_id: job.job_id }, tc('a'))).toEqual({
+            error: `no such job: ${job.job_id}`,
+            hint: undefined,
+        });
         expect(pool.running.map((b) => b.name)).toEqual(['fake-s1-default']);
     });
 
@@ -279,32 +305,29 @@ describe('the sandbox tools on a backend of their own', () => {
         const pool = new SandboxPool({
             root: '/workspace',
             key: 's2',
-            box: backend.box,
+            newBox: backend.newBox,
             agents: { analyst: { image: 'python' } },
         });
         expect(pool.for('a')).toBe(pool.for('b'));
         expect(pool.for('analyst')).not.toBe(pool.for('a'));
-        expect((pool.for('analyst') as FakeBox).opts.image).toBe('python');
+        expect((pool.for('analyst') as unknown as FakeBox).opts.image).toBe('python');
 
         await pool.for('a').start();
         await pool.dispose();
         expect(backend.made.find((b) => b.name === 'fake-s2-default')?.disposed).toBe(true);
     });
 
-    it('get podman by default, with the engine and runner each box was given', async () => {
+    it('get podman by default, and a podman factory can drive another engine', async () => {
         const seen: string[][] = [];
-        expect(podmanBackend).toMatchObject({ name: 'podman', local: true, fs: localFs });
-        await podmanBackend
-            .box({
-                root: '/host/ws',
-                key: 'k',
-                engine: 'docker',
-                exec: async (bin, args) => {
-                    seen.push([bin, ...args]);
-                    return { code: 0, stdout: '', stderr: '', truncated: false, timedOut: false };
-                },
-            })
-            .exec('true');
+        expect(podmanBackend).toMatchObject({ name: 'podman', bindsHostPaths: true, fs: localFs });
+        const docker = podmanBox({
+            engine: 'docker',
+            exec: async (bin, args) => {
+                seen.push([bin, ...args]);
+                return { code: 0, stdout: '', stderr: '', truncated: false, timedOut: false };
+            },
+        });
+        await docker({ root: '/host/ws', key: 'k' }).exec('true');
         expect(seen.every(([bin]) => bin === 'docker')).toBe(true);
         expect(seen.some((c) => c.includes('exec'))).toBe(true);
         expect(new SandboxPool({ root: '/host/ws', key: 'k' }).for()).toBeInstanceOf(PodmanBox);
@@ -329,5 +352,38 @@ describe('logical mounts', () => {
 
     it('refuse a host directory nobody said the meaning of', () => {
         expect(() => logicalMounts([{ host: '/h/x', at: '/x' }])).toThrow(/no source/);
+    });
+});
+
+describe('the file tools’ view of a backend', () => {
+    const opts: WorkspaceOptions = {
+        root: '/host/session/ws',
+        mount: '/workspace',
+        mounts: [
+            { host: '/host/p/assets', at: '/assets', readOnly: true, source: { kind: 'assets' } },
+            { host: '/host/p/s/a', at: '/skills/a', readOnly: true, source: { kind: 'skills' } },
+            { host: '/host/p/s/b', at: '/skills/b', readOnly: true, source: { kind: 'skills' } },
+        ],
+    };
+
+    it('reads host directories where a binding backend has them', () => {
+        expect(workspaceFor(podmanBackend, opts)).toEqual({ ...opts, fs: localFs });
+    });
+
+    it('names everything by where the box has it when nothing is bound', () => {
+        const fs = new InMemoryFs();
+        const view = workspaceFor(
+            { name: 'remote', bindsHostPaths: false, newBox: podmanBox(), fs },
+            opts,
+        );
+        expect(view).toEqual({
+            root: '/workspace',
+            mount: '/workspace',
+            mounts: [
+                { host: '/assets', at: '/assets', readOnly: true, source: { kind: 'assets' } },
+                { host: '/skills', at: '/skills', readOnly: true, source: { kind: 'skills' } },
+            ],
+            fs,
+        });
     });
 });
