@@ -74,6 +74,8 @@ export interface BatchOptions {
     image?: string;
     readOnly?: boolean;
     keys?: boolean;
+    /** `--podman`: ignore a plugin that provides the sandbox */
+    sandboxPlugins?: boolean;
     yes?: boolean;
     /** `--as`: who every item acts for */
     user?: RunIdentity;
@@ -356,6 +358,7 @@ async function runItem(item: BatchItem, ctx: ItemContext): Promise<ItemResult> {
             memoryDir: ctx.memory,
             memoryReadOnly: ctx.memoryReadOnly,
             keys: ctx.opts.keys,
+            sandboxPlugins: ctx.opts.sandboxPlugins,
             user: ctx.opts.user,
             yes: true,
             // The project's own problems are the batch's, not each item's.

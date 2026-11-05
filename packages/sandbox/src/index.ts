@@ -3,6 +3,7 @@
 // can all stand on the same contract. Contract tests: `@zenera/sandbox/testing`.
 export * from './contract.ts';
 export * from './fs.ts';
+export * from './image.ts';
 export * from './in-memory-fs.ts';
 export * from './limits.ts';
 export * from './mounts.ts';

@@ -213,6 +213,10 @@ class FakeSandbox implements Sandbox {
         this.name = `fake-${opts.key}-${opts.image ?? 'default'}`;
     }
 
+    async prepare(): Promise<void> {
+        this.calls.push('prepare');
+    }
+
     files(opts: WorkspaceOptions): WorkspaceOptions {
         return inSandboxPaths(opts, this.fs);
     }

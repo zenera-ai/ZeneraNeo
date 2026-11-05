@@ -2689,7 +2689,7 @@ describe('the podman pre-flight', () => {
         const forced = running(fake());
         await ensurePodmanReady({
             image: 'localhost/zenera-sandbox:forced',
-            build: { ...build, tag: 'localhost/zenera-sandbox:forced' },
+            build: { dockerfile: build.dockerfile, context: build.context },
             rebuild: true,
             yes: true,
             exec: forced.run,

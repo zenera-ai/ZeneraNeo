@@ -5,7 +5,7 @@ import {
     WORKSPACE_MOUNT,
     identityEnv,
     podmanSandbox,
-    isIdentityEnv,
+    isHostOnlyEnv,
     type AgentProject,
     type ProjectConfig,
     type RunIdentity,
@@ -106,6 +106,8 @@ export interface SandboxSetup {
     home: string;
     /** every tree bound into the container besides the workspace itself */
     mounts: readonly Mount[];
+    /** where it runs, for people: `podman (this machine)`, or what a plugin calls itself */
+    provider: string;
 }
 
 export interface SandboxInputs {
@@ -143,6 +145,8 @@ export interface SandboxInputs {
     identity?: RunIdentity;
     /** opens the sandbox; podman on this machine when unset */
     newSandbox?: SandboxFactory;
+    /** what to call whatever `newSandbox` opens */
+    provider?: string;
 }
 
 export function buildSandbox(opts: SandboxInputs): SandboxSetup {
@@ -150,7 +154,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     const build = opts.image ? undefined : resolveBuild(opts.root, opts.config.sandbox);
     const base = {
         ...(opts.config.sandbox ?? {}),
-        ...((opts.image ?? build?.tag) ? { image: opts.image ?? build?.tag } : {}),
+        ...(opts.image ? { image: opts.image } : {}),
         ...(opts.keys === false ? { keys: false } : {}),
         ...(opts.persist === false ? { persist: false } : {}),
     };
@@ -170,6 +174,9 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     // `ZENERA_AGENT` tells a `zen` run by `run_command` that no person is there.
     const extra = { HOME, PYTHONDONTWRITEBYTECODE: '1', ZENERA_AGENT: '1', ...(keys?.env ?? {}) };
     const spec = toSpec(base, extra, secretsOf(keys?.secrets, opts.env));
+    if (build) {
+        spec.build = { dockerfile: build.dockerfile, context: build.context };
+    }
 
     const sandbox = (opts.newSandbox ?? podmanSandbox)({
         ...spec,
@@ -185,12 +192,16 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         sandbox,
         spec,
         workdir: spec.workdir ?? WORKSPACE_MOUNT,
-        image: spec.image ?? DEFAULT_SANDBOX_IMAGE,
+        image: build?.tag ?? spec.image ?? DEFAULT_SANDBOX_IMAGE,
         build,
         home,
         mounts,
+        provider: opts.newSandbox ? (opts.provider ?? 'the host') : PODMAN_PROVIDER,
     };
 }
+
+/** How the default sandbox is described. */
+export const PODMAN_PROVIDER = 'podman (this machine)';
 
 /**
  * The two sources of forwarded names, as one list: the credentials the keyring
@@ -206,7 +217,7 @@ function secretsOf(
     if (!secrets) {
         return undefined;
     }
-    return [...new Set([...secrets, ...(env ?? [])])].filter((name) => !isIdentityEnv(name));
+    return [...new Set([...secrets, ...(env ?? [])])].filter((name) => !isHostOnlyEnv(name));
 }
 
 /**
@@ -229,7 +240,7 @@ function toSpec(
     const env: Record<string, string> = { ...extra };
     for (const name of config.env ?? []) {
         const value = process.env[name];
-        if (value !== undefined && value !== '' && !isIdentityEnv(name)) {
+        if (value !== undefined && value !== '' && !isHostOnlyEnv(name)) {
             env[name] = value;
         }
     }
@@ -294,8 +305,11 @@ export function prepareHome(setup: SandboxSetup): void {
 // `PYTHONPATH` on every command, ahead of whatever the image set.
 // ---------------------------------------------------------------------------
 
-/** The packaged sources, beside `src/` and `dist/` alike. */
-const RUNTIME_SOURCE = fileURLToPath(new URL('../runtime/', import.meta.url));
+/**
+ * The packaged sources, beside `src/` and `dist/` alike — also `@zenera/engine/runtime/*`,
+ * for a sandbox that puts them in its image rather than in a bound `$HOME`.
+ */
+export const RUNTIME_SOURCE = fileURLToPath(new URL('../runtime/', import.meta.url));
 
 /** Where each one lands, inside the container. */
 export const RUNTIME_PYTHON = `${HOME}/.zenera/python`;

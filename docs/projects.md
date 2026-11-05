@@ -354,9 +354,25 @@ Another implementation proves itself with the suites in
 
 `FsDriver` stays its own seam because the file tools need no running sandbox:
 `fileTools({ ..., fs })` works on `localFs` or `InMemoryFs` on their own.
-`sandboxTools(sandbox)` builds the shell tools on one sandbox, and
-`openEngine({ newSandbox })` takes a `SandboxFactory` for any other kind;
-podman when unset.
+`sandboxTools(sandbox)` builds the shell tools on one sandbox.
+
+The sandbox also owns its **image**: the spec names an `image` to pull or a
+`build` to build, and `prepare()` gets it there - `podman build` here, the
+service's own builders there. `buildIdentity()` is what every backend agrees a
+build is: the context's files and their hash, which is the tag.
+
+Which sandbox a run gets, in order:
+
+1. `openEngine({ newSandbox })` - a host's own `SandboxFactory`.
+2. A plugin whose `sandbox()` answers with a `SandboxProvider` - passed in
+   `plugins`, or named by `ZEN_PLUGINS`, which is how `zen run` in a terminal
+   reaches a sandbox service. Two answers is an error.
+3. Podman on this machine.
+
+`zen run --podman` skips step 2, and `zen check` smoke-tests whichever sandbox
+a run would get. `ZEN_PLUGINS` and `ZEN_SANDBOX_*` come from the machine's
+environment only: a project's `.env` cannot set them, and `sandbox.env` cannot
+forward them into a sandbox.
 
 ## Embeddings
 

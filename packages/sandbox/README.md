@@ -17,7 +17,8 @@ await sandbox.close();
 
 ## The contract
 
-- **`Sandbox`** - `exec`, background jobs (`startJob`, `readJob`, `stopJob`),
+- **`Sandbox`** - `prepare` (pull the image, or build it from `build:`),
+  `exec`, background jobs (`startJob`, `readJob`, `stopJob`),
   `close` at the end of a turn, and the files: `fs` (an `FsDriver`) and
   `files(view)`, which maps the host's workspace and mounts to the paths `fs`
   finds them at. The invariant: **a file written through `fs` is the file
@@ -27,10 +28,23 @@ await sandbox.close();
 - **`FsDriver`** - the filesystem seam, usable without a sandbox. `localFs` is
   this machine's disk; `InMemoryFs` keeps a tree in memory.
 
+## The image
+
+A spec names an `image` to pull, or a `build` (`{ dockerfile, context, args }`)
+to build. Getting it there is the sandbox's job, in `prepare()`: podman builds
+on this machine, a sandbox service on its own builders. What every backend
+shares is the build's identity, `buildIdentity(build)` - the context's files
+and the hash of them - so a project names the same image everywhere.
+`prepare({ onProgress, slow, force, allowBuild: false })` reports progress,
+rebuilds, or refuses to build at all; `start` does whatever of it is still
+needed. A failed build is an `ImageBuildError` (`isImageBuildError` checks it
+by name, across copies of this package).
+
 ## Implementations
 
 - **`PodmanSandbox`** / `podmanSandbox` - a podman container on this machine,
-  binding host directories, with `fs = localFs`.
+  binding host directories, with `fs = localFs`. `ensurePodmanImage` is its
+  image step on its own.
 - A sandbox that keeps its files with the container (a sandbox service) serves
   `fs` itself and returns `inSandboxPaths(view, fs)` from `files()`.
 

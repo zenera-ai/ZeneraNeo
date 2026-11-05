@@ -51,6 +51,24 @@ export function isIdentityEnv(name: string): boolean {
     return name.startsWith(IDENTITY_ENV_PREFIX);
 }
 
+/**
+ * Where a sandbox service is and the credential that reaches it — read by the
+ * plugin that provides the sandbox, from the machine's environment only.
+ */
+export const SANDBOX_SERVICE_ENV_PREFIX = 'ZEN_SANDBOX_';
+
+/**
+ * Variables that are the host's alone: who a run acts for, which plugins load
+ * into the engine, and which sandbox service it uses. A project that could set
+ * one in a committed file — or forward one into the sandbox it runs code in —
+ * could be anyone, run anything, or send its users' work anywhere.
+ */
+export function isHostOnlyEnv(name: string): boolean {
+    return (
+        isIdentityEnv(name) || name === 'ZEN_PLUGINS' || name.startsWith(SANDBOX_SERVICE_ENV_PREFIX)
+    );
+}
+
 /** The identity as the variables a command sees; nothing at all when there is none. */
 export function identityEnv(identity: RunIdentity | undefined): Record<string, string> {
     if (!identity) {

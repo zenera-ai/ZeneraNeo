@@ -25,6 +25,7 @@ doing it deliberately - before a demo, in CI, or when diagnosing.
 | `--once`                | `top`: print one report instead of the live screen         |
 | `--interval <seconds>`  | `top`: how often the live screen refreshes (default 2)     |
 | `--brief`               | `top`: the figures without the notes saying what they mean |
+| `--podman`              | Podman here, even when a plugin provides the sandbox       |
 
 `top` draws a live screen only when a person is at a terminal. From an agent,
 a script or with `--json` it measures twice a second apart (cpu needs an
@@ -37,6 +38,11 @@ and `free`, `containers[]` carries `cpu` (percent of one core), `memory`,
 The engine is Podman. On macOS a machine has to exist and be running; `up`
 offers to install and start one, and its size follows the project's `cpus` and
 `memory`.
+
+A plugin named in `$ZEN_PLUGINS` can run sandboxes somewhere else - a sandbox
+service. Then `zen run` and `zen check` use it, the line under the session says
+`sandbox <where>`, `status` and `clean` ask the service, and `top`, `up`, `pull`
+and `disk` say they are about podman only. `--podman` goes back to this machine.
 
 ## Configuring it - `sandbox:` in `agents.yaml`
 

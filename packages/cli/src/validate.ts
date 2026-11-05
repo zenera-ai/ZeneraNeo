@@ -5,6 +5,7 @@ import {
     envNames,
     form,
     machinePluginTools,
+    machineSandboxProvider,
     PLUGINS_ENV,
     resolveBuild,
     type DeclaredRole,
@@ -17,7 +18,9 @@ import {
 import {
     EXA_GROUP,
     FileSkillProvider,
+    isImageBuildError,
     PodmanSandbox,
+    type ImageBuildError,
     WORKSPACE_MOUNT,
     exaTools,
     fileTools,
@@ -33,6 +36,8 @@ import {
     type ModelRef,
     type ProjectConfig,
     type Runner,
+    type Sandbox,
+    type SandboxOptions,
     type SkillSummary,
 } from '@zenera/neo';
 import {
@@ -764,7 +769,13 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
         await askModels(resolved.targets, asking, add);
     }
     if (opts.sandbox?.enabled && sandboxSummary(config, agents).used) {
-        probed = await probeSandbox(config, build, opts.sandbox, add);
+        probed = await probeSandbox(
+            { dir: root, name: name ?? basename(root) },
+            config,
+            build,
+            opts.sandbox,
+            add,
+        );
     }
 
     return done();
@@ -1864,22 +1875,81 @@ export function repinDockerfile(root: string): string[] {
 const SMOKE = 'zen-check';
 
 /**
- * Builds the image and runs one command in it.
+ * Builds the image and runs one command in it — in podman here, or wherever the
+ * plugin that provides the sandbox puts it.
  *
- * The container is given a temporary directory rather than anybody's
- * workspace: this is a check, and a check that can write to the work is not
- * one. `persist` is off, so closing it removes it — a `zen check` that left a
+ * The sandbox is given a temporary directory rather than anybody's workspace:
+ * this is a check, and a check that can write to the work is not one.
+ * `persist` is off, so closing it removes it — a `zen check` that left a
  * container behind would be a slow leak nobody attributed to it.
  */
 async function probeSandbox(
+    project: { dir: string; name: string },
     config: ProjectConfig,
     build: ResolvedBuild | undefined,
     opts: NonNullable<ValidateOptions['sandbox']>,
     add: Add,
 ): Promise<boolean> {
     const image = build?.tag ?? config.sandbox?.image;
-    const engine = opts.engine ?? 'podman';
+    const spec: Omit<SandboxOptions, 'root'> = {
+        key: 'check',
+        image: config.sandbox?.image,
+        build: build ? { dockerfile: build.dockerfile, context: build.context } : undefined,
+        cpus: config.sandbox?.cpus,
+        memory: config.sandbox?.memory,
+        network: config.sandbox?.network,
+        workdir: config.sandbox?.workdir,
+        user: config.sandbox?.user,
+        // Not the project's: a check forwards no host values, and keeping the
+        // container is the caller's choice about their work, not about this.
+        env: {},
+        persist: false,
+    };
+    const unbuilt = (err: ImageBuildError | BuildError): false => {
+        const rel = config.sandbox?.build?.dockerfile ?? 'the Dockerfile';
+        add({
+            severity: 'error',
+            code: 'sandbox.build',
+            where: 'sandbox.build.dockerfile',
+            message: `${rel} does not build: ${err.hint ?? reason(err)}`,
+            fix: 'run the build by hand to see the whole log',
+        });
+        return false;
+    };
 
+    const found = await machineSandboxProvider(project, config.sandbox, {
+        warn: (message) =>
+            add({ severity: 'warning', code: 'plugins.load', where: PLUGINS_ENV, message }),
+    });
+    if (found) {
+        const { provider, plugin } = found;
+        const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-check-')));
+        try {
+            const box = provider.newSandbox({ ...spec, root });
+            opts.onProgress?.(`checking the sandbox on ${provider.describe}`);
+            try {
+                await box.prepare({ onProgress: opts.onProgress });
+            } catch (err) {
+                if (isImageBuildError(err)) {
+                    return unbuilt(err);
+                }
+                add({
+                    severity: 'error',
+                    code: 'sandbox.unreachable',
+                    where: PLUGINS_ENV,
+                    message: `${provider.describe} could not prepare the sandbox: ${reason(err)}`,
+                    fix: `check the service, or pass --no-sandbox to skip this`,
+                });
+                return false;
+            }
+            return await smoke(box, image ?? provider.describe, opts, add);
+        } finally {
+            await Promise.resolve(plugin.close?.()).catch(() => undefined);
+            rmSync(root, { recursive: true, force: true });
+        }
+    }
+
+    const engine = opts.engine ?? 'podman';
     // The pre-flight narrates the build and the pull itself, so this only has
     // to cover the silence before it: installing, and starting a machine.
     opts.onProgress?.('checking the sandbox');
@@ -1887,15 +1957,7 @@ async function probeSandbox(
         await ensurePodmanReady({ image, build, engine, exec: opts.exec, yes: true });
     } catch (err) {
         if (err instanceof BuildError) {
-            const rel = config.sandbox?.build?.dockerfile ?? 'the Dockerfile';
-            add({
-                severity: 'error',
-                code: 'sandbox.build',
-                where: 'sandbox.build.dockerfile',
-                message: `${rel} does not build: ${err.hint ?? reason(err)}`,
-                fix: 'run the build by hand to see the whole log',
-            });
-            return false;
+            return unbuilt(err);
         }
         // A laptop with no container engine is not a broken project, and this
         // report is most valuable on exactly that laptop.
@@ -1910,25 +1972,22 @@ async function probeSandbox(
     }
 
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-check-')));
-    const box = new PodmanSandbox(
-        {
-            root,
-            key: 'check',
-            image,
-            cpus: config.sandbox?.cpus,
-            memory: config.sandbox?.memory,
-            network: config.sandbox?.network,
-            workdir: config.sandbox?.workdir,
-            user: config.sandbox?.user,
-            // Not the project's: a check forwards no host values, and keeping the
-            // container is the caller's choice about their work, not about this.
-            env: {},
-            persist: false,
-        },
-        { engine, exec: opts.exec },
-    );
+    try {
+        const box = new PodmanSandbox({ ...spec, root }, { engine, exec: opts.exec });
+        return await smoke(box, image ?? 'the container', opts, add);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+}
 
-    opts.onProgress?.(`starting ${image ?? 'the container'}`);
+/** Writes a file in the sandbox's workspace and reads it back, then closes it. */
+async function smoke(
+    box: Sandbox,
+    image: string,
+    opts: NonNullable<ValidateOptions['sandbox']>,
+    add: Add,
+): Promise<boolean> {
+    opts.onProgress?.(`starting ${image}`);
     try {
         const res = await box.exec(
             [
@@ -1963,7 +2022,6 @@ async function probeSandbox(
         return false;
     } finally {
         await box.close().catch(() => undefined);
-        rmSync(root, { recursive: true, force: true });
     }
 }
 

@@ -129,6 +129,14 @@ describe('the config', () => {
             ),
         ).toThrow(/ZEN_USER_ID is set by the host/);
     });
+
+    it('refuses to forward what configures the host into a sandbox', () => {
+        for (const name of ['ZEN_PLUGINS', 'ZEN_SANDBOX_TOKEN']) {
+            expect(() =>
+                parseConfig(`agents:\n  - name: solo\nsandbox:\n  env: [${name}]\n`, 'agents.yaml'),
+            ).toThrow(new RegExp(`${name} configures the host`));
+        }
+    });
 });
 
 describe('the identity in the sandbox', () => {

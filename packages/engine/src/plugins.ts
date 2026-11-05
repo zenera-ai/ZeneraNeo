@@ -1,8 +1,9 @@
 // Plugins: tools a host brings to the engine (ZenPlugin) - loading them, checking their names
-// against the built-ins, closing them, and the ones the machine names in ZEN_PLUGINS.
+// against the built-ins, closing them, and the ones the machine names in ZEN_PLUGINS. A plugin
+// may also say where sandboxes run (SandboxProvider) - a sandbox service instead of podman.
 // Used by: engine.ts (openEngine asks every plugin for its tools); the CLI's `zen check`
 // (machinePluginTools, cli/src/validate.ts); hosts such as ZeneraLite's project pod (EngineOptions.plugins).
-import type { AnyTool, RunIdentity } from '@zenera/neo';
+import type { AnyTool, RunIdentity, SandboxConfig, SandboxFactory } from '@zenera/neo';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Logger } from './errors.ts';
@@ -42,9 +43,94 @@ export interface ZenPlugin {
     /** for error messages: which plugin a tool or a failure came from */
     name: string;
     /** Called once when the engine opens. May return nothing, which adds nothing. */
-    tools(ctx: PluginContext): AnyTool[] | Promise<AnyTool[]>;
+    tools?(ctx: PluginContext): AnyTool[] | Promise<AnyTool[]>;
+    /**
+     * Where this run's sandbox lives, when not in podman on this machine.
+     * Asked once when the engine opens, before anything else; nothing means
+     * "not mine to say". At most one plugin may answer.
+     */
+    sandbox?(
+        ctx: SandboxContext,
+    ): SandboxProvider | undefined | Promise<SandboxProvider | undefined>;
     /** Called when the engine closes, or when it fails to open after the plugin was asked. */
     close?(): void | Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Where sandboxes run
+//
+// Podman on this machine unless a plugin says otherwise. A host that embeds the
+// engine can pass a factory outright (`newSandbox`); a `zen` it does not embed
+// — the CLI in a terminal — learns about a sandbox service the only way it
+// learns about anything, from a plugin `ZEN_PLUGINS` names. The provider then
+// answers for every sandbox this engine opens, files included.
+// ---------------------------------------------------------------------------
+
+/** What a plugin is told when it is asked where the sandbox runs. */
+export interface SandboxContext {
+    project: { dir: string; name: string };
+    /** the session the sandbox is for; absent when a project is only checked */
+    session?: SessionPaths;
+    /** who the run acts for, when anyone */
+    user?: RunIdentity;
+    /** the project's `sandbox:` block, as written */
+    config: SandboxConfig | undefined;
+    logger: Logger;
+}
+
+/** A plugin's answer: where sandboxes are opened, and how to report on them. */
+export interface SandboxProvider {
+    /** for people: `zenera-sandbox (http://localhost:7080)` */
+    describe: string;
+    newSandbox: SandboxFactory;
+    /** what `zen sandbox status` prints for it */
+    status?(): Promise<SandboxStatusReport>;
+    /** what `zen sandbox clean` does for it; returns what it removed */
+    clean?(opts: { all?: boolean }): Promise<string[]>;
+}
+
+export interface SandboxStatusReport {
+    /** whether a sandbox could be opened right now */
+    ready: boolean;
+    /** one line each, for a person */
+    lines: string[];
+}
+
+/**
+ * The provider among `plugins`, if any. Two answers is an error rather than a
+ * choice: which one wins would be an accident of the order the machine listed
+ * them in, and the loser's users would never know their sandbox moved.
+ */
+export async function resolveSandboxProvider(
+    plugins: readonly ZenPlugin[],
+    ctx: SandboxContext,
+): Promise<{ provider: SandboxProvider; plugin: ZenPlugin } | undefined> {
+    let found: { provider: SandboxProvider; plugin: ZenPlugin } | undefined;
+    for (const plugin of plugins) {
+        if (!plugin.sandbox) {
+            continue;
+        }
+        let provider: SandboxProvider | undefined;
+        try {
+            provider = await plugin.sandbox(ctx);
+        } catch (err) {
+            throw new Error(`plugin ${plugin.name}: ${message(err)}`);
+        }
+        if (!provider) {
+            continue;
+        }
+        if (typeof provider.newSandbox !== 'function') {
+            throw new Error(`plugin ${plugin.name}: its sandbox provider has no newSandbox`);
+        }
+        if (found) {
+            throw new Error(
+                `plugins ${found.plugin.name} and ${plugin.name} both provide the sandbox — ` +
+                    'remove one of them from ZEN_PLUGINS',
+            );
+        }
+        found = { provider, plugin };
+    }
+    return found;
 }
 
 export interface LoadedPlugins {
@@ -91,7 +177,7 @@ export async function loadPlugins(
             asked.push(plugin);
             let given: AnyTool[];
             try {
-                given = (await plugin.tools(ctx)) ?? [];
+                given = (await plugin.tools?.(ctx)) ?? [];
             } catch (err) {
                 throw new Error(`plugin ${name}: ${message(err)}`);
             }
@@ -179,9 +265,13 @@ export async function importPlugins(
         try {
             const mod = (await import(pathToFileURL(path).href)) as { default?: unknown };
             const plugin = mod.default as ZenPlugin | undefined;
-            if (!plugin || typeof plugin.name !== 'string' || typeof plugin.tools !== 'function') {
+            const usable =
+                plugin &&
+                typeof plugin.name === 'string' &&
+                (typeof plugin.tools === 'function' || typeof plugin.sandbox === 'function');
+            if (!usable || !plugin) {
                 logger.warn(
-                    `${PLUGINS_ENV}: ${path} has no default export with a name and tools() — ignored`,
+                    `${PLUGINS_ENV}: ${path} has no default export with a name and tools() or sandbox() — ignored`,
                 );
                 continue;
             }
@@ -226,4 +316,23 @@ export async function machinePluginTools(
         }
     }
     return tools;
+}
+
+/**
+ * The sandbox provider the machine's plugins name, for checking a project
+ * rather than running it: asked with no user and no session. The caller closes
+ * the plugin once it is done with the provider. A plugin that fails is a
+ * warning, and podman is used.
+ */
+export async function machineSandboxProvider(
+    project: { dir: string; name: string },
+    config: SandboxConfig | undefined,
+    logger: Logger,
+): Promise<{ provider: SandboxProvider; plugin: ZenPlugin } | undefined> {
+    try {
+        return await resolveSandboxProvider(await envPlugins(logger), { project, config, logger });
+    } catch (err) {
+        logger.warn(`${PLUGINS_ENV}: ${message(err)} — the sandbox is checked in podman`);
+        return undefined;
+    }
 }

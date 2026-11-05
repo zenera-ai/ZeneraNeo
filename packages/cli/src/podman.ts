@@ -1,12 +1,14 @@
+import { isBusy, isProjectDir, Registry, sessionIds, sessionsDir } from '@zenera/engine';
 import {
-    isBusy,
-    isProjectDir,
-    Registry,
-    sessionIds,
-    sessionsDir,
-    type ResolvedBuild,
-} from '@zenera/engine';
-import { pidAlive, runProcess, SandboxError, type ProcResult } from '@zenera/neo';
+    ensurePodmanImage,
+    isImageBuildError,
+    pidAlive,
+    runProcess,
+    SandboxError,
+    type BuildSpec,
+    type PrepareOptions,
+    type ProcResult,
+} from '@zenera/neo';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
@@ -32,7 +34,7 @@ export interface PodmanOptions {
     /** the image the project needs on disk before the first run */
     image?: string;
     /** a Dockerfile to build into `image`, instead of a registry to pull it from */
-    build?: ResolvedBuild;
+    build?: BuildSpec;
     /** build even when the tag is already on disk; `zen sandbox pull` */
     rebuild?: boolean;
     /** machine size, when one has to be created */
@@ -48,10 +50,8 @@ export interface PodmanOptions {
 
 const DEFAULT_MACHINE_CPUS = 2;
 const DEFAULT_MACHINE_MEMORY = 2048;
-/** Starting a virtual machine and pulling an image are both slow on purpose. */
+/** Starting a virtual machine is slow on purpose. */
 const SLOW_MS = 600_000;
-/** ...and a build from a cold cache is slower than either. */
-const BUILD_MS = 900_000;
 
 interface Machine {
     Name: string;
@@ -151,21 +151,53 @@ async function preflight(opts: PodmanOptions): Promise<void> {
 
     // 4. The image, so the first command is not a five-minute pull that looks
     //    like a hung model.
-    if (opts.build) {
-        await build(engine, opts.build, run, opts.rebuild);
-    } else if (opts.image) {
-        const present = await call(['image', 'exists', opts.image], 30_000);
-        if (present.code !== 0) {
-            note(dim(`pulling ${opts.image} — this happens once`));
-            const pulled = await stream(engine, ['pull', opts.image], run, 'pulling');
-            if (pulled.code !== 0) {
-                throw sandboxError(
-                    `could not pull ${opts.image}`,
-                    first(pulled) || 'check the image name and your network',
-                );
-            }
-        }
+    if (opts.image) {
+        await ensureImage(
+            { image: opts.image, build: opts.build },
+            { engine, exec: run, force: opts.rebuild },
+        );
     }
+}
+
+/**
+ * How a terminal watches a pull or a build: the sandbox's own lines, dimmed,
+ * and a spinner over each slow step.
+ */
+export function terminalProgress(): Pick<PrepareOptions, 'onProgress' | 'slow'> {
+    return { onProgress: (line) => note(dim(line)), slow: ticking };
+}
+
+/**
+ * The image step on its own, in a terminal's words: what `ensurePodmanReady`
+ * ends with, and what `zen init` and `zen sandbox pull` ask for directly. A
+ * Dockerfile that does not build is a `BuildError`; everything else the engine
+ * says is a sandbox error.
+ */
+export async function ensureImage(
+    target: { image: string; build?: BuildSpec },
+    opts: { engine?: string; exec?: typeof runProcess; force?: boolean } = {},
+): Promise<void> {
+    try {
+        await ensurePodmanImage(
+            target,
+            { engine: opts.engine, exec: opts.exec },
+            { ...terminalProgress(), force: opts.force },
+        );
+    } catch (err) {
+        throw asCliError(err);
+    }
+}
+
+/** A sandbox's failure, as the CLI reports it. */
+export function asCliError(err: unknown): unknown {
+    if (isImageBuildError(err)) {
+        return new BuildError(err.message, EXIT.sandbox, err.hint);
+    }
+    // By name too, for a sandbox a plugin built against its own copy of the package.
+    if (err instanceof SandboxError || (err instanceof Error && err.name === 'SandboxError')) {
+        return new CliError(err.message, EXIT.sandbox, (err as SandboxError).hint);
+    }
+    return err;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,49 +511,6 @@ async function connectionOf(
  * not. Only one of them is an error.
  */
 export class BuildError extends CliError {}
-
-/**
- * Builds the project's Dockerfile under its tag, unless that tag is already on
- * disk.
- *
- * Skipping is safe here in a way it would not be for an ordinary tag, because
- * this one is a hash of the Dockerfile and its context: the image existing
- * *means* the content is unchanged. What it does not cover is a moved base
- * image — `podman build` defaults to `--pull=missing` and reuses whatever
- * `FROM node:24` resolved to last time — so `zen sandbox pull` forces the
- * build, and `--pull` is where that would be fixed if it ever needs to be.
- */
-async function build(
-    engine: string,
-    spec: ResolvedBuild,
-    run: typeof runProcess,
-    force = false,
-): Promise<void> {
-    if (!force) {
-        const present = await run(engine, ['image', 'exists', spec.tag], { timeoutMs: 30_000 });
-        if (present.code === 0) {
-            return;
-        }
-    }
-
-    note(dim(`${force ? 'rebuilding' : 'building'} the sandbox image from ${spec.dockerfile}`));
-    note(dim('  the agent runs its commands inside a container, so the image is needed first'));
-    note(dim('  this takes a few minutes; later runs reuse it'));
-    const built = await stream(
-        engine,
-        ['build', '--tag', spec.tag, '--file', spec.dockerfile, spec.context],
-        run,
-        'building the sandbox image',
-        BUILD_MS,
-    );
-    if (built.code !== 0) {
-        throw new BuildError(
-            `could not build ${spec.dockerfile}`,
-            EXIT.sandbox,
-            last(built) || 'run the build by hand to see what the engine says',
-        );
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Reporting
@@ -973,12 +962,6 @@ function elapsed(ms: number): string {
 
 function first(res: ProcResult): string {
     return (res.stderr.trim() || res.stdout.trim()).split('\n')[0] ?? '';
-}
-
-/** A build says what went wrong on its last line, not its first. */
-function last(res: ProcResult): string {
-    const lines = (res.stderr.trim() || res.stdout.trim()).split('\n').filter((l) => l.trim());
-    return lines.slice(-2).join(' — ');
 }
 
 function sandboxError(message: string, hint?: string): CliError {

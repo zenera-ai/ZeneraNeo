@@ -201,6 +201,17 @@ describe('plugins the machine names', () => {
         expect(loaded.tools.map((t) => t.name)).toEqual(['a_tool']);
     });
 
+    it('takes a module that only provides the sandbox', async () => {
+        const svc = module(
+            "export default { name: 'svc', sandbox: () => ({ describe: 'svc', newSandbox: () => { throw new Error('unused'); } }) };",
+        );
+        const log = logger();
+        const plugins = await importPlugins(svc, log);
+        expect(plugins.map((p) => p.name)).toEqual(['svc']);
+        expect(log.seen).toEqual([]);
+        expect((await loadPlugins(plugins, ctx(), builtins)).tools).toEqual([]);
+    });
+
     it('warns and skips what it cannot use, so other projects still run', async () => {
         const noExport = module('export const x = 1;');
         const log = logger();
