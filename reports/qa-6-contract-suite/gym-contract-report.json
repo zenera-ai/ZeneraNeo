@@ -164,7 +164,7 @@
             "endTime": 1793651415833.149,
             "status": "passed",
             "message": "",
-            "name": "C:/Users/Hello/ZeneraNeo/packages/gym/test/qa-contract.test.ts"
+            "name": "packages/gym/test/qa-contract.test.ts"
         }
     ]
 }
