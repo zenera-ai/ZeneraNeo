@@ -2,7 +2,7 @@ import { PayloadResolver, type PayloadStore } from './payload.ts';
 // The composition root is the one place in the core allowed to name a backend:
 // it has to fall back to something when the caller supplies no store.
 import { systemClock, type IdClock } from './ids.ts';
-import type { WorkspaceFiles } from './memory/files.ts';
+import type { AgentFiles } from './tools/workspace.ts';
 import type { MemoryIndex } from './memory/index.ts';
 import { InMemoryPayloadStore } from './payload-stores/in-memory.ts';
 import type { SkillProvider } from './skills.ts';
@@ -28,7 +28,7 @@ export class Services {
      * files reach the sandbox. Supplied by whoever built the workspace, because
      * only it knows the mounts. Without it both are refusals, not crashes.
      */
-    readonly files?: WorkspaceFiles;
+    readonly files?: AgentFiles;
     /** the driver's clock, so a tool that stamps a node stays replayable */
     readonly clock: IdClock;
     readonly #skills = new Map<string, SkillProvider>();
@@ -39,7 +39,7 @@ export class Services {
             memory?: MemoryIndex;
             skills?: SkillProvider[];
             clock?: IdClock;
-            files?: WorkspaceFiles;
+            files?: AgentFiles;
         } = {},
     ) {
         const p = opts.payloads ?? new InMemoryPayloadStore();

@@ -1,5 +1,6 @@
 import type { Workspace } from '@zenera/neo';
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Block, Span } from './wrap.ts';
 
@@ -24,12 +25,17 @@ export interface Mounts {
 /** Exactly the trees the file tools reach, under the same containment rule. */
 export function mountsOf(files: Workspace): Mounts {
     const names = [...(files.mount ? [files.mount] : []), ...files.mounts.map((m) => m.at)];
+    // A link is drawn while the text is, so this answers synchronously — the
+    // terminal is on this machine, so its disk can be asked directly — and a
+    // symlink out of a tree is no more a link than it is a file the tools reach.
+    const trees = [files.root, ...files.mounts.map((m) => m.host)].map(real);
     const resolve = (path: string): string | undefined => {
-        try {
-            return files.within(path);
-        } catch {
+        const host = files.hostOf(path);
+        if (!host) {
             return undefined;
         }
+        const at = real(host);
+        return trees.some((t) => at === t || at.startsWith(t + sep)) ? at : undefined;
     };
     return {
         names: names.sort((a, b) => b.length - a.length),
@@ -39,6 +45,24 @@ export function mountsOf(files: Workspace): Mounts {
             return host && statSync(host, { throwIfNoEntry: false })?.isFile() ? host : undefined;
         },
     };
+}
+
+/** The path with the symlinks in its existing part resolved, the rest appended. */
+function real(path: string): string {
+    const missing: string[] = [];
+    let at = path;
+    for (;;) {
+        try {
+            return join(realpathSync(at), ...missing.reverse());
+        } catch {
+            const up = dirname(at);
+            if (up === at) {
+                return path;
+            }
+            missing.push(basename(at));
+            at = up;
+        }
+    }
 }
 
 const FILE = 'file://';

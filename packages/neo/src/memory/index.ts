@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Embedder } from '../embedding.ts';
 import type { IdClock } from '../ids.ts';
-import { forgetFile, hostPath, rememberFile, type FileSource } from './files.ts';
+import { forgetFile, hostPath, rememberFile, type FileBytes } from './files.ts';
 import { type MemoryGraph, type NodeDraft, type NodePatch, RevisionMismatch } from './graph.ts';
 import { recall } from './recall.ts';
 import type { MemoryStore } from './store.ts';
@@ -67,8 +67,8 @@ export interface CommitNode {
     text?: string;
     audience?: string[];
     metadata?: Record<string, unknown>;
-    /** the file to copy in, already resolved and contained by the caller */
-    file?: { source: FileSource; path?: string };
+    /** the file to keep: its bytes, read by the caller under its own rules */
+    file?: FileBytes;
     expectedRevision?: number;
 }
 
@@ -277,9 +277,7 @@ export class MemoryIndex {
         const written: MemoryFile[] = [];
         try {
             for (const item of plan.files) {
-                const file = await rememberFile(this.store.dir, item.source, item.id, {
-                    path: item.path,
-                });
+                const file = await rememberFile(this.store.dir, item.file, item.id);
                 written.push(file);
                 item.target.file = file;
             }
@@ -527,8 +525,7 @@ export class MemoryIndex {
                 if (node.file) {
                     files.push({
                         id,
-                        source: node.file.source,
-                        path: node.file.path,
+                        file: node.file,
                         target: patch,
                     });
                 }
@@ -559,8 +556,7 @@ export class MemoryIndex {
             if (node.file) {
                 files.push({
                     id: newId,
-                    source: node.file.source,
-                    path: node.file.path,
+                    file: node.file,
                     target: draft,
                 });
             }
@@ -648,8 +644,7 @@ export function flatten(text: string): string {
 
 interface PlannedFile {
     id: string;
-    source: FileSource;
-    path?: string;
+    file: FileBytes;
     /** the draft or patch the copied file's record is written into */
     target: { file?: MemoryFile };
 }

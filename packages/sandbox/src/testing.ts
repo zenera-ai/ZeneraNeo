@@ -95,10 +95,26 @@ export function describeFsDriver(
                     code: 'ENOENT',
                     path: expect.stringContaining('ghost.txt'),
                 });
-                expect(() => fs.realpathSync(at('ghost', 'deeper'))).toThrow(
-                    expect.objectContaining({ code: 'ENOENT' }),
+                expect(await fs.resolve(at('.'))).toBe(await fs.resolve(at()));
+            }),
+        );
+
+        it(
+            'resolves where a path really is, the part that does not exist yet included',
+            withFs(async ({ fs }, at) => {
+                const root = await fs.resolve(at());
+                await fs.mkdirp(at('real', 'dir'));
+                expect(await fs.resolve(at('real', 'dir'))).toBe(fs.path.join(root, 'real', 'dir'));
+                expect(await fs.resolve(at('real', 'ghost', 'deeper.txt'))).toBe(
+                    fs.path.join(root, 'real', 'ghost', 'deeper.txt'),
                 );
-                expect(fs.realpathSync(at())).toBe(fs.realpathSync(at('.')));
+                expect(await fs.resolve(at('real', 'dir', '..', 'x'))).toBe(
+                    fs.path.join(root, 'real', 'x'),
+                );
+                await fs.writeFile(at('file.txt'), 'x');
+                await expect(fs.resolve(at('file.txt', 'under'))).rejects.toMatchObject({
+                    code: 'ENOTDIR',
+                });
             }),
         );
     });

@@ -4,7 +4,7 @@ import { Agent, AgentRegistry, type ForkOptions } from '../agent.ts';
 import type { Embedder } from '../embedding.ts';
 import { RunStream } from '../events.ts';
 import { frontmatter, toList } from '../frontmatter.ts';
-import type { WorkspaceFiles } from '../memory/files.ts';
+import type { AgentFiles } from '../tools/workspace.ts';
 import { MemoryIndex } from '../memory/index.ts';
 import { DEFAULT_SEEDS } from '../memory/recall.ts';
 import { MemoryStore } from '../memory/store.ts';
@@ -97,7 +97,7 @@ export interface ProjectOptions<TCtx = unknown> {
      */
     memoryReadOnly?: boolean;
     /** the agent's workspace, so files can be remembered and copied back */
-    files?: WorkspaceFiles;
+    files?: AgentFiles;
     payloads?: PayloadStore;
     /** extra providers merged with the ones the project declares */
     skills?: SkillProvider[];

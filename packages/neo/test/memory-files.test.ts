@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { systemClock } from '../src/ids.ts';
-import { forgetFile, hostFile, hostPath, rememberFile } from '../src/memory/files.ts';
+import { forgetFile, hostPath, rememberFile, type FileBytes } from '../src/memory/files.ts';
 import { MemoryIndex } from '../src/memory/index.ts';
 import { FILES_DIR, MemoryStore } from '../src/memory/store.ts';
 import { memoryTools } from '../src/memory/tools.ts';
@@ -13,6 +14,9 @@ import { InMemoryFs } from '@zenera/sandbox';
 import { MEMORY_COPY_FILE_TOOL, type ToolContext } from '../src/types.ts';
 
 const SCRIPT = 'print("risky ports")\n';
+
+/** A file on this disk as memory takes one: its name and its bytes. */
+const bytes = (path: string): FileBytes => ({ name: path, data: readFileSync(path) });
 
 describe('remembering a file', () => {
     let dir: string;
@@ -32,7 +36,7 @@ describe('remembering a file', () => {
     });
 
     it('copies the bytes under the node id and names them by the mount', async () => {
-        const file = await rememberFile(dir, hostFile(source), 'ID1');
+        const file = await rememberFile(dir, bytes(source), 'ID1');
         expect(file.path).toBe('ID1.py');
         expect(file.format).toBe('py');
         expect(file.bytes).toBe(Buffer.byteLength(SCRIPT));
@@ -40,13 +44,13 @@ describe('remembering a file', () => {
     });
 
     it('survives the workspace it came from', async () => {
-        const file = await rememberFile(dir, hostFile(source), 'ID1');
+        const file = await rememberFile(dir, bytes(source), 'ID1');
         await rm(work, { recursive: true, force: true });
         expect(await readFile(hostPath(dir, file), 'utf8')).toBe(SCRIPT);
     });
 
     it('digests the copy that was kept', async () => {
-        const file = await rememberFile(dir, hostFile(source), 'ID1');
+        const file = await rememberFile(dir, bytes(source), 'ID1');
         const { createHash } = await import('node:crypto');
         expect(file.sha256).toBe(createHash('sha256').update(SCRIPT).digest('hex'));
     });
@@ -54,7 +58,7 @@ describe('remembering a file', () => {
     it('keeps a file with no extension, without a trailing dot', async () => {
         const plain = join(work, 'Makefile');
         await writeFile(plain, 'all:\n');
-        const file = await rememberFile(dir, hostFile(plain), 'ID2');
+        const file = await rememberFile(dir, bytes(plain), 'ID2');
         expect(file.path).toBe('ID2');
         expect(file.format).toBe('');
     });
@@ -62,42 +66,25 @@ describe('remembering a file', () => {
     it('drops an extension it will not put in a filename', async () => {
         const odd = join(work, 'weird.p y!');
         await writeFile(odd, 'x');
-        expect((await rememberFile(dir, hostFile(odd), 'ID3')).format).toBe('');
+        expect((await rememberFile(dir, bytes(odd), 'ID3')).format).toBe('');
     });
 
     it('refuses a file over the limit', async () => {
         const big = join(work, 'big.bin');
         await writeFile(big, Buffer.alloc(64));
-        await expect(rememberFile(dir, hostFile(big), 'ID4', { maxBytes: 32 })).rejects.toThrow(
+        await expect(rememberFile(dir, bytes(big), 'ID4', { maxBytes: 32 })).rejects.toThrow(
             MemoryError,
         );
     });
 
-    it('refuses a directory and a path that is not there', async () => {
-        await expect(rememberFile(dir, hostFile(work), 'ID5')).rejects.toThrow(
-            /not a regular file/,
-        );
-        await expect(rememberFile(dir, hostFile(join(work, 'nope.py')), 'ID6')).rejects.toThrow(
-            /does not exist/,
-        );
-    });
-
-    it('names the passed path in the error when provided', async () => {
-        await expect(
-            rememberFile(dir, hostFile(join(work, 'nope.py')), 'ID6', {
-                path: '/workspace/nope.py',
-            }),
-        ).rejects.toThrow(/\/workspace\/nope\.py does not exist/);
-    });
-
     it('resolves a stored path back through the files directory only', async () => {
-        const file = await rememberFile(dir, hostFile(source), 'ID7');
+        const file = await rememberFile(dir, bytes(source), 'ID7');
         const escaped = { ...file, path: '/memory/../../etc/passwd' };
         expect(hostPath(dir, escaped)).toBe(join(dir, FILES_DIR, 'passwd'));
     });
 
     it('forgets the bytes, and forgetting twice is not an error', async () => {
-        const file = await rememberFile(dir, hostFile(source), 'ID8');
+        const file = await rememberFile(dir, bytes(source), 'ID8');
         await forgetFile(dir, file);
         await expect(readFile(hostPath(dir, file))).rejects.toThrow();
         await expect(forgetFile(dir, file)).resolves.toBeUndefined();
@@ -106,9 +93,50 @@ describe('remembering a file', () => {
     it('copies through a symlink rather than storing the link', async () => {
         const link = join(work, 'link.py');
         await symlink(source, link);
-        const file = await rememberFile(dir, hostFile(link), 'ID9');
+        const file = await rememberFile(dir, bytes(link), 'ID9');
         await rm(work, { recursive: true, force: true });
         expect(await readFile(hostPath(dir, file), 'utf8')).toBe(SCRIPT);
+    });
+});
+
+describe('reading a file the agent names', () => {
+    let work: string;
+
+    beforeEach(async () => {
+        work = await mkdtemp(join(tmpdir(), 'neo-read-'));
+        await writeFile(join(work, 'audit.py'), SCRIPT);
+        await mkdir(join(work, 'dir'));
+    });
+
+    afterEach(async () => {
+        await rm(work, { recursive: true, force: true });
+    });
+
+    it('answers with its bytes and the name the model knows it by', async () => {
+        const ws = new Workspace({ root: work, mount: '/workspace' });
+        const file = await ws.read('audit.py');
+        expect(file.path).toBe('/workspace/audit.py');
+        expect(Buffer.from(file.data).toString()).toBe(SCRIPT);
+    });
+
+    it('refuses a directory, a missing file and one over the limit, in the model’s words', async () => {
+        const ws = new Workspace({ root: work, mount: '/workspace' });
+        await expect(ws.read('dir')).rejects.toMatchObject({
+            code: 'EISDIR',
+            message: 'dir is not a regular file',
+        });
+        await expect(ws.read('/workspace/nope.py')).rejects.toMatchObject({
+            code: 'ENOENT',
+            message: '/workspace/nope.py does not exist',
+        });
+        await expect(ws.read('audit.py', { maxBytes: 4 })).rejects.toMatchObject({
+            code: 'EFBIG',
+        });
+    });
+
+    it('reads nothing outside the workspace', async () => {
+        const ws = new Workspace({ root: work });
+        await expect(ws.read('../escape.txt')).rejects.toThrow(/outside the workspace/);
     });
 });
 
@@ -130,7 +158,7 @@ describe('the memory_copy_file tool', () => {
                         ref: 'script',
                         kind: 'file',
                         text: 'audit script',
-                        file: { source: hostFile(join(work, 'audit.py')) },
+                        file: bytes(join(work, 'audit.py')),
                     },
                     { ref: 'fact', kind: 'fact', text: 'ports 22 and 3389 are risky' },
                     {
@@ -138,7 +166,7 @@ describe('the memory_copy_file tool', () => {
                         kind: 'file',
                         text: 'theirs',
                         audience: ['other'],
-                        file: { source: hostFile(join(work, 'audit.py')) },
+                        file: bytes(join(work, 'audit.py')),
                     },
                 ],
             },

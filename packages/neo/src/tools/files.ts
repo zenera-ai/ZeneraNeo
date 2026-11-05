@@ -1,7 +1,15 @@
 import { extname } from 'node:path';
-import type { FileSource, WorkspaceFiles } from '../memory/files.ts';
 import { tool, type AnyTool, type ToolContext } from '../types.ts';
-import { localFs, type FilesView, type FsDriver, type FsStat, type Mount } from '@zenera/sandbox';
+import type { FsDriver, FsStat } from '@zenera/sandbox';
+import { Workspace, type WorkspaceOptions } from './workspace.ts';
+
+export {
+    Workspace,
+    type AgentFile,
+    type AgentFiles,
+    type ResolvedMount,
+    type WorkspaceOptions,
+} from './workspace.ts';
 
 // ---------------------------------------------------------------------------
 // File tools
@@ -30,274 +38,6 @@ const SNIFF_BYTES = 8 * 1024;
 const MAX_SCAN = 1024 * 1024;
 /** ...and one listing only spends this much on line counting in total. */
 const LIST_SCAN_BUDGET = 8 * 1024 * 1024;
-
-/** The trees the file tools reach — `FilesView` from `@zenera/sandbox`, under the name these tools use. */
-export type WorkspaceOptions = FilesView;
-
-/** One directory the agent can reach, the name it reaches it by, and what it may do there. */
-interface Root {
-    path: string;
-    at?: string;
-    readOnly: boolean;
-}
-
-/** A mount as the workspace holds it: resolved, with its permission decided. */
-export type ResolvedMount = Mount & { readOnly: boolean };
-
-export class Workspace implements WorkspaceFiles {
-    readonly root: string;
-    readonly readOnly: boolean;
-    readonly mount: string | undefined;
-    /** the extra trees, resolved — the primary root is not among them */
-    readonly mounts: readonly ResolvedMount[];
-    /** where the bytes are; every resolved path is in its namespace */
-    readonly fs: FsDriver;
-
-    /** primary first */
-    readonly #roots: Root[];
-    /** the ones with a name, longest name first */
-    readonly #named: (Root & { at: string })[];
-    /** every root, deepest host path first, for attributing a resolved path to one */
-    readonly #deep: Root[];
-
-    constructor(opts: WorkspaceOptions) {
-        this.fs = opts.fs ?? localFs;
-        // Resolve the root's own symlinks once, so a workspace that *is* a
-        // symlink does not fail every containment check against itself.
-        this.root = this.fs.realpathSync(this.fs.path.resolve(opts.root));
-        this.readOnly = opts.readOnly ?? false;
-        this.mount = mountPoint(opts.mount);
-
-        const roots: Root[] = [{ path: this.root, at: this.mount, readOnly: this.readOnly }];
-        const mounts: ResolvedMount[] = [];
-        for (const m of opts.mounts ?? []) {
-            const at = mountPoint(m.at);
-            if (at === undefined) {
-                throw new Error(`a workspace mount needs an absolute name of its own: ${m.at}`);
-            }
-            // Overlapping names would make one path mean two directories, and
-            // which one won would depend on the order they were passed in.
-            for (const taken of roots) {
-                if (taken.at && (at === taken.at || under(at, taken.at) || under(taken.at, at))) {
-                    throw new Error(`workspace mounts overlap: ${at} and ${taken.at}`);
-                }
-            }
-            const host = directory(this.fs, m.host, at);
-            const readOnly = m.readOnly ?? true;
-            roots.push({ path: host, at, readOnly });
-            mounts.push({ host, at, readOnly, ...(m.source ? { source: m.source } : {}) });
-        }
-
-        this.mounts = mounts;
-        this.#roots = roots;
-        this.#named = roots
-            .filter((r): r is Root & { at: string } => r.at !== undefined)
-            .sort((a, b) => b.at.length - a.at.length);
-        // A mount may sit inside the workspace root; the deeper one owns the path.
-        this.#deep = [...roots].sort((a, b) => b.path.length - a.path.length);
-    }
-
-    /**
-     * The one gate. Returns an absolute path inside one of the roots, or throws.
-     *
-     * A path that does not exist yet cannot be realpath'd, so the nearest
-     * existing ancestor is resolved instead and the remainder appended — which
-     * is exactly what a create needs and closes the same hole a create opens.
-     */
-    within(input: string, opts: { write?: boolean } = {}): string {
-        if (typeof input !== 'string' || input.length === 0) {
-            throw new Error('path is required');
-        }
-        if (input.includes('\0')) {
-            throw new Error('path contains a null byte');
-        }
-        const { root, rest } = this.#locate(input);
-        const { resolve, sep } = this.fs.path;
-        const real = this.#realish(resolve(root.path, rest));
-        if (real !== root.path && !real.startsWith(root.path + sep)) {
-            throw new Error(`outside the workspace: ${input}`);
-        }
-        if (opts.write && root.readOnly) {
-            throw new Error(
-                root.path === this.root
-                    ? 'the workspace is read-only for this run'
-                    : `${root.at} is read-only`,
-            );
-        }
-        return real;
-    }
-
-    /**
-     * Which tree a path names, and where in it. `/workspace/src/a.ts` and
-     * `src/a.ts` are one file under two names, and only the second resolves
-     * against the root, so the mounted spelling is rewritten before anything
-     * else looks at it.
-     *
-     * This is renaming, not permission. What comes out is still resolved, still
-     * symlink-followed and still checked against its root by the caller:
-     * `/workspace/../etc/passwd` loses its prefix and then fails containment
-     * exactly as `../etc/passwd` does.
-     */
-    #locate(input: string): { root: Root; rest: string } {
-        const primary = this.#roots[0];
-        // A lone `/` is the model's other name for "the top of what I can see".
-        // There is nothing above the root for it to mean, so it means the root
-        // — refusing it teaches nothing and costs a turn. This is the only
-        // absolute path treated as rooted: `/etc/passwd` still names the
-        // machine's file and still fails containment.
-        if (/^[\\/]+$/.test(input)) {
-            return { root: primary, rest: '.' };
-        }
-        const at = input.replace(/\\/g, '/');
-        for (const root of this.#named) {
-            if (at === root.at) {
-                return { root, rest: '.' };
-            }
-            if (at.startsWith(root.at + '/')) {
-                return { root, rest: at.slice(root.at.length + 1).replace(/^\/+/, '') || '.' };
-            }
-        }
-        return { root: primary, rest: input };
-    }
-
-    /** The root a resolved path belongs to; the primary when nothing else claims it. */
-    #owner(path: string): Root {
-        const { sep } = this.fs.path;
-        return (
-            this.#deep.find((r) => path === r.path || path.startsWith(r.path + sep)) ??
-            this.#roots[0]
-        );
-    }
-
-    #realish(path: string): string {
-        const { dirname, join } = this.fs.path;
-        const missing: string[] = [];
-        let at = path;
-        for (;;) {
-            try {
-                return join(this.fs.realpathSync(at), ...missing.reverse());
-            } catch (err) {
-                if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-                    throw err;
-                }
-                const parent = dirname(at);
-                if (parent === at) {
-                    // Walked to the filesystem root without finding anything
-                    // real; nothing here can be inside the workspace.
-                    throw new Error(`cannot resolve: ${path}`);
-                }
-                missing.push(at.slice(parent.length + 1));
-                at = parent;
-            }
-        }
-    }
-
-    /** Where a path sits under its own root, in posix form. `.` is that root. */
-    rel(path: string): string {
-        const { relative, sep } = this.fs.path;
-        return relative(this.#owner(path).path, path).split(sep).join('/') || '.';
-    }
-
-    /**
-     * How a path is written back to the model, and the reason `mount` is not
-     * only about what comes in. A shell in the sandbox prints the mounted name
-     * — `find` returns /workspace/src/a.ts — so if the file tools answered with
-     * `src/a.ts` the model would be holding two vocabularies for one tree and
-     * would have to translate between them to feed one tool's output to the
-     * other. With a mount configured every path in and every path out is the
-     * mounted one, and copying a path from a command's output into read_file
-     * is exact. Without one, everything stays relative as before.
-     */
-    show(path: string): string {
-        const root = this.#owner(path);
-        const rel = this.rel(path);
-        if (root.at === undefined) {
-            return rel;
-        }
-        return rel === '.' ? root.at : `${root.at}/${rel}`;
-    }
-
-    /** Whether a resolved path *is* one of the roots. Nothing may move or delete one. */
-    isRoot(path: string): boolean {
-        return this.#roots.some((r) => r.path === path);
-    }
-
-    /** Whether resolved `inner` sits strictly below resolved `outer`. */
-    isInside(inner: string, outer: string): boolean {
-        return inner.startsWith(outer + this.fs.path.sep);
-    }
-
-    /**
-     * A file the agent named, in the form memory copies from: contained like
-     * any read, and read through this workspace's driver, so remembering works
-     * the same whether the bytes are on this machine or in a remote sandbox.
-     */
-    source(path: string): FileSource {
-        const at = this.within(path);
-        const fs = this.fs;
-        return { path: at, stat: () => fs.stat(at), read: () => fs.readFile(at) };
-    }
-
-    /**
-     * Writes bytes the agent did not type — a remembered file being copied
-     * back — under the same rules as `write_file`: contained, refused in a
-     * read-only tree or run, and never over an existing file unless asked.
-     */
-    async write(
-        path: string,
-        data: Uint8Array,
-        opts: { overwrite?: boolean } = {},
-    ): Promise<string> {
-        this.mutable();
-        const at = this.within(path, { write: true });
-        if (this.isRoot(at)) {
-            throw new Error('refusing to overwrite the workspace root');
-        }
-        const there = await this.fs.stat(at).catch(() => undefined);
-        if (there?.isDirectory()) {
-            throw new Error(`${this.show(at)} is a directory`);
-        }
-        if (there && !opts.overwrite) {
-            throw new Error(`${this.show(at)} already exists — pass overwrite to replace it`);
-        }
-        await this.fs.mkdirp(this.fs.path.dirname(at));
-        await this.fs.writeFile(at, data);
-        return this.show(at);
-    }
-
-    mutable(): void {
-        if (this.readOnly) {
-            throw new Error('the workspace is read-only for this run');
-        }
-    }
-}
-
-/**
- * An absolute name a tree is known by, with any trailing slash removed. A mount
- * of `/` would make everything on the machine look like it was inside, so it is
- * not a mount point; nor is a relative one, which would resolve against nothing.
- */
-function mountPoint(at: string | undefined): string | undefined {
-    const clean = at?.replace(/\\/g, '/').replace(/\/+$/, '');
-    return clean && clean.startsWith('/') ? clean : undefined;
-}
-
-function under(inner: string, outer: string): boolean {
-    return inner.startsWith(outer + '/');
-}
-
-/**
- * The host side of a mount, resolved. It has to exist: a mount of nothing is a
- * typo. That it is a directory is left to the first listing, which says so in
- * the model's words — a driver on another machine could not answer sooner.
- */
-function directory(fs: FsDriver, host: string, at: string): string {
-    try {
-        return fs.realpathSync(fs.path.resolve(host));
-    } catch {
-        throw new Error(`workspace mount ${at}: no such directory: ${host}`);
-    }
-}
 
 /** `a`, `a and b`, `a, b and c` — these end up in sentences the model reads. */
 function nameList(items: readonly string[]): string {
@@ -958,7 +698,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
      * writes whichever one it has in mind, and being told `path is required`
      * because it sent "" rather than omitting the argument teaches it nothing.
      */
-    const root = (path: string | undefined): string => ws.within(path?.trim() || '.');
+    const root = (path: string | undefined): Promise<string> => ws.within(path?.trim() || '.');
 
     const readFileTool = tool<{ path: string; start_line?: number; end_line?: number }, TCtx>({
         name: 'read_file',
@@ -980,7 +720,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             additionalProperties: false,
         },
         execute: async ({ path, start_line, end_line }) => {
-            const at = ws.within(path);
+            const at = await ws.within(path);
             const info = await fs.stat(at);
             if (info.isDirectory()) {
                 return { error: `${ws.show(at)} is a directory`, hint: 'use list_dir' };
@@ -1056,7 +796,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             if (trees && (asked === '' || /^[\\/]+$/.test(asked))) {
                 return { path: '/', entries: trees };
             }
-            const at = root(path);
+            const at = await root(path);
             const entries = await fs.readdir(at);
             const listed: FileInfo[] = [];
             let budget = LIST_SCAN_BUDGET;
@@ -1117,7 +857,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             if (content.length > MAX_WRITE) {
                 return { error: `content exceeds ${MAX_WRITE} bytes` };
             }
-            const at = ws.within(path, { write: true });
+            const at = await ws.within(path, { write: true });
             await fs.mkdirp(dirname(at));
             await fs.writeFile(at, content);
             return {
@@ -1203,8 +943,8 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         },
         execute: async ({ from, to, overwrite }) => {
             ws.mutable();
-            const source = ws.within(from, { write: true });
-            const target = ws.within(to, { write: true });
+            const source = await ws.within(from, { write: true });
+            const target = await ws.within(to, { write: true });
             if (ws.isRoot(source)) {
                 return { error: 'refusing to move the workspace root' };
             }
@@ -1271,8 +1011,8 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         },
         execute: async ({ from, to, overwrite, recursive }) => {
             ws.mutable();
-            const source = ws.within(from);
-            const target = ws.within(to, { write: true });
+            const source = await ws.within(from);
+            const target = await ws.within(to, { write: true });
             if (ws.isRoot(target)) {
                 return { error: 'refusing to overwrite the workspace root' };
             }
@@ -1328,7 +1068,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         },
         execute: async ({ path, recursive }) => {
             ws.mutable();
-            const at = ws.within(path, { write: true });
+            const at = await ws.within(path, { write: true });
             if (ws.isRoot(at)) {
                 return { error: 'refusing to delete the workspace root' };
             }
@@ -1374,9 +1114,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
             // workspace would leave them behind a path it has to know to ask
             // for. A tree nested inside the workspace is walked twice, so the
             // hits are a set: `show` gives one file one name either way.
-            const where = path?.trim()
-                ? [ws.within(path)]
-                : [ws.root, ...ws.mounts.map((m) => m.host)];
+            const where = path?.trim() ? [await ws.within(path)] : await ws.trees();
             const needle = pattern.toLowerCase();
             const hits = new Set<string>();
             for (const dir of where) {
@@ -1490,7 +1228,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
     let ignored = 0;
 
     for (const op of ops) {
-        const at = patchPath(ws, op.path);
+        const at = await patchPath(ws, op.path);
         if (ws.isRoot(at)) {
             throw new PatchError(`${op.path} is the workspace root`);
         }
@@ -1579,7 +1317,7 @@ async function runPatch(ws: Workspace, patch: string): Promise<unknown> {
             lines: patched.lines.length,
         };
         if (op.moveTo) {
-            const to = patchPath(ws, op.moveTo);
+            const to = await patchPath(ws, op.moveTo);
             if (ws.isRoot(to)) {
                 throw new PatchError('cannot move a file onto the workspace root');
             }
@@ -1644,9 +1382,9 @@ async function statOrNull(fs: FsDriver, at: string): Promise<FsStat | null> {
  * behind — a read-only file named halfway down is a reason to reject the whole
  * patch, not to write the files above it and then throw.
  */
-function patchPath(ws: Workspace, path: string): string {
+async function patchPath(ws: Workspace, path: string): Promise<string> {
     try {
-        return ws.within(path, { write: true });
+        return await ws.within(path, { write: true });
     } catch (err) {
         throw new PatchError(err instanceof Error ? err.message : String(err));
     }

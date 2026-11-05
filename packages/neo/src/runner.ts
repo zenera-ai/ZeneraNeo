@@ -13,7 +13,7 @@ import {
 } from './events.ts';
 import { systemClock, type IdClock } from './ids.ts';
 import * as Kernel from './kernel.ts';
-import type { WorkspaceFiles } from './memory/files.ts';
+import type { AgentFiles } from './tools/workspace.ts';
 import type { MemoryIndex } from './memory/index.ts';
 import { renderRecollection } from './memory/render.ts';
 import type { Model, ModelRequest } from './model.ts';
@@ -123,7 +123,7 @@ export interface RunnerOptions<TCtx = unknown> {
     payloads?: PayloadStore | PayloadResolver;
     memory?: MemoryIndex;
     /** the agent's workspace, so files can be remembered and copied back */
-    files?: WorkspaceFiles;
+    files?: AgentFiles;
     skills?: SkillProvider[];
     handoffPolicy?: HandoffPolicy;
     /** renders the nodes a policy selected; defaults to a structural note */

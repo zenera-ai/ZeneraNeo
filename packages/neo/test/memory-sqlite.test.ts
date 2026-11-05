@@ -7,7 +7,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { IdClock } from '../src/ids.ts';
-import { hostFile } from '../src/memory/files.ts';
+import { readFileSync } from 'node:fs';
+import type { FileBytes } from '../src/memory/files.ts';
+
+const bytes = (path: string): FileBytes => ({ name: path, data: readFileSync(path) });
 import { MemoryGraph, RevisionMismatch } from '../src/memory/graph.ts';
 import { MemoryIndex } from '../src/memory/index.ts';
 import { LEGACY_DIR, migrateMemory } from '../src/memory/migrate.ts';
@@ -143,7 +146,7 @@ describe('one memory, several writers', () => {
                                 ref: 'y',
                                 kind: 'fact',
                                 text: 'points at it',
-                                file: { source: hostFile(source) },
+                                file: bytes(source),
                             },
                         ],
                         edges: [{ from: 'y', to: 'A1', relation: 'INFORMED' }],

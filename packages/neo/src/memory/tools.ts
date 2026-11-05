@@ -28,7 +28,7 @@ import {
     type ToolContext,
     withEffects,
 } from '../types.ts';
-import { storedName, type FileSource } from './files.ts';
+import { MAX_FILE_BYTES, storedName, type FileBytes } from './files.ts';
 import { RevisionMismatch } from './graph.ts';
 import { GREP_FIELDS, type GrepField, grepMemory } from './grep.ts';
 import type { CommitEdge, CommitNode, MemoryIndex } from './index.ts';
@@ -484,8 +484,10 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 const opId = memoryOpId(tc.state.runId, tc.callId);
                 let nodes: CommitNode[];
                 try {
-                    nodes = args.nodes.map((n) => {
-                        let fileSpec: { source: FileSource; path: string } | undefined;
+                    // In order, so a failure names the first bad file, as before.
+                    nodes = [];
+                    for (const n of args.nodes) {
+                        let file: FileBytes | undefined;
                         if (n.file !== undefined) {
                             const rawPath = extractFilePath(n.file);
                             if (!rawPath.trim()) {
@@ -494,21 +496,18 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                                     'pass the path of the file in the workspace to remember, e.g. "report.py"',
                                 );
                             }
-                            fileSpec = {
-                                source: source(tc, rawPath),
-                                path: rawPath,
-                            };
+                            file = { name: rawPath, data: await readFile(tc, rawPath) };
                         }
-                        return {
+                        nodes.push({
                             ref: n.ref,
                             id: n.id,
                             kind: n.kind,
                             text: n.text,
                             audience: n.audience,
                             expectedRevision: n.expected_revision,
-                            file: fileSpec,
-                        };
-                    });
+                            file,
+                        });
+                    }
                 } catch (err) {
                     return refusal(err);
                 }
@@ -644,7 +643,8 @@ function extractFilePath(raw: unknown): string {
     return '';
 }
 
-function source<TCtx>(tc: ToolContext<TCtx>, path: string): FileSource {
+/** A file the agent names, read under its file tools' rules, as memory takes it. */
+async function readFile<TCtx>(tc: ToolContext<TCtx>, path: string): Promise<Uint8Array> {
     if (!tc.services.files) {
         throw new MemoryError(
             'this agent cannot remember files',
@@ -652,14 +652,19 @@ function source<TCtx>(tc: ToolContext<TCtx>, path: string): FileSource {
         );
     }
     try {
-        return tc.services.files.source(path);
+        return (await tc.services.files.read(path, { maxBytes: MAX_FILE_BYTES })).data;
     } catch (err) {
         if (err instanceof MemoryError) {
             throw err;
         }
+        const code = (err as NodeJS.ErrnoException).code;
         throw new MemoryError(
             err instanceof Error ? err.message : String(err),
-            'remember a file the run actually wrote, by the path the file tools use',
+            code === 'EFBIG'
+                ? 'keep the artifact in the workspace and remember a `snippet` of the part that matters'
+                : code === 'EISDIR'
+                  ? 'only files can be remembered; write a `fact` node describing a directory instead'
+                  : 'remember a file the run actually wrote, by the path the file tools use',
         );
     }
 }

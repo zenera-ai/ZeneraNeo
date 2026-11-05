@@ -3,6 +3,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    realpathSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -14,8 +15,8 @@ import { Workspace, fileTools } from '../src/tools/files.ts';
 import { selectTools } from '../src/types.ts';
 
 describe('workspace containment', () => {
-    const root = mkdtempSync(join(tmpdir(), 'zen-ws-'));
-    const outside = mkdtempSync(join(tmpdir(), 'zen-out-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-')));
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'zen-out-')));
     afterAll(() => {
         rmSync(root, { recursive: true, force: true });
         rmSync(outside, { recursive: true, force: true });
@@ -23,34 +24,34 @@ describe('workspace containment', () => {
 
     const ws = new Workspace({ root });
 
-    it('allows paths inside, including ones that do not exist yet', () => {
-        expect(ws.within('notes.md')).toBe(join(ws.root, 'notes.md'));
-        expect(ws.within('a/b/c.txt')).toBe(join(ws.root, 'a/b/c.txt'));
+    it('allows paths inside, including ones that do not exist yet', async () => {
+        expect(await ws.within('notes.md')).toBe(join(ws.root, 'notes.md'));
+        expect(await ws.within('a/b/c.txt')).toBe(join(ws.root, 'a/b/c.txt'));
     });
 
-    it('refuses to climb out', () => {
-        expect(() => ws.within('../escape')).toThrow();
-        expect(() => ws.within('/etc/passwd')).toThrow();
-        expect(() => ws.within('a/../../escape')).toThrow();
+    it('refuses to climb out', async () => {
+        await expect(ws.within('../escape')).rejects.toThrow();
+        await expect(ws.within('/etc/passwd')).rejects.toThrow();
+        await expect(ws.within('a/../../escape')).rejects.toThrow();
     });
 
     /** `/` has no meaning above the root, so it is the root. */
-    it('reads a lone slash as the root', () => {
-        expect(ws.within('/')).toBe(ws.root);
-        expect(ws.within('//')).toBe(ws.root);
-        expect(new Workspace({ root, mount: '/workspace' }).within('/')).toBe(ws.root);
+    it('reads a lone slash as the root', async () => {
+        expect(await ws.within('/')).toBe(ws.root);
+        expect(await ws.within('//')).toBe(ws.root);
+        expect(await new Workspace({ root, mount: '/workspace' }).within('/')).toBe(ws.root);
     });
 
-    it('refuses a null byte', () => {
-        expect(() => ws.within('ok\u0000/../../etc/passwd')).toThrow();
+    it('refuses a null byte', async () => {
+        await expect(ws.within('ok\u0000/../../etc/passwd')).rejects.toThrow();
     });
 
     /** The check is on the resolved path, so a symlink cannot be a back door. */
-    it('follows symlinks before deciding', () => {
+    it('follows symlinks before deciding', async () => {
         writeFileSync(join(outside, 'secret.txt'), 'no');
         mkdirSync(join(root, 'links'), { recursive: true });
         symlinkSync(outside, join(root, 'links', 'out'));
-        expect(() => ws.within('links/out/secret.txt')).toThrow();
+        await expect(ws.within('links/out/secret.txt')).rejects.toThrow();
     });
 
     /**
@@ -60,20 +61,22 @@ describe('workspace containment', () => {
     describe('the mounted name', () => {
         const mounted = new Workspace({ root, mount: '/workspace' });
 
-        it('is the same file as the relative one', () => {
-            expect(mounted.within('/workspace/a/b.txt')).toBe(mounted.within('a/b.txt'));
-            expect(mounted.within('/workspace')).toBe(mounted.root);
-            expect(mounted.within('/workspace/')).toBe(mounted.root);
+        it('is the same file as the relative one', async () => {
+            expect(await mounted.within('/workspace/a/b.txt')).toBe(
+                await mounted.within('a/b.txt'),
+            );
+            expect(await mounted.within('/workspace')).toBe(mounted.root);
+            expect(await mounted.within('/workspace/')).toBe(mounted.root);
         });
 
-        it('is a name, not a way out', () => {
-            expect(() => mounted.within('/workspace/../etc/passwd')).toThrow();
-            expect(() => mounted.within('/workspaceX/a')).toThrow();
-            expect(() => mounted.within('/etc/passwd')).toThrow();
+        it('is a name, not a way out', async () => {
+            await expect(mounted.within('/workspace/../etc/passwd')).rejects.toThrow();
+            await expect(mounted.within('/workspaceX/a')).rejects.toThrow();
+            await expect(mounted.within('/etc/passwd')).rejects.toThrow();
         });
 
-        it('is not accepted when nothing is mounted there', () => {
-            expect(() => ws.within('/workspace/a/b.txt')).toThrow();
+        it('is not accepted when nothing is mounted there', async () => {
+            await expect(ws.within('/workspace/a/b.txt')).rejects.toThrow();
         });
 
         /**
@@ -136,8 +139,8 @@ describe('workspace containment', () => {
  * container's `:ro` because the file tools never go through the container.
  */
 describe('a mounted tree', () => {
-    const root = mkdtempSync(join(tmpdir(), 'zen-ws-mounts-'));
-    const assets = mkdtempSync(join(tmpdir(), 'zen-assets-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-mounts-')));
+    const assets = realpathSync(mkdtempSync(join(tmpdir(), 'zen-assets-')));
     afterAll(() => {
         rmSync(root, { recursive: true, force: true });
         rmSync(assets, { recursive: true, force: true });
@@ -158,21 +161,21 @@ describe('a mounted tree', () => {
         return await found.execute(args, {} as never);
     };
 
-    it('resolves under its own name', () => {
-        expect(ws.within('/assets/handbook.md')).toBe(join(ws.mounts[0].host, 'handbook.md'));
-        expect(ws.within('/assets')).toBe(ws.mounts[0].host);
-        expect(ws.within('/assets/')).toBe(ws.mounts[0].host);
+    it('resolves under its own name', async () => {
+        expect(await ws.within('/assets/handbook.md')).toBe(join(ws.mounts[0].host, 'handbook.md'));
+        expect(await ws.within('/assets')).toBe(ws.mounts[0].host);
+        expect(await ws.within('/assets/')).toBe(ws.mounts[0].host);
     });
 
-    it('is a name, not a way out', () => {
-        expect(() => ws.within('/assets/../etc/passwd')).toThrow(/outside the workspace/);
-        expect(() => ws.within('/assetsX/a')).toThrow();
+    it('is a name, not a way out', async () => {
+        await expect(ws.within('/assets/../etc/passwd')).rejects.toThrow(/outside the workspace/);
+        await expect(ws.within('/assetsX/a')).rejects.toThrow();
     });
 
     /** A relative path still means the workspace, not the newest mount. */
-    it('does not take over the relative spelling', () => {
-        expect(ws.within('handbook.md')).toBe(join(ws.root, 'handbook.md'));
-        expect(ws.within('/')).toBe(ws.root);
+    it('does not take over the relative spelling', async () => {
+        expect(await ws.within('handbook.md')).toBe(join(ws.root, 'handbook.md'));
+        expect(await ws.within('/')).toBe(ws.root);
     });
 
     it('is the name paths come back under', () => {
@@ -264,13 +267,16 @@ describe('a mounted tree', () => {
         expect(said.toLowerCase()).toContain('read-only');
     });
 
-    it('refuses a mount it cannot make sense of', () => {
+    it('refuses a mount it cannot make sense of', async () => {
         const bad = (mounts: { host: string; at: string }[]): (() => Workspace) => {
             return () => new Workspace({ root, mount: '/workspace', mounts });
         };
         expect(bad([{ host: assets, at: 'assets' }])).toThrow(/absolute/);
         expect(bad([{ host: assets, at: '/' }])).toThrow(/absolute/);
-        expect(bad([{ host: join(assets, 'nope'), at: '/assets' }])).toThrow(/no such directory/);
+        // A missing directory is found on first use: the driver may be on another machine.
+        await expect(
+            bad([{ host: join(assets, 'nope'), at: '/assets' }])().within('/assets/x'),
+        ).rejects.toThrow(/no such directory/);
         // One name may not mean two directories, nor sit inside another name.
         expect(bad([{ host: assets, at: '/workspace/assets' }])).toThrow(/overlap/);
         expect(
@@ -292,7 +298,7 @@ describe('a mounted tree', () => {
 });
 
 describe('the file tools', () => {
-    const root = mkdtempSync(join(tmpdir(), 'zen-ws-tools-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-tools-')));
     afterAll(() => rmSync(root, { recursive: true, force: true }));
 
     // The tools only ever touch `args`; the ToolContext is inert here.
@@ -620,7 +626,7 @@ describe('the file tools', () => {
 // ---------------------------------------------------------------------------
 
 describe('apply_patch', () => {
-    const root = mkdtempSync(join(tmpdir(), 'zen-ws-patch-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-patch-')));
     afterAll(() => rmSync(root, { recursive: true, force: true }));
 
     const apply = fileTools({ root }).find((t) => t.name === 'apply_patch')!;

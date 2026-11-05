@@ -184,7 +184,8 @@ describe.each(trees)('the file tools on %s', (_, make) => {
         const ws = new Workspace(opts);
         const memory = mkdtempSync(join(tmpdir(), 'zen-contract-mem-'));
         try {
-            const file = await rememberFile(memory, ws.source('src/b.ts'), 'ID1');
+            const { path, data } = await ws.read('src/b.ts');
+            const file = await rememberFile(memory, { name: path, data }, 'ID1');
             expect(file).toMatchObject({ path: 'ID1.ts', format: 'ts', bytes: 10 });
         } finally {
             rmSync(memory, { recursive: true, force: true });
