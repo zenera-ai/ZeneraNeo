@@ -201,7 +201,7 @@ async function projectSandbox(cwd: string, values: Flags): Promise<ProjectSandbo
             name: found.name,
             image: build?.tag ?? config.sandbox?.image,
             build,
-            limits: widest(config),
+            limits: sandboxLimits(config.sandbox),
         };
     } catch {
         // A project whose configuration does not read is `zen check`'s to
@@ -334,23 +334,6 @@ const PAINT: Record<Tone, (s: string) => string> = {
 
 function ansi(line: Line): string {
     return line.map((s) => PAINT[s.tone ?? 'plain'](s.text)).join('');
-}
-
-/**
- * The hungriest container this project can start. An agent may override the
- * project's `sandbox:` block, and it is the largest of them that decides
- * whether a batch fits — reporting the project's own figure would understate
- * the machine by however much an agent asked for on top.
- *
- * The overrides are merged onto the project's block rather than read alone,
- * because that is what `SandboxPool.for` does when it builds the container: an
- * agent that names only `memory:` still runs with the project's `cpus:`.
- */
-function widest(config: ProjectConfig): SandboxLimits {
-    const base = config.sandbox ?? {};
-    return config.agents
-        .map((a) => sandboxLimits(a.sandbox ? { ...base, ...a.sandbox } : base))
-        .reduce((most, one) => (one.memory > most.memory ? one : most), sandboxLimits(base));
 }
 
 /**

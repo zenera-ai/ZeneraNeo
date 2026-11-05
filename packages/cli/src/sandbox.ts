@@ -21,6 +21,6 @@ export async function preflight(setup: SandboxSetup, yes?: boolean): Promise<voi
         yes,
     });
     // A resumed session restarts its own stopped container, which needs no lock.
-    await assertLocks(1, { reuses: setup.pool.for().name });
+    await assertLocks(1, { reuses: setup.sandbox.name });
     READY.add(setup.image);
 }

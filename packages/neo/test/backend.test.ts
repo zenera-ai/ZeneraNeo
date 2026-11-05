@@ -3,30 +3,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { rememberFile } from '../src/memory/files.ts';
-import { podmanBackend, workspaceFor, type SandboxBackend } from '../src/tools/backend.ts';
 import { Workspace, fileTools, type WorkspaceOptions } from '../src/tools/files.ts';
-import { localFs, type FsDriver } from '../src/tools/fs.ts';
-import { InMemoryFs } from '../src/tools/in-memory-fs.ts';
-import { PodmanBox, podmanBox } from '../src/tools/podman.ts';
-import { logicalMounts } from '../src/tools/mounts.ts';
 import {
+    InMemoryFs,
+    inSandboxPaths,
+    localFs,
+    logicalMounts,
+    PodmanSandbox,
+    podmanSandbox,
     SandboxError,
-    SandboxPool,
-    sandboxTools,
-    type Box,
     type ExecOptions,
     type ExecResult,
+    type FsDriver,
     type JobOutput,
     type JobStopped,
+    type Sandbox,
     type SandboxOptions,
-} from '../src/tools/sandbox.ts';
+} from '@zenera/sandbox';
+import { sandboxTools } from '../src/tools/sandbox.ts';
 import type { ToolContext } from '../src/types.ts';
 
 // ---------------------------------------------------------------------------
 // One contract, every backend
 //
 // The file tools and the sandbox tools are written against two seams — where
-// the bytes are (`FsDriver`) and where commands run (`Box`). Each behaviour
+// the bytes are (`FsDriver`) and where commands run (`Sandbox`). Each behaviour
 // below is asserted once and run against every implementation, so a backend
 // that passes here is one the tools cannot tell apart from `zen run`.
 // ---------------------------------------------------------------------------
@@ -192,19 +193,28 @@ describe.each(trees)('the file tools on %s', (_, make) => {
 });
 
 // ---------------------------------------------------------------------------
-// The box
+// The sandbox
 // ---------------------------------------------------------------------------
 
-/** A box that runs nothing: it records what it was asked and answers from a script. */
-class FakeBox implements Box {
+/**
+ * A sandbox with nothing on this machine: it runs nothing — it records what it
+ * was asked and answers from a script — and keeps its files in a map, named
+ * by where the container would have them.
+ */
+class FakeSandbox implements Sandbox {
     readonly name: string;
+    readonly fs = new InMemoryFs().dir('/workspace');
     readonly calls: string[] = [];
     started = false;
-    disposed = false;
+    closed = false;
     readonly #jobs = new Map<string, string>();
 
     constructor(readonly opts: SandboxOptions) {
         this.name = `fake-${opts.key}-${opts.image ?? 'default'}`;
+    }
+
+    files(opts: WorkspaceOptions): WorkspaceOptions {
+        return inSandboxPaths(opts, this.fs);
     }
 
     async start(): Promise<void> {
@@ -251,41 +261,24 @@ class FakeBox implements Box {
         return command;
     }
 
-    async dispose(): Promise<void> {
-        this.disposed = true;
+    async close(): Promise<void> {
+        this.closed = true;
         this.started = false;
     }
 }
 
-/** A backend with nothing on this machine: boxes that record, files in a map. */
-function fakeBackend(): SandboxBackend & { made: FakeBox[] } {
-    const made: FakeBox[] = [];
-    return {
-        name: 'fake',
-        bindsHostPaths: false,
-        made,
-        newBox: (opts) => {
-            const box = new FakeBox(opts);
-            made.push(box);
-            return box;
-        },
-        fs: new InMemoryFs().dir('/workspace'),
-    };
-}
-
-describe('the sandbox tools on a backend of their own', () => {
+describe('the sandbox tools on a sandbox of another kind', () => {
     const tc = (agent: string) => ({ agent: { name: agent } }) as ToolContext;
 
-    it('run through whatever box the backend makes', async () => {
-        const backend = fakeBackend();
-        const pool = new SandboxPool({ root: '/workspace', key: 's1', newBox: backend.newBox });
-        const [run, background, read, stop] = sandboxTools(pool);
+    it('run in the one sandbox, whichever agent calls', async () => {
+        const sandbox = new FakeSandbox({ key: 's1', root: '/workspace' });
+        const [run, background, read, stop] = sandboxTools(sandbox);
 
         expect(await run.execute({ command: 'ls', cwd: 'src' }, tc('a'))).toMatchObject({
             exit_code: 0,
             stdout: 'ran in src',
         });
-        const job = (await background.execute({ command: 'serve' }, tc('a'))) as any;
+        const job = (await background.execute({ command: 'serve' }, tc('b'))) as any;
         expect(await read.execute({ job_id: job.job_id }, tc('a'))).toMatchObject({
             command: 'serve',
             running: true,
@@ -297,40 +290,16 @@ describe('the sandbox tools on a backend of their own', () => {
             error: `no such job: ${job.job_id}`,
             hint: undefined,
         });
-        expect(pool.running.map((b) => b.name)).toEqual(['fake-s1-default']);
+        expect(sandbox.calls).toEqual(['ls']);
+        expect(sandbox.started).toBe(true);
     });
 
-    it('share one box between agents with one spec, and part those with two', async () => {
-        const backend = fakeBackend();
-        const pool = new SandboxPool({
-            root: '/workspace',
-            key: 's2',
-            newBox: backend.newBox,
-            agents: { analyst: { image: 'python' } },
-        });
-        expect(pool.for('a')).toBe(pool.for('b'));
-        expect(pool.for('analyst')).not.toBe(pool.for('a'));
-        expect((pool.for('analyst') as unknown as FakeBox).opts.image).toBe('python');
-
-        await pool.for('a').start();
-        await pool.dispose();
-        expect(backend.made.find((b) => b.name === 'fake-s2-default')?.disposed).toBe(true);
-    });
-
-    it('get podman by default, and a podman factory can drive another engine', async () => {
-        const seen: string[][] = [];
-        expect(podmanBackend).toMatchObject({ name: 'podman', bindsHostPaths: true, fs: localFs });
-        const docker = podmanBox({
-            engine: 'docker',
-            exec: async (bin, args) => {
-                seen.push([bin, ...args]);
-                return { code: 0, stdout: '', stderr: '', truncated: false, timedOut: false };
-            },
-        });
-        await docker({ root: '/host/ws', key: 'k' }).exec('true');
-        expect(seen.every(([bin]) => bin === 'docker')).toBe(true);
-        expect(seen.some((c) => c.includes('exec'))).toBe(true);
-        expect(new SandboxPool({ root: '/host/ws', key: 'k' }).for()).toBeInstanceOf(PodmanBox);
+    it('get a podman sandbox on this machine’s disk by default', async () => {
+        const sandbox = podmanSandbox({ key: 'k', root: '/host/ws', image: 'python' });
+        expect(sandbox).toBeInstanceOf(PodmanSandbox);
+        expect(sandbox.fs).toBe(localFs);
+        expect((sandbox as PodmanSandbox).spec.image).toBe('python');
+        await sandbox.close();
     });
 });
 
@@ -355,7 +324,7 @@ describe('logical mounts', () => {
     });
 });
 
-describe('the file tools’ view of a backend', () => {
+describe('the file tools’ view of a sandbox', () => {
     const opts: WorkspaceOptions = {
         root: '/host/session/ws',
         mount: '/workspace',
@@ -366,16 +335,17 @@ describe('the file tools’ view of a backend', () => {
         ],
     };
 
-    it('reads host directories where a binding backend has them', () => {
-        expect(workspaceFor(podmanBackend, opts)).toEqual({ ...opts, fs: localFs });
+    it('reads host directories where a podman sandbox binds them', () => {
+        expect(podmanSandbox({ key: 'k', root: opts.root }).files(opts)).toEqual({
+            ...opts,
+            fs: localFs,
+        });
     });
 
     it('names everything by where the box has it when nothing is bound', () => {
-        const fs = new InMemoryFs();
-        const view = workspaceFor(
-            { name: 'remote', bindsHostPaths: false, newBox: podmanBox(), fs },
-            opts,
-        );
+        const sandbox = new FakeSandbox({ key: 'k', root: opts.root });
+        const fs = sandbox.fs;
+        const view = sandbox.files(opts);
         expect(view).toEqual({
             root: '/workspace',
             mount: '/workspace',

@@ -1098,33 +1098,16 @@ a key does not abandon a `persist: true` container's filesystem.
 only the host sets them. They are set on each command, never on the container,
 so `env:` cannot name one. See [identity.md](identity.md).
 
-### `agents[].sandbox`
+### One sandbox per session
 
-Agents share one container by default. They already share the workspace, and a
-hand-off is meant to be continuous: whatever the first agent installed should
-still be there when the second takes over.
+Every agent in a session shares one container. They already share the
+workspace, and a hand-off is meant to be continuous: whatever the first agent
+installed should still be there when the second takes over. An agent that
+needs a tool gets it from the project's image - put it in the Dockerfile
+`build:` names.
 
-An agent that needs a different image says so, and gets its own:
-
-```yaml
-sandbox:
-    image: docker.io/library/debian:bookworm-slim
-
-agents:
-    - name: analyst
-      tools: [sandbox:*]
-      sandbox:
-          image: docker.io/library/python:3.13-slim
-    - name: writer
-      tools: [sandbox:*] # shares the project's container
-```
-
-The fields are the same, merged over the top-level block. Two agents that
-resolve to the same configuration still share one container.
-
-An agent that sets `image` displaces a project-level `build`, and an agent that
-sets `build` displaces a project-level `image` - the two are exclusive after
-the merge as well as before it.
+`agents[].sandbox` was removed. A project that still has one fails to load,
+saying to move those settings to the top-level `sandbox:`.
 
 ---
 

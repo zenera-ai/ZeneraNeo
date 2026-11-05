@@ -1,8 +1,7 @@
 import { extname } from 'node:path';
 import type { FileSource, WorkspaceFiles } from '../memory/files.ts';
 import { tool, type AnyTool, type ToolContext } from '../types.ts';
-import { localFs, type FsDriver, type FsStat } from './fs.ts';
-import type { Mount } from './mounts.ts';
+import { localFs, type FilesView, type FsDriver, type FsStat, type Mount } from '@zenera/sandbox';
 
 // ---------------------------------------------------------------------------
 // File tools
@@ -32,26 +31,8 @@ const MAX_SCAN = 1024 * 1024;
 /** ...and one listing only spends this much on line counting in total. */
 const LIST_SCAN_BUDGET = 8 * 1024 * 1024;
 
-export interface WorkspaceOptions {
-    root: string;
-    /** refuse every mutating tool; `zen run --read-only` */
-    readOnly?: boolean;
-    /**
-     * An absolute path the root is *also* known by, because something else has
-     * mounted it there — the sandbox bind-mounts the workspace at `/workspace`,
-     * so `run_command` returns compiler errors, stack traces and `pwd` output
-     * naming files under a prefix the file tools would otherwise refuse. Set
-     * it and both spellings reach the same file.
-     */
-    mount?: string;
-    /** further trees, each under its own name; read-only unless one says otherwise */
-    mounts?: readonly Mount[];
-    /**
-     * Where the bytes are; this machine's disk when unset. `root` and every
-     * mount's `host` are paths in this driver's namespace.
-     */
-    fs?: FsDriver;
-}
+/** The trees the file tools reach — `FilesView` from `@zenera/sandbox`, under the name these tools use. */
+export type WorkspaceOptions = FilesView;
 
 /** One directory the agent can reach, the name it reaches it by, and what it may do there. */
 interface Root {

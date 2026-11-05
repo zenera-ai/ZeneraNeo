@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
+import { localFs, type FsDriver } from './fs.ts';
 import { sandboxLimits } from './limits.ts';
-import { WORKSPACE_MOUNT, type Mount } from './mounts.ts';
+import { WORKSPACE_MOUNT, type FilesView, type Mount } from './mounts.ts';
 import { MAX_TIMEOUT_MS, resilient, runProcess, type ProcResult, type Runner } from './process.ts';
 import {
     DEFAULT_SANDBOX_IMAGE,
     SandboxError,
-    type Box,
-    type BoxFactory,
+    type Sandbox,
+    type SandboxFactory,
     type ExecOptions,
     type ExecResult,
     type JobOutput,
@@ -16,12 +17,12 @@ import {
     type SandboxHardening,
     type SandboxOptions,
     type SandboxSpec,
-} from './sandbox.ts';
+} from './contract.ts';
 
 // ---------------------------------------------------------------------------
-// The podman box
+// The podman sandbox
 //
-// `Box` on this machine: one podman container per spec, driven by spawning the
+// `Sandbox` on this machine: one podman container per spec, driven by spawning the
 // engine binary. Everything here is about that engine — its argv, its exit
 // codes, its lock table, the ssh hop into its virtual machine — and none of it
 // is something another backend would share.
@@ -46,7 +47,7 @@ const STRICT_TMP_SIZE = '64m';
 // One container
 // ---------------------------------------------------------------------------
 
-/** What only a podman box needs: which binary to drive, and how to spawn it. */
+/** What only a podman sandbox needs: which binary to drive, and how to spawn it. */
 export interface PodmanHost {
     /** the container engine binary; `podman` when unset */
     engine?: string;
@@ -94,8 +95,10 @@ interface Job {
  * whose agents never shell out never pays for an image pull, and a session
  * that only ever asks a question never leaves anything behind.
  */
-export class PodmanBox implements Box {
+export class PodmanSandbox implements Sandbox {
     readonly name: string;
+    /** the container binds the host directories, so the disk is where the files are */
+    readonly fs: FsDriver = localFs;
     readonly spec: Resolved;
     readonly engine: string;
     readonly #run: Runner;
@@ -112,9 +115,14 @@ export class PodmanBox implements Box {
         this.name = containerName(this.spec);
     }
 
-    /** Whether anything was actually started — `dispose` is free when not. */
+    /** Whether anything was actually started — `close` is free when not. */
     get started(): boolean {
         return this.#created;
+    }
+
+    /** The host paths, as they are: the container binds exactly these. */
+    files(opts: FilesView): FilesView {
+        return { ...opts, fs: this.fs };
     }
 
     /**
@@ -439,7 +447,7 @@ export class PodmanBox implements Box {
      * rather than removing is what makes `persist` mean anything: a stopped
      * container costs disk, a running one costs the machine's whole budget.
      */
-    async dispose(): Promise<void> {
+    async close(): Promise<void> {
         if (!this.#created) {
             return;
         }
@@ -635,14 +643,6 @@ function resolveSpec(opts: SandboxOptions): Resolved {
 }
 
 /**
- * Podman containers on this machine: the boxes `zen run` uses, and the pool's
- * default. `host` is for a different binary or a fake runner.
- */
-export function podmanBox(host: PodmanHost = {}): BoxFactory {
-    return (opts) => new PodmanBox(opts, host);
-}
-
-/**
  * The container's name is a function of its configuration. Change the image
  * and a new container appears rather than an old one quietly persisting with
  * the wrong rootfs — which is the failure mode `persist` would otherwise have.
@@ -687,3 +687,6 @@ function containerName(spec: Resolved): string {
         .replace(/^-|-$/g, '');
     return `zn-${key || 'session'}-${digest}`;
 }
+
+/** Podman on this machine: what `zen run` uses, and the engine's default. */
+export const podmanSandbox: SandboxFactory = (opts) => new PodmanSandbox(opts);

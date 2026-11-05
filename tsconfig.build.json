@@ -1,6 +1,7 @@
 {
     "files": [],
     "references": [
+        { "path": "packages/sandbox" },
         { "path": "packages/neo" },
         { "path": "packages/view" },
         { "path": "packages/engine" },

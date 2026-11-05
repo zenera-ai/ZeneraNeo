@@ -320,36 +320,43 @@ is worth setting whenever both are present.
 **The loader never starts a container.** `sandbox:` is validated and left on
 `project.config.sandbox` for the host to act on, because building an image and
 running a container are host concerns - `SandboxSpec` does not know what a
-Dockerfile is. `zen run` resolves that block into a `SandboxPool` and passes the
-tools above; a host embedding the runtime does the same thing itself.
-
-`SandboxPool.for(agent)` merges `agents[].sandbox` over the project block and
-dedupes by the resulting spec, so identical specs share one container and an
-agent that names its own image gets its own.
+Dockerfile is. `zen run` resolves that block into one box for the session and
+passes the tools above; a host embedding the runtime does the same thing
+itself. Every agent of the session shares that box.
 
 ### Where the sandbox runs
 
-The tools are written against two seams, so the sandbox does not have to be a
-podman container on this machine:
+A **sandbox** is everything a session's agents work in: one place their
+commands run, and the files those commands see. Every agent of the session
+shares it. It lives in its own package, `@zenera/sandbox`, which depends on Node
+alone (`@zenera/neo` re-exports it). The tools are written against one
+interface, so it does not have to be on this machine:
 
-- `Box` - what the shell tools need of a container: `start`, `exec`, the job
-  calls (`startJob` returns an id, `readJob` a `JobOutput`, `stopJob` a
-  `JobStopped`; an unknown id is a `SandboxError`) and `dispose`. `PodmanBox`
-  is the podman one, and `podmanBox({ engine, exec })` makes them for another
-  binary or a fake runner. `new SandboxPool({ ..., newBox })` takes a factory
-  for any other kind.
-- `FsDriver` - where the file tools' bytes are. `localFs` is this machine's
-  disk and the default; `fileTools({ ..., fs })` takes another. `InMemoryFs`
-  keeps a tree in memory, for tests.
+- `Sandbox` - `start`, `exec`, the job calls
+  (`startJob` returns an id, `readJob` a `JobOutput`, `stopJob` a
+  `JobStopped`; an unknown id is a `SandboxError`), and `close` at the end of
+  a turn. It also holds the files: `fs`, an `FsDriver`, and `files(opts)`,
+  which turns the host's workspace and mounts into the paths `fs` actually
+  finds them at. The invariant every implementation keeps: **a file written
+  through `fs` is the file `exec` sees under the same name, and the reverse**.
+- `PodmanSandbox` is the one `zen run` uses: a container binding host
+  directories, with `fs = localFs`, and `files()` returns the host paths as
+  they are. `podmanSandbox` is its factory. A second constructor argument,
+  `{ engine, exec }`, drives another binary or a fake runner.
+- A sandbox that keeps its files with the container (a sandbox service)
+  serves `fs` itself, and its `files()` returns `inSandboxPaths(opts, fs)`:
+  the workspace at `/workspace`, each tree where the container has it
+  (`logicalMounts()` merges the skill folders into one `/skills`).
 
-A `SandboxBackend` is the pair, because they have to agree: a file `write_file`
-makes must be a file `run_command` sees. `podmanBackend` is what `zen run`
-uses. `openEngine({ backend })` takes any other. `workspaceFor(backend, opts)`
-gives the file tools' view: when `backend.bindsHostPaths` is false, the tools
-use paths inside the sandbox (`/workspace`, `/assets`, ...) rather than host
-paths, and mounts are described by what they are (each `Mount`'s `source`)
-rather than bound from a host directory. `logicalMounts()` lists them, with
-the skill folders merged into one `/skills`.
+Another implementation proves itself with the suites in
+`@zenera/sandbox/testing`: `describeFsDriver` for a filesystem driver and
+`describeSandbox` for the invariant, the same ones podman passes.
+
+`FsDriver` stays its own seam because the file tools need no running sandbox:
+`fileTools({ ..., fs })` works on `localFs` or `InMemoryFs` on their own.
+`sandboxTools(sandbox)` builds the shell tools on one sandbox, and
+`openEngine({ newSandbox })` takes a `SandboxFactory` for any other kind;
+podman when unset.
 
 ## Embeddings
 

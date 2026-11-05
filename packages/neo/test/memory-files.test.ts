@@ -9,7 +9,7 @@ import { FILES_DIR, MemoryStore } from '../src/memory/store.ts';
 import { memoryTools } from '../src/memory/tools.ts';
 import { MemoryError } from '../src/memory/types.ts';
 import { Workspace } from '../src/tools/files.ts';
-import { InMemoryFs } from '../src/tools/in-memory-fs.ts';
+import { InMemoryFs } from '@zenera/sandbox';
 import { MEMORY_COPY_FILE_TOOL, type ToolContext } from '../src/types.ts';
 
 const SCRIPT = 'print("risky ports")\n';

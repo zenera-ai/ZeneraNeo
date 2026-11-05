@@ -3,15 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fileTools } from '../src/tools/files.ts';
-import { WORKSPACE_MOUNT } from '../src/tools/mounts.ts';
-import { PodmanBox, podmanBox } from '../src/tools/podman.ts';
-import { runProcess } from '../src/tools/process.ts';
 import {
     DEFAULT_SANDBOX_IMAGE,
-    SandboxPool,
-    sandboxTools,
+    PodmanSandbox,
+    runProcess,
+    WORKSPACE_MOUNT,
     type OutOfMemory,
-} from '../src/tools/sandbox.ts';
+} from '@zenera/sandbox';
+import { sandboxTools } from '../src/tools/sandbox.ts';
 import type { AnyTool, ToolContext } from '../src/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +50,7 @@ if (!ENABLED) {
 
 describe.skipIf(!ENABLED)('a real container', () => {
     let root = '';
-    let box: PodmanBox;
+    let box: PodmanSandbox;
 
     /** Container names, so cleanup can be checked against the engine itself. */
     const exists = async (name: string): Promise<boolean> =>
@@ -71,12 +70,12 @@ describe.skipIf(!ENABLED)('a real container', () => {
             }
         }
 
-        box = new PodmanBox({ root, key: 'live-sandbox', image: IMAGE }, { engine: ENGINE });
+        box = new PodmanSandbox({ root, key: 'live-sandbox', image: IMAGE }, { engine: ENGINE });
         await box.start();
     }, 12 * MINUTE);
 
     afterAll(async () => {
-        await box?.dispose();
+        await box?.close();
         if (root) {
             await rm(root, { recursive: true, force: true });
         }
@@ -237,7 +236,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'is refused by the engine, not by us',
             async () => {
-                const ro = new PodmanBox(
+                const ro = new PodmanSandbox(
                     {
                         root,
                         key: 'live-sandbox-ro',
@@ -260,7 +259,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     // every package manager would be dead on arrival.
                     expect((await ro.exec('printf x > /tmp/fine')).exit_code).toBe(0);
                 } finally {
-                    await ro.dispose();
+                    await ro.close();
                 }
             },
             3 * MINUTE,
@@ -277,8 +276,8 @@ describe.skipIf(!ENABLED)('a real container', () => {
         // `head` and `tr` only, so it does not assume the image's interpreter.
         const HOG = String.raw`x=$(head -c 512000000 /dev/zero | tr "\0" a); echo survived`;
 
-        const tight = (key: string): PodmanBox =>
-            new PodmanBox({ root, key, image: IMAGE, memory: 256 }, { engine: ENGINE });
+        const tight = (key: string): PodmanSandbox =>
+            new PodmanSandbox({ root, key, image: IMAGE, memory: 256 }, { engine: ENGINE });
 
         it(
             'blames the limit rather than the machine, and leaves other failures alone',
@@ -296,7 +295,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     expect(plain.exit_code).toBe(3);
                     expect(plain.out_of_memory).toBeUndefined();
                 } finally {
-                    await small.dispose();
+                    await small.close();
                 }
             },
             3 * MINUTE,
@@ -328,39 +327,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                     const again = await small.readJob(id);
                     expect(again.out_of_memory).toEqual(verdict);
                 } finally {
-                    await small.dispose();
-                }
-            },
-            3 * MINUTE,
-        );
-    });
-
-    describe('the pool', () => {
-        it(
-            'gives an agent that differs a container of its own',
-            async () => {
-                const pool = new SandboxPool({
-                    root,
-                    key: 'live-sandbox-pool',
-                    image: IMAGE,
-                    newBox: podmanBox({ engine: ENGINE }),
-                    agents: { analyst: { memory: 512 } },
-                });
-                try {
-                    const shared = pool.for('writer');
-                    const own = pool.for('analyst');
-                    expect(pool.for('editor')).toBe(shared);
-                    expect(own.name).not.toBe(shared.name);
-
-                    await shared.exec('echo shared > /tmp/who');
-                    const seen = await own.exec('cat /tmp/who 2>/dev/null || echo absent');
-                    expect(seen.stdout.trim()).toBe('absent');
-
-                    expect(pool.running.map((b) => b.name).sort()).toEqual(
-                        [shared.name, own.name].sort(),
-                    );
-                } finally {
-                    await pool.dispose();
+                    await small.close();
                 }
             },
             3 * MINUTE,
@@ -386,19 +353,14 @@ describe.skipIf(!ENABLED)('a real container', () => {
         };
 
         /**
-         * The container's name is a function of its spec, so a pool built from
-         * the same options attaches to the box `beforeAll` started — no second
+         * The container's name is a function of its spec, so a box built from
+         * the same options attaches to the one `beforeAll` started — no second
          * container, and `afterAll`'s dispose covers this one too.
          */
         const toolsets = (): { file: AnyTool[]; shell: AnyTool[] } => ({
             file: fileTools({ root, mount: WORKSPACE_MOUNT }),
             shell: sandboxTools(
-                new SandboxPool({
-                    root,
-                    key: 'live-sandbox',
-                    image: IMAGE,
-                    newBox: podmanBox({ engine: ENGINE }),
-                }),
+                new PodmanSandbox({ root, key: 'live-sandbox', image: IMAGE }, { engine: ENGINE }),
             ),
         });
 
@@ -570,7 +532,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'removes an ephemeral container and leaves the workspace behind',
             async () => {
-                const one = new PodmanBox(
+                const one = new PodmanSandbox(
                     {
                         root,
                         key: 'live-sandbox-gone',
@@ -581,7 +543,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 await one.exec('echo survives > disposed.txt');
                 expect(await exists(one.name)).toBe(true);
 
-                await one.dispose();
+                await one.close();
                 expect(one.started).toBe(false);
                 expect(await exists(one.name)).toBe(false);
                 expect(await readFile(join(root, 'disposed.txt'), 'utf8')).toBe('survives\n');
@@ -592,7 +554,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
         it(
             'only stops one that asked to persist',
             async () => {
-                const kept = new PodmanBox(
+                const kept = new PodmanSandbox(
                     {
                         root,
                         key: 'live-sandbox-kept',
@@ -603,7 +565,7 @@ describe.skipIf(!ENABLED)('a real container', () => {
                 );
                 try {
                     await kept.exec('true');
-                    await kept.dispose();
+                    await kept.close();
                     expect(await exists(kept.name)).toBe(true);
 
                     // ...and it comes back up rather than being recreated: the
@@ -633,7 +595,7 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
     let root = '';
     let assets = '';
     let skills = '';
-    let box: PodmanBox;
+    let box: PodmanSandbox;
     let file: AnyTool[];
     let shell: AnyTool[];
 
@@ -670,16 +632,18 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
         ];
         file = fileTools({ root, mount: WORKSPACE_MOUNT, mounts });
         shell = sandboxTools(
-            new SandboxPool({
-                root,
-                key: 'live-mounts',
-                image: IMAGE,
-                newBox: podmanBox({ engine: ENGINE }),
-                mounts,
-                env: { PYTHONDONTWRITEBYTECODE: '1' },
-            }),
+            new PodmanSandbox(
+                {
+                    root,
+                    key: 'live-mounts',
+                    image: IMAGE,
+                    mounts,
+                    env: { PYTHONDONTWRITEBYTECODE: '1' },
+                },
+                { engine: ENGINE },
+            ),
         );
-        box = new PodmanBox(
+        box = new PodmanSandbox(
             {
                 root,
                 key: 'live-mounts',
@@ -693,7 +657,7 @@ describe.skipIf(!ENABLED)('mounted reference material', () => {
     }, 12 * MINUTE);
 
     afterAll(async () => {
-        await box?.dispose();
+        await box?.close();
         for (const dir of [root, assets, skills]) {
             if (dir) {
                 await rm(dir, { recursive: true, force: true });

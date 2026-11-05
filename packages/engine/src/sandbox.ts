@@ -2,15 +2,15 @@ import {
     DEFAULT_SANDBOX_IMAGE,
     GATEWAY_URL_ENV,
     SANDBOX_GROUP,
-    SandboxPool,
     WORKSPACE_MOUNT,
     identityEnv,
-    podmanBackend,
+    podmanSandbox,
     isIdentityEnv,
     type AgentProject,
     type ProjectConfig,
     type RunIdentity,
-    type SandboxBackend,
+    type Sandbox,
+    type SandboxFactory,
     type SandboxConfig,
     type Mount,
     type SandboxSpec,
@@ -93,12 +93,11 @@ function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: 
 }
 
 export interface SandboxSetup {
-    pool: SandboxPool;
-    /** where the boxes run and the files live; podman on this machine for `zen run` */
-    backend: SandboxBackend;
+    /** where the session's commands run, and the files they see; podman for `zen run` */
+    sandbox: Sandbox;
     /** the resolved base spec, for `zn sandbox status` and the image pre-warm */
     spec: SandboxSpec;
-    /** where the workspace is in the box, and so the name the file tools answer with */
+    /** where the workspace is in the sandbox, and so the name the file tools answer with */
     workdir: string;
     image: string;
     /** the Dockerfile behind `image`, when it came from one */
@@ -135,15 +134,15 @@ export interface SandboxInputs {
      * promise it does not keep.
      */
     env?: readonly string[];
-    /** `false` overrides every `persist:` in the config, the agents' included */
+    /** `false` overrides the config's `persist:` */
     persist?: boolean;
     /**
      * Who the run is acting for. Set on every command as `ZEN_USER_*`, never
      * on the container — see `execEnv` in the library for why.
      */
     identity?: RunIdentity;
-    /** where the boxes run; podman on this machine when unset */
-    backend?: SandboxBackend;
+    /** opens the sandbox; podman on this machine when unset */
+    newSandbox?: SandboxFactory;
 }
 
 export function buildSandbox(opts: SandboxInputs): SandboxSetup {
@@ -172,31 +171,8 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     const extra = { HOME, PYTHONDONTWRITEBYTECODE: '1', ZENERA_AGENT: '1', ...(keys?.env ?? {}) };
     const spec = toSpec(base, extra, secretsOf(keys?.secrets, opts.env));
 
-    const agents: Record<string, SandboxSpec> = {};
-    for (const agent of opts.config.agents) {
-        if (agent.sandbox) {
-            const merged = merge(base, agent.sandbox);
-            if (opts.persist === false) {
-                merged.persist = false;
-            }
-            // An agent that opts out gets neither the variables nor the mount,
-            // but the mount is on the pool and cannot be taken back per agent —
-            // so the variable is what actually decides, and without it the file
-            // sitting there is not a credential anything will look for.
-            const own = merged.keys === false ? undefined : keys;
-            agents[agent.name] = toSpec(
-                merged,
-                { HOME, PYTHONDONTWRITEBYTECODE: '1', ZENERA_AGENT: '1', ...(own?.env ?? {}) },
-                own && secretsOf(own.secrets, opts.env),
-            );
-        }
-    }
-
-    const backend = opts.backend ?? podmanBackend;
-    const pool = new SandboxPool({
+    const sandbox = (opts.newSandbox ?? podmanSandbox)({
         ...spec,
-        agents,
-        newBox: backend.newBox,
         root: opts.workspace,
         key: opts.session.id,
         readOnly: opts.readOnly,
@@ -206,8 +182,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
     });
 
     return {
-        pool,
-        backend,
+        sandbox,
         spec,
         workdir: spec.workdir ?? WORKSPACE_MOUNT,
         image: spec.image ?? DEFAULT_SANDBOX_IMAGE,
@@ -215,23 +190,6 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
         home,
         mounts,
     };
-}
-
-/**
- * An agent's overrides on the project's block. `image` and `build` answer the
- * same question, so naming either one drops the other: a plain spread would
- * leave an agent's `image` sitting next to the project's `build`, and the
- * schema forbids exactly that combination when it is written down.
- */
-function merge(base: SandboxConfig, agent: SandboxConfig): SandboxConfig {
-    const merged = { ...base, ...agent };
-    if (agent.image !== undefined) {
-        delete merged.build;
-    }
-    if (agent.build !== undefined) {
-        delete merged.image;
-    }
-    return merged;
 }
 
 /**
@@ -312,7 +270,9 @@ export type Preflight = (setup: SandboxSetup, yes?: boolean) => Promise<void>;
 /**
  * Where the container's `$HOME` lives must exist before podman mounts it — and
  * the `zenera` libraries go into it, written fresh on every open so they match
- * the engine that set the variables they read.
+ * the engine that set the variables they read. Done for every sandbox: it is a
+ * small copy into the session folder, and a sandbox that does not bind it
+ * supplies its own `$HOME` (`source: home`) with the same libraries.
  */
 export function prepareHome(setup: SandboxSetup): void {
     mkdirSync(setup.home, { recursive: true });
@@ -355,10 +315,13 @@ function installRuntime(home: string): void {
     }
 }
 
-/** Best-effort teardown: losing a container must never lose a run. */
-export async function teardown(pool: SandboxPool, logger: Logger = stderrLogger): Promise<void> {
+/**
+ * Best-effort teardown: losing a container must never lose a run. Closing is
+ * also where a sandbox that keeps its files elsewhere persists them.
+ */
+export async function teardown(setup: SandboxSetup, logger: Logger = stderrLogger): Promise<void> {
     try {
-        await pool.dispose();
+        await setup.sandbox.close();
     } catch (err) {
         logger.warn(
             `could not clean up the sandbox: ${err instanceof Error ? err.message : String(err)}`,

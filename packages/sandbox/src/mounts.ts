@@ -1,8 +1,10 @@
+import type { FsDriver } from './fs.ts';
+
 // ---------------------------------------------------------------------------
 // The trees an agent can reach, and what each one is
 //
 // One directory is one mount, and the host hands the same array to the file
-// tools and to the box so that both call it by the same name: a path a command
+// tools and to the sandbox so that both call it by the same name: a path a command
 // prints is a path `read_file` accepts.
 //
 // On `zen run` every tree is a host directory bound into the container, and
@@ -10,7 +12,7 @@
 // bind: it has to be told what the tree is — the project's assets, its skills —
 // and fetch that itself. So a mount carries both: `host` for a backend that
 // binds, `source` for one that supplies. Memory is not a mount: its files stay
-// with the graph and reach a box only through `memory_copy_file`.
+// with the graph and reach a sandbox only through `memory_copy_file`.
 // ---------------------------------------------------------------------------
 
 /** Where the workspace appears in the agent's namespace, and the default cwd. */
@@ -39,12 +41,39 @@ export interface Mount {
     at: string;
     /**
      * Say it. Unset, the file tools treat an extra tree as reference material
-     * and refuse to write it, while the box binds it writable — the container's
+     * and refuse to write it, while the sandbox binds it writable — the container's
      * `$HOME` is the one mount that relies on that.
      */
     readOnly?: boolean;
     /** what the tree is, for a backend that has to supply it rather than bind `host` */
     source?: MountSource;
+}
+
+/**
+ * The trees a file tool reaches, and the names it reaches them by: the
+ * workspace, the name it is also mounted at, and the extra trees beside it.
+ * What `Sandbox.files` translates into the sandbox's own paths, and what the
+ * file tools in `@zenera/neo` take.
+ */
+export interface FilesView {
+    root: string;
+    /** refuse every mutating tool; `zen run --read-only` */
+    readOnly?: boolean;
+    /**
+     * An absolute path the root is *also* known by, because something else has
+     * mounted it there — the sandbox mounts the workspace at `/workspace`, so
+     * `run_command` returns compiler errors, stack traces and `pwd` output
+     * naming files under a prefix the file tools would otherwise refuse. Set
+     * it and both spellings reach the same file.
+     */
+    mount?: string;
+    /** further trees, each under its own name; read-only unless one says otherwise */
+    mounts?: readonly Mount[];
+    /**
+     * Where the bytes are; this machine's disk when unset. `root` and every
+     * mount's `host` are paths in this driver's namespace.
+     */
+    fs?: FsDriver;
 }
 
 /** A mount stated by what it is: no host path, nothing to bind. */
@@ -74,4 +103,22 @@ export function logicalMounts(mounts: readonly Mount[]): LogicalMount[] {
         out.push({ at: m.at, readOnly: m.readOnly ?? false, source: m.source });
     }
     return out;
+}
+
+/**
+ * The file tools' view for a sandbox that keeps its files with the container
+ * rather than reading host directories: the workspace is its mount point, and
+ * each tree is found where the container has it — so a path the model writes
+ * means one file to the tools and the shell. What a remote `Sandbox.files`
+ * returns; a podman one reads the host paths as they are.
+ */
+export function inSandboxPaths(opts: FilesView, fs: FsDriver): FilesView {
+    const mount = opts.mount ?? WORKSPACE_MOUNT;
+    return {
+        ...opts,
+        root: mount,
+        mount,
+        mounts: logicalMounts(opts.mounts ?? []).map((m) => ({ ...m, host: m.at })),
+        fs,
+    };
 }

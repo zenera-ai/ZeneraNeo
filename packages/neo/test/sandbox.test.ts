@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseConfig } from '../src/project/config.ts';
-import { sandboxLimits } from '../src/tools/limits.ts';
-import { WORKSPACE_MOUNT } from '../src/tools/mounts.ts';
-import { PodmanBox, podmanBox } from '../src/tools/podman.ts';
-import { resilient, type ProcOptions, type ProcResult, type Runner } from '../src/tools/process.ts';
-import { SANDBOX_GROUP, SandboxError, SandboxPool, sandboxTools } from '../src/tools/sandbox.ts';
+import {
+    PodmanSandbox,
+    resilient,
+    SandboxError,
+    sandboxLimits,
+    WORKSPACE_MOUNT,
+    type ProcOptions,
+    type ProcResult,
+    type Runner,
+} from '@zenera/sandbox';
+import { SANDBOX_GROUP, sandboxTools } from '../src/tools/sandbox.ts';
 import { selectTools, type ToolContext } from '../src/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -55,8 +61,8 @@ function fresh(): Fake {
     return f;
 }
 
-function box(f: Fake, over: Record<string, unknown> = {}): PodmanBox {
-    return new PodmanBox(
+function box(f: Fake, over: Record<string, unknown> = {}): PodmanSandbox {
+    return new PodmanSandbox(
         { root: '/host/ws', key: '20260827-120000-abcd', ...over },
         { exec: f.run },
     );
@@ -542,7 +548,7 @@ describe('disposal', () => {
         const f = fresh();
         const b = box(f);
         await b.start();
-        await b.dispose();
+        await b.close();
         expect(find(f, 'rm')?.args).toContain(b.name);
     });
 
@@ -550,52 +556,20 @@ describe('disposal', () => {
         const f = fresh();
         const b = box(f, { persist: true });
         await b.start();
-        await b.dispose();
+        await b.close();
         expect(find(f, 'rm')).toBeUndefined();
         expect(find(f, 'stop')?.args).toContain(b.name);
     });
 
     it('is free when nothing was ever started', async () => {
         const f = fake();
-        await box(f).dispose();
+        await box(f).close();
         expect(f.calls).toHaveLength(0);
     });
 });
 
-describe('one container per configuration', () => {
-    const pool = (agents: Record<string, Record<string, unknown>>): SandboxPool =>
-        new SandboxPool({
-            root: '/host/ws',
-            key: 'session',
-            newBox: podmanBox({ exec: fake().run }),
-            image: 'base',
-            agents,
-        });
-
-    it('shares one container between agents that agree', () => {
-        const p = pool({});
-        expect(p.for('alpha')).toBe(p.for('beta'));
-    });
-
-    it('gives an agent that names its own image its own container', () => {
-        const p = pool({ analyst: { image: 'python' } });
-        expect(p.for('analyst').name).not.toBe(p.for('writer').name);
-    });
-
-    it('still shares between two agents that made the same choice', () => {
-        const p = pool({ a: { image: 'python' }, b: { image: 'python' } });
-        expect(p.for('a')).toBe(p.for('b'));
-    });
-});
-
 describe('the tools', () => {
-    const tools = sandboxTools(
-        new SandboxPool({
-            root: '/host/ws',
-            key: 'session',
-            newBox: podmanBox({ exec: fake().run }),
-        }),
-    );
+    const tools = sandboxTools(box(fake()));
 
     it('are one selectable family', () => {
         expect(tools.map((t) => t.name)).toEqual([
@@ -612,35 +586,8 @@ describe('the tools', () => {
         ).toEqual(['run_command', 'run_command_background', 'read_command_output']);
     });
 
-    /**
-     * The container is chosen from `tc.agent` at call time rather than captured
-     * when the tool was built, so one tool object — one schema, one cached
-     * prompt prefix — still serves agents that need different images.
-     */
-    it('pick their container from the calling agent', async () => {
-        const f = fresh();
-        const pool = new SandboxPool({
-            root: '/host/ws',
-            key: 'session',
-            newBox: podmanBox({ exec: f.run }),
-            image: 'base',
-            agents: { analyst: { image: 'python' } },
-        });
-        const [runCommand] = sandboxTools(pool);
-        const tc = { agent: { name: 'analyst' } } as ToolContext;
-
-        await runCommand.execute({ command: 'python -V' }, tc);
-        expect(find(f, 'run')?.args).toContain('python');
-    });
-
     it('turn a path escape into something the model can act on', async () => {
-        const [runCommand] = sandboxTools(
-            new SandboxPool({
-                root: '/host/ws',
-                key: 's',
-                newBox: podmanBox({ exec: fake().run }),
-            }),
-        );
+        const [runCommand] = sandboxTools(box(fake()));
         const out = await runCommand.execute({ command: 'ls', cwd: '../../etc' }, {
             agent: { name: 'a' },
         } as ToolContext);
@@ -676,13 +623,15 @@ describe('the sandbox block in agents.yaml', () => {
     //     });
     // });
 
-    it('lets one agent differ from the rest', () => {
-        const parsed = parseConfig(
-            'version: 1\nsandbox:\n  image: base\nagents:\n' +
-                '  - name: a\n    sandbox:\n      image: python\n',
-            'agents.yaml',
-        );
-        expect(parsed.agents[0].sandbox?.image).toBe('python');
+    /** A session has one box, so an agent's own block is refused with where it goes instead. */
+    it('refuses a sandbox block on an agent', () => {
+        expect(() =>
+            parseConfig(
+                'version: 1\nsandbox:\n  image: base\nagents:\n' +
+                    '  - name: a\n    sandbox:\n      image: python\n',
+                'agents.yaml',
+            ),
+        ).toThrow(/per-agent sandboxes were removed.*top-level `sandbox:`/);
     });
 });
 

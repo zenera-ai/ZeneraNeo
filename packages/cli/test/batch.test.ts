@@ -1,5 +1,5 @@
 import { buildSandbox, sessionPaths } from '@zenera/engine';
-import { MemoryStore, parseConfig, type AgentEvent, type PodmanBox } from '@zenera/neo';
+import { MemoryStore, parseConfig, type AgentEvent, type PodmanSandbox } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,10 +37,9 @@ function said(fn: () => unknown): string {
 describe('a batch item\u2019s sandbox', () => {
     // Every item is a fresh session nobody resumes, so a stopped container per
     // item only holds an engine lock — 2048 of them and nothing can start.
-    it('is removed on close, whatever the project or an agent says', () => {
+    it('is removed on close, whatever the project says', () => {
         const config = parseConfig(
-            'version: 1\nsandbox:\n  image: base\n  persist: true\nagents:\n' +
-                '  - name: a\n  - name: b\n    sandbox:\n      image: other\n      persist: true\n',
+            'version: 1\nsandbox:\n  image: base\n  persist: true\nagents:\n  - name: a\n',
             'agents.yaml',
         );
         const setup = (persist?: boolean) =>
@@ -53,13 +52,8 @@ describe('a batch item\u2019s sandbox', () => {
                 ...(persist === undefined ? {} : { persist }),
             });
 
-        const kept = setup();
-        expect((kept.pool.for('a') as PodmanBox).spec.persist).toBe(true);
-        expect((kept.pool.for('b') as PodmanBox).spec.persist).toBe(true);
-
-        const dropped = setup(false);
-        expect((dropped.pool.for('a') as PodmanBox).spec.persist).toBe(false);
-        expect((dropped.pool.for('b') as PodmanBox).spec.persist).toBe(false);
+        expect((setup().sandbox as PodmanSandbox).spec.persist).toBe(true);
+        expect((setup(false).sandbox as PodmanSandbox).spec.persist).toBe(false);
     });
 
     it('counts the containers one item can start, so the locks are asked for up front', async () => {
@@ -75,12 +69,6 @@ describe('a batch item\u2019s sandbox', () => {
                     '  - name: a\n    tools: ["sandbox:*"]\n  - name: b\n    tools: [run_command]\n',
                 ),
             ).toBe(1);
-            expect(
-                await count(
-                    '  - name: a\n    tools: ["sandbox:*"]\n' +
-                        '  - name: b\n    tools: [run_command]\n    sandbox:\n      image: other\n',
-                ),
-            ).toBe(2);
             expect(await count('  - name: a\n    tools: [nope]\n')).toBe(0);
         } finally {
             await rm(dir, { recursive: true, force: true });

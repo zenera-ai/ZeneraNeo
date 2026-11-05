@@ -17,8 +17,7 @@ import {
 import {
     EXA_GROUP,
     FileSkillProvider,
-    PodmanBox,
-    SandboxPool,
+    PodmanSandbox,
     WORKSPACE_MOUNT,
     exaTools,
     fileTools,
@@ -982,7 +981,7 @@ export function availableTools(root: string, config: ProjectConfig): AnyTool<unk
             root,
             mount: config.sandbox?.workdir ?? WORKSPACE_MOUNT,
         }),
-        ...sandboxTools<unknown>(new SandboxPool({ root, key: 'check' })),
+        ...sandboxTools<unknown>(new PodmanSandbox({ root, key: 'check' })),
         ...exaTools<unknown>(),
     ];
 }
@@ -1911,7 +1910,7 @@ async function probeSandbox(
     }
 
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-check-')));
-    const box = new PodmanBox(
+    const box = new PodmanSandbox(
         {
             root,
             key: 'check',
@@ -1963,7 +1962,7 @@ async function probeSandbox(
         });
         return false;
     } finally {
-        await box.dispose().catch(() => undefined);
+        await box.close().catch(() => undefined);
         rmSync(root, { recursive: true, force: true });
     }
 }

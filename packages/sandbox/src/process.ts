@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { SandboxError } from './sandbox.ts';
+import { SandboxError } from './contract.ts';
 
 /** One command's output is capped, so a `cat` of a log file cannot fill the context. */
 const MAX_OUTPUT = 64 * 1024;

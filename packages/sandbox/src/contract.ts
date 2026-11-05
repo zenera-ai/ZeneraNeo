@@ -1,6 +1,5 @@
-import type { WorkspaceOptions } from './files.ts';
 import type { FsDriver } from './fs.ts';
-import type { Mount } from './mounts.ts';
+import type { FilesView, Mount } from './mounts.ts';
 
 // ---------------------------------------------------------------------------
 // The sandbox
@@ -134,7 +133,7 @@ export interface Sandbox {
      * The file tools' view of this sandbox, in its own paths: given the host's
      * workspace and mounts, where `fs` actually finds each of them.
      */
-    files(opts: WorkspaceOptions): WorkspaceOptions;
+    files(opts: FilesView): FilesView;
     /** whether anything was actually started — `close` is free when not */
     readonly started: boolean;
     /** idempotent and single-flight; every other call starts the sandbox itself */

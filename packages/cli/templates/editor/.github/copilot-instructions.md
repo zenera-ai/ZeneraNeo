@@ -1032,22 +1032,9 @@ prompt is executed on every run, by an agent that is root in a filesystem that
 is about to be thrown away.
 
 Agents share one container, because they share the workspace and a hand-off is
-meant to be continuous. An agent that needs something else says so and gets its
-own, with its block merged over the top-level one:
-
-```yaml
-sandbox:
-    image: docker.io/library/python:3.14-slim-bookworm
-
-agents:
-    - name: builder
-      tools: [files:*, sandbox:*]
-      sandbox:
-          image: docker.io/library/node:22-bookworm-slim
-          memory: 8192
-    - name: analyst
-      tools: [files:*, sandbox:*] # shares the project's container
-```
+meant to be continuous. There is one `sandbox:` block, at the top level; an
+agent cannot have its own (`agents[].sandbox` fails to load). A tool one agent
+needs goes into the project's image, so every agent has it.
 
 **Write `persist: true` unless you have a reason not to.** By default the
 container is _removed_ when the session closes, and only two paths survive it:

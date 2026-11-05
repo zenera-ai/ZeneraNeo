@@ -9,8 +9,7 @@ import {
     identityTools,
     type RunIdentity,
 } from '../src/tools/identity.ts';
-import { PodmanBox } from '../src/tools/podman.ts';
-import type { ProcOptions, Runner } from '../src/tools/process.ts';
+import { PodmanSandbox, type ProcOptions, type Runner } from '@zenera/sandbox';
 import { tool, type ToolContext } from '../src/types.ts';
 
 const roots: string[] = [];
@@ -138,7 +137,7 @@ describe('the identity in the sandbox', () => {
         opts?: ProcOptions;
     }
 
-    function box(over: Record<string, unknown> = {}): { b: PodmanBox; calls: Call[] } {
+    function box(over: Record<string, unknown> = {}): { b: PodmanSandbox; calls: Call[] } {
         const calls: Call[] = [];
         const run: Runner = (_bin, args, opts) => {
             calls.push({ args: [...args], opts });
@@ -151,7 +150,7 @@ describe('the identity in the sandbox', () => {
                 timedOut: false,
             });
         };
-        const b = new PodmanBox({ root: '/host/ws', key: 'session-1', ...over }, { exec: run });
+        const b = new PodmanSandbox({ root: '/host/ws', key: 'session-1', ...over }, { exec: run });
         return { b, calls };
     }
 

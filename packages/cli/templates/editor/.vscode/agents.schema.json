@@ -603,8 +603,9 @@
                     "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/memoryBinding" }]
                 },
                 "sandbox": {
-                    "description": "Overrides on the project's sandbox. An agent that overrides nothing shares the container with everyone else; one that names its own image gets its own.",
-                    "$ref": "#/$defs/sandbox"
+                    "description": "Removed: a session has one sandbox, the project's, shared by every agent.",
+                    "deprecationMessage": "Per-agent sandboxes were removed — move these settings to the project's top-level `sandbox:`.",
+                    "not": {}
                 },
                 "default": {
                     "description": "The entry point, when no top-level `default:` names one.",

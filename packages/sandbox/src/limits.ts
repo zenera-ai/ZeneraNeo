@@ -1,9 +1,9 @@
-import type { SandboxHardening, SandboxSpec } from './sandbox.ts';
+import type { SandboxHardening, SandboxSpec } from './contract.ts';
 
 // ---------------------------------------------------------------------------
-// A box's ceilings
+// A sandbox's ceilings
 //
-// Stated once, here, so the box that applies them and `zen sandbox status`
+// Stated once, here, so the sandbox that applies them and `zen sandbox status`
 // that reports them cannot disagree.
 // ---------------------------------------------------------------------------
 
