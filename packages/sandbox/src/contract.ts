@@ -1,5 +1,5 @@
 import type { FsDriver } from './fs.ts';
-import type { FilesView, Mount } from './mounts.ts';
+import type { Mount } from './mounts.ts';
 
 // ---------------------------------------------------------------------------
 // The sandbox
@@ -158,13 +158,12 @@ export interface Sandbox {
      * spec, and a host can tell a reused one from a new one.
      */
     readonly name: string;
-    /** the files every command sees, under the same names */
-    readonly fs: FsDriver;
     /**
-     * The file tools' view of this sandbox, in its own paths: given the host's
-     * workspace and mounts, where `fs` actually finds each of them.
+     * The files every command sees, under the names commands see them by —
+     * /workspace, /assets, … — and contained: nothing outside those trees,
+     * nothing changed in a read-only one.
      */
-    files(opts: FilesView): FilesView;
+    readonly fs: FsDriver;
     /** whether anything was actually started — `close` is free when not */
     readonly started: boolean;
     /**

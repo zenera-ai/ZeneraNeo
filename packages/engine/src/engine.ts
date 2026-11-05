@@ -4,6 +4,7 @@ import {
     MemoryError,
     SKILLS_MOUNT,
     Workspace,
+    type WorkspaceOptions,
     assertState,
     buildRunReport,
     compactIdentity,
@@ -288,12 +289,15 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             provider: opts.newSandbox ? 'the host' : chosen?.provider.describe,
             ...(opts.disposable ? { persist: false } : {}),
         });
-        const workspaceOptions = setup.sandbox.files({
-            root: workspace,
-            readOnly: opts.readOnly,
+        // The sandbox's own files, by the names its commands use: what
+        // `run_command` prints a path as, `read_file` accepts.
+        const workspaceOptions: WorkspaceOptions = {
+            fs: setup.sandbox.fs,
+            root: setup.workdir,
             mount: setup.workdir,
-            mounts,
-        });
+            mounts: mounts.map(({ at, readOnly, source }) => ({ at, readOnly, source })),
+            readOnly: opts.readOnly,
+        };
         // The same view the file tools have, so a path the agent just wrote
         // resolves the same way when it asks memory to keep a copy.
         files = new Workspace(workspaceOptions);
@@ -627,10 +631,14 @@ async function record(
             title: `${engine.name} · ${run.id}`,
             architecture: await engine.runner.describe(),
             memory: engine.runner.services.memory?.store,
-            mounts: [
-                { at: engine.workspaceMount, href: pathToFileURL(engine.files.root).href },
-                ...engine.files.mounts.map((m) => ({ at: m.at, href: pathToFileURL(m.host).href })),
-            ],
+            // Links to the trees on this machine — the ones the tools reach.
+            mounts: mounts(engine)
+                .filter(
+                    (m) =>
+                        m.at === engine.workspaceMount ||
+                        engine.files.mounts.some((f) => f.at === m.at),
+                )
+                .map((m) => ({ at: m.at, href: pathToFileURL(m.host).href })),
         });
         await writeFile(run.report, renderReportHtml(built), 'utf8');
         report = run.report;

@@ -1,15 +1,4 @@
-import {
-    cp,
-    mkdir,
-    open,
-    readFile,
-    readdir,
-    realpath,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import { cp, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path, { type PlatformPath } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -41,13 +30,6 @@ export type FsEntry = Omit<FsStat, 'size'> & { name: string };
 export interface FsDriver {
     /** how this driver's paths are spelled: the host's for `localFs`, posix otherwise */
     readonly path: PlatformPath;
-    /**
-     * Where a path really is: absolute, with every symlink in the part that
-     * exists resolved, and the part that does not exist yet appended as
-     * written — what a create needs, and what containment is decided on. A
-     * path through a file is `ENOTDIR`, as `realpath` says.
-     */
-    resolve(path: string): Promise<string>;
     stat(path: string): Promise<FsStat>;
     readdir(path: string): Promise<FsEntry[]>;
     readFile(path: string): Promise<Buffer>;
@@ -64,22 +46,6 @@ export interface FsDriver {
 /** This machine's disk, through `node:fs`. */
 export const localFs: FsDriver = {
     path,
-    async resolve(p) {
-        const missing: string[] = [];
-        let at = path.resolve(p);
-        for (;;) {
-            try {
-                return path.join(await realpath(at), ...missing.reverse());
-            } catch (err) {
-                const up = path.dirname(at);
-                if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || up === at) {
-                    throw err;
-                }
-                missing.push(path.basename(at));
-                at = up;
-            }
-        }
-    },
     stat: (p) => stat(p),
     readdir: (p) => readdir(p, { withFileTypes: true }),
     readFile: (p) => readFile(p),

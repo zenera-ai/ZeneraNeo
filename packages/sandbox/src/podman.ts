@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { ensurePodmanImage, localImageTag } from './image.ts';
-import { localFs, type FsDriver } from './fs.ts';
 import { sandboxLimits } from './limits.ts';
-import { WORKSPACE_MOUNT, type FilesView, type Mount } from './mounts.ts';
+import { WORKSPACE_MOUNT, type Mount } from './mounts.ts';
+import { RootedFs } from './rooted-fs.ts';
 import { MAX_TIMEOUT_MS, resilient, runProcess, type ProcResult, type Runner } from './process.ts';
 import {
     DEFAULT_SANDBOX_IMAGE,
@@ -102,8 +102,8 @@ interface Job {
  */
 export class PodmanSandbox implements Sandbox {
     readonly name: string;
-    /** the container binds the host directories, so the disk is where the files are */
-    readonly fs: FsDriver = localFs;
+    /** the directories the container binds, under the names it binds them at */
+    readonly fs: RootedFs;
     readonly spec: Resolved;
     readonly engine: string;
     readonly #run: Runner;
@@ -121,16 +121,18 @@ export class PodmanSandbox implements Sandbox {
         this.#spawn = host.exec ?? runProcess;
         this.#run = resilient(this.#spawn);
         this.name = containerName(this.spec);
+        this.fs = new RootedFs([
+            { at: this.spec.workdir, dir: this.spec.root, readOnly: this.spec.readOnly },
+            // A credential is one file, not a tree, and no tool has any business reading it.
+            ...this.spec.mounts
+                .filter((m) => m.source?.kind !== 'credential')
+                .map((m) => ({ at: m.at, dir: m.host, readOnly: m.readOnly })),
+        ]);
     }
 
     /** Whether anything was actually started — `close` is free when not. */
     get started(): boolean {
         return this.#created;
-    }
-
-    /** The host paths, as they are: the container binds exactly these. */
-    files(opts: FilesView): FilesView {
-        return { ...opts, fs: this.fs };
     }
 
     /** Pulls the image, or builds it from the Dockerfile, unless the engine already has it. */

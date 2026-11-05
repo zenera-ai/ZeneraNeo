@@ -1,11 +1,9 @@
 // Tests for where an engine's sandbox comes from: a plugin that provides one, the host's own
 // factory, or podman — and the plugin closed exactly once whichever way the open goes.
 import {
-    inSandboxPaths,
     InMemoryFs,
     PodmanSandbox,
     type ExecResult,
-    type FilesView,
     type JobOutput,
     type JobStopped,
     type Sandbox,
@@ -49,10 +47,6 @@ class StubSandbox implements Sandbox {
     started = false;
     prepared = 0;
     constructor(readonly opts: SandboxOptions) {}
-    /** in its own paths, as a sandbox that keeps its files elsewhere does */
-    files(view: FilesView): FilesView {
-        return inSandboxPaths(view, this.fs);
-    }
     async prepare(): Promise<void> {
         this.prepared++;
     }

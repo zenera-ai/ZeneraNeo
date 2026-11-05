@@ -30,19 +30,6 @@ export class InMemoryFs implements FsDriver {
         return this;
     }
 
-    /** No symlinks here, so only a path through a file needs saying anything about. */
-    async resolve(at: string): Promise<string> {
-        const abs = this.#abs(at);
-        let probe = abs;
-        while (!this.#nodes.has(probe)) {
-            probe = posix.dirname(probe);
-        }
-        if (probe !== abs && this.#nodes.get(probe)?.kind === 'file') {
-            throw fsError('ENOTDIR', 'realpath', at);
-        }
-        return abs;
-    }
-
     async stat(at: string): Promise<FsStat> {
         return info(this.#get(at, 'stat'));
     }

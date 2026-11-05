@@ -335,25 +335,31 @@ interface, so it does not have to be on this machine:
 - `Sandbox` - `start`, `exec`, the job calls
   (`startJob` returns an id, `readJob` a `JobOutput`, `stopJob` a
   `JobStopped`; an unknown id is a `SandboxError`), and `close` at the end of
-  a turn. It also holds the files: `fs`, an `FsDriver`, and `files(opts)`,
-  which turns the host's workspace and mounts into the paths `fs` actually
-  finds them at. The invariant every implementation keeps: **a file written
-  through `fs` is the file `exec` sees under the same name, and the reverse**.
+  a turn. It also holds the files: `fs`, an `FsDriver` in the **agent's own
+  paths** - `/workspace/a.py`, `/assets/x` - and **contained**: nothing outside
+  those trees, nothing changed in a read-only one, no symlink out. The
+  invariant every implementation keeps: **a file written through `fs` is the
+  file `exec` sees under the same name, and the reverse**.
 - `PodmanSandbox` is the one `zen run` uses: a container binding host
-  directories, with `fs = localFs`, and `files()` returns the host paths as
-  they are. `podmanSandbox` is its factory. A second constructor argument,
-  `{ engine, exec }`, drives another binary or a fake runner.
+  directories. Its `fs` is a `RootedFs` over the same directories, under the
+  names it binds them at. `podmanSandbox` is its factory. A second
+  constructor argument, `{ engine, exec }`, drives another binary or a fake
+  runner.
 - A sandbox that keeps its files with the container (a sandbox service)
-  serves `fs` itself, and its `files()` returns `inSandboxPaths(opts, fs)`:
-  the workspace at `/workspace`, each tree where the container has it
-  (`logicalMounts()` merges the skill folders into one `/skills`).
+  serves `fs` itself, under the same names; inside the container, the server
+  answering it uses `RootedFs` too, so containment is one implementation
+  everywhere.
 
 Another implementation proves itself with the suites in
 `@zenera/sandbox/testing`: `describeFsDriver` for a filesystem driver and
 `describeSandbox` for the invariant, the same ones podman passes.
 
-`FsDriver` stays its own seam because the file tools need no running sandbox:
-`fileTools({ ..., fs })` works on `localFs` or `InMemoryFs` on their own.
+The file tools stand on that fs: `Workspace` keeps only the tools' own rules
+(how the model spells a path, the read-only run, never overwriting unless
+asked) and leaves containment to the fs. `fileTools({ fs, root: '/workspace',
+mount: '/workspace', mounts })` takes a sandbox's `fs`; without one,
+`fileTools({ root: dir, mounts: [{ host, at }] })` builds the same `RootedFs`
+over directories on this machine, so the tools need no running sandbox.
 `sandboxTools(sandbox)` builds the shell tools on one sandbox.
 
 The sandbox also owns its **image**: the spec names an `image` to pull or a

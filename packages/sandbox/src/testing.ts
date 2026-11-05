@@ -95,26 +95,6 @@ export function describeFsDriver(
                     code: 'ENOENT',
                     path: expect.stringContaining('ghost.txt'),
                 });
-                expect(await fs.resolve(at('.'))).toBe(await fs.resolve(at()));
-            }),
-        );
-
-        it(
-            'resolves where a path really is, the part that does not exist yet included',
-            withFs(async ({ fs }, at) => {
-                const root = await fs.resolve(at());
-                await fs.mkdirp(at('real', 'dir'));
-                expect(await fs.resolve(at('real', 'dir'))).toBe(fs.path.join(root, 'real', 'dir'));
-                expect(await fs.resolve(at('real', 'ghost', 'deeper.txt'))).toBe(
-                    fs.path.join(root, 'real', 'ghost', 'deeper.txt'),
-                );
-                expect(await fs.resolve(at('real', 'dir', '..', 'x'))).toBe(
-                    fs.path.join(root, 'real', 'x'),
-                );
-                await fs.writeFile(at('file.txt'), 'x');
-                await expect(fs.resolve(at('file.txt', 'under'))).rejects.toMatchObject({
-                    code: 'ENOTDIR',
-                });
             }),
         );
     });
@@ -162,14 +142,13 @@ export function describeSandbox(
 
         it(
             'shows a command the files `fs` wrote, and `fs` the files a command wrote',
-            withSandbox(async ({ sandbox, root }) => {
-                const view = sandbox.files({ root, mount: WORKSPACE_MOUNT });
-                const fs = view.fs!;
-                await fs.writeFile(fs.path.join(view.root, 'from-fs.txt'), 'written by fs\n');
+            withSandbox(async ({ sandbox }) => {
+                const fs = sandbox.fs;
+                await fs.writeFile(`${WORKSPACE_MOUNT}/from-fs.txt`, 'written by fs\n');
                 expect((await sandbox.exec('cat from-fs.txt')).stdout).toBe('written by fs\n');
 
                 await sandbox.exec('mkdir -p out && printf "by exec" > out/from-exec.txt');
-                const back = await fs.readFile(fs.path.join(view.root, 'out', 'from-exec.txt'));
+                const back = await fs.readFile(`${WORKSPACE_MOUNT}/out/from-exec.txt`);
                 expect(back.toString()).toBe('by exec');
             }),
             timeout,

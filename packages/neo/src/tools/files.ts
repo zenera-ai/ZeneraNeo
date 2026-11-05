@@ -8,6 +8,7 @@ export {
     type AgentFile,
     type AgentFiles,
     type ResolvedMount,
+    type WorkspaceMount,
     type WorkspaceOptions,
 } from './workspace.ts';
 
@@ -1164,6 +1165,7 @@ const ERRNO: Record<string, string> = {
     EEXIST: 'already exists',
     ENOTEMPTY: 'is not empty',
     EACCES: 'cannot be reached',
+    EROFS: 'is read-only',
     EPERM: 'cannot be reached',
     ELOOP: 'is a loop of symlinks',
 };

@@ -1,5 +1,4 @@
 import {
-    logicalMounts,
     parseConfig,
     podmanSandbox,
     type PodmanSandbox,
@@ -134,8 +133,8 @@ describe('the sandbox a run gets', () => {
         expect(opened).toHaveLength(1);
         expect(opened[0]).toMatchObject({ key: paths.id, root: join(root, 'ws') });
         expect(opened[0].execEnv).toMatchObject({ ZEN_USER_ID: 'u-1' });
-        expect(logicalMounts(s.mounts)).toEqual([
-            { at: '/home/agent', readOnly: false, source: { kind: 'home' } },
+        expect(s.mounts.map(({ at, readOnly, source }) => ({ at, readOnly, source }))).toEqual([
+            { at: '/home/agent', readOnly: undefined, source: { kind: 'home' } },
         ]);
 
         await teardown(s);

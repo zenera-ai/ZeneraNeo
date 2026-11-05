@@ -10,8 +10,7 @@ import { podmanSandbox } from '@zenera/sandbox';
 
 const sandbox = podmanSandbox({ root: '/path/to/workspace', key: 'session-1' });
 await sandbox.exec('python -V');
-const view = sandbox.files({ root: '/path/to/workspace', mount: '/workspace' });
-await view.fs!.writeFile(`${view.root}/notes.md`, 'hello');
+await sandbox.fs.writeFile('/workspace/notes.md', 'hello'); // what `cat notes.md` sees
 await sandbox.close();
 ```
 
@@ -19,14 +18,18 @@ await sandbox.close();
 
 - **`Sandbox`** - `prepare` (pull the image, or build it from `build:`),
   `exec`, background jobs (`startJob`, `readJob`, `stopJob`),
-  `close` at the end of a turn, and the files: `fs` (an `FsDriver`) and
-  `files(view)`, which maps the host's workspace and mounts to the paths `fs`
-  finds them at. The invariant: **a file written through `fs` is the file
-  `exec` sees under the same name, and the reverse.**
+  `close` at the end of a turn, and the files: `fs`, an `FsDriver` in the
+  agent's own paths (`/workspace/a.py`) and contained to the sandbox's trees.
+  The invariant: **a file written through `fs` is the file `exec` sees under
+  the same name, and the reverse.**
 - **`SandboxFactory`** - `(opts: SandboxOptions) => Sandbox`, how a host picks
   where sandboxes run.
-- **`FsDriver`** - the filesystem seam, usable without a sandbox. `localFs` is
-  this machine's disk; `InMemoryFs` keeps a tree in memory.
+- **`FsDriver`** - the filesystem seam, usable without a sandbox. `RootedFs`
+  serves named trees from directories on this machine - `/workspace` from the
+  session's folder, `/assets` read-only - and is the one place a path is
+  contained: it must name a tree, its symlinks must resolve into one, and a
+  read-only tree refuses every change. `localFs` is this machine's disk as it
+  is; `InMemoryFs` keeps a tree in memory.
 
 ## The image
 
@@ -43,10 +46,10 @@ by name, across copies of this package).
 ## Implementations
 
 - **`PodmanSandbox`** / `podmanSandbox` - a podman container on this machine,
-  binding host directories, with `fs = localFs`. `ensurePodmanImage` is its
-  image step on its own.
+  binding host directories, with `fs` a `RootedFs` over them under the names
+  they are bound at. `ensurePodmanImage` is its image step on its own.
 - A sandbox that keeps its files with the container (a sandbox service) serves
-  `fs` itself and returns `inSandboxPaths(view, fs)` from `files()`.
+  `fs` itself, under the same names.
 
 ## Testing an implementation
 

@@ -6,10 +6,8 @@ import { rememberFile } from '../src/memory/files.ts';
 import { Workspace, fileTools, type WorkspaceOptions } from '../src/tools/files.ts';
 import {
     InMemoryFs,
-    inSandboxPaths,
-    localFs,
-    logicalMounts,
     PodmanSandbox,
+    RootedFs,
     podmanSandbox,
     SandboxError,
     type ExecOptions,
@@ -43,20 +41,23 @@ interface Tree {
 
 const trees: [string, () => Tree][] = [
     [
-        'this machine’s disk',
+        'this machine’s disk, as podman binds it',
         () => {
             const base = realpathSync(mkdtempSync(join(tmpdir(), 'zen-contract-')));
-            const root = join(base, 'ws');
-            const assets = join(base, 'assets');
-            mkdirSync(root);
-            mkdirSync(assets);
+            mkdirSync(join(base, 'ws'));
+            mkdirSync(join(base, 'assets'));
+            const fs = new RootedFs([
+                { at: '/workspace', dir: join(base, 'ws') },
+                { at: '/assets', dir: join(base, 'assets'), readOnly: true },
+            ]);
             return {
-                fs: localFs,
-                root,
-                assets,
+                fs,
+                root: '/workspace',
+                assets: '/assets',
                 seed: (at, body) => {
-                    mkdirSync(join(at, '..'), { recursive: true });
-                    writeFileSync(at, body);
+                    const host = fs.hostPath(at);
+                    mkdirSync(join(host, '..'), { recursive: true });
+                    writeFileSync(host, body);
                 },
                 cleanup: () => rmSync(base, { recursive: true, force: true }),
             };
@@ -218,10 +219,6 @@ class FakeSandbox implements Sandbox {
         this.calls.push('prepare');
     }
 
-    files(opts: WorkspaceOptions): WorkspaceOptions {
-        return inSandboxPaths(opts, this.fs);
-    }
-
     async start(): Promise<void> {
         this.started = true;
     }
@@ -302,63 +299,45 @@ describe('the sandbox tools on a sandbox of another kind', () => {
     it('get a podman sandbox on this machine’s disk by default', async () => {
         const sandbox = podmanSandbox({ key: 'k', root: '/host/ws', image: 'python' });
         expect(sandbox).toBeInstanceOf(PodmanSandbox);
-        expect(sandbox.fs).toBe(localFs);
+        expect(sandbox.fs).toBeInstanceOf(RootedFs);
         expect((sandbox as PodmanSandbox).spec.image).toBe('python');
         await sandbox.close();
     });
 });
 
-describe('logical mounts', () => {
-    it('merge the skill folders into one tree and keep what each mount is', () => {
-        expect(
-            logicalMounts([
-                { host: '/h/assets', at: '/assets', readOnly: true, source: { kind: 'assets' } },
-                { host: '/h/s/a', at: '/skills/a', readOnly: true, source: { kind: 'skills' } },
-                { host: '/h/s/b', at: '/skills/b', readOnly: true, source: { kind: 'skills' } },
-                { host: '/h/home', at: '/home/agent', source: { kind: 'home' } },
-            ]),
-        ).toEqual([
-            { at: '/assets', readOnly: true, source: { kind: 'assets' } },
-            { at: '/skills', readOnly: true, source: { kind: 'skills' } },
-            { at: '/home/agent', readOnly: false, source: { kind: 'home' } },
-        ]);
-    });
-
-    it('refuse a host directory nobody said the meaning of', () => {
-        expect(() => logicalMounts([{ host: '/h/x', at: '/x' }])).toThrow(/no source/);
-    });
-});
-
-describe('the file tools’ view of a sandbox', () => {
-    const opts: WorkspaceOptions = {
-        root: '/host/session/ws',
-        mount: '/workspace',
-        mounts: [
-            { host: '/host/p/assets', at: '/assets', readOnly: true, source: { kind: 'assets' } },
-            { host: '/host/p/s/a', at: '/skills/a', readOnly: true, source: { kind: 'skills' } },
-            { host: '/host/p/s/b', at: '/skills/b', readOnly: true, source: { kind: 'skills' } },
-        ],
-    };
-
-    it('reads host directories where a podman sandbox binds them', () => {
-        expect(podmanSandbox({ key: 'k', root: opts.root }).files(opts)).toEqual({
-            ...opts,
-            fs: localFs,
-        });
-    });
-
-    it('names everything by where the box has it when nothing is bound', () => {
-        const sandbox = new FakeSandbox({ key: 'k', root: opts.root });
-        const fs = sandbox.fs;
-        const view = sandbox.files(opts);
-        expect(view).toEqual({
-            root: '/workspace',
-            mount: '/workspace',
+describe('a podman sandbox’s files', () => {
+    it('are the directories it binds, under the names it binds them at', () => {
+        const sandbox = podmanSandbox({
+            key: 'k',
+            root: '/host/session/ws',
             mounts: [
-                { host: '/assets', at: '/assets', readOnly: true, source: { kind: 'assets' } },
-                { host: '/skills', at: '/skills', readOnly: true, source: { kind: 'skills' } },
+                {
+                    host: '/host/p/assets',
+                    at: '/assets',
+                    readOnly: true,
+                    source: { kind: 'assets' },
+                },
+                {
+                    host: '/host/p/s/a',
+                    at: '/skills/a',
+                    readOnly: true,
+                    source: { kind: 'skills' },
+                },
+                {
+                    host: '/host/key.json',
+                    at: '/run/zenera/keys/k.json',
+                    source: { kind: 'credential', name: 'K' },
+                },
             ],
-            fs,
-        });
+        }) as PodmanSandbox;
+        expect(sandbox.fs.trees.map(({ at, dir, readOnly }) => ({ at, dir, readOnly }))).toEqual(
+            expect.arrayContaining([
+                { at: '/workspace', dir: '/host/session/ws', readOnly: false },
+                { at: '/assets', dir: '/host/p/assets', readOnly: true },
+                { at: '/skills/a', dir: '/host/p/s/a', readOnly: true },
+            ]),
+        );
+        // A credential is a file the container gets, not a tree any tool reads.
+        expect(sandbox.fs.trees.some((t) => t.at.startsWith('/run'))).toBe(false);
     });
 });

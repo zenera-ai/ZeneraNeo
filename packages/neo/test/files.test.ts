@@ -46,12 +46,17 @@ describe('workspace containment', () => {
         await expect(ws.within('ok\u0000/../../etc/passwd')).rejects.toThrow();
     });
 
-    /** The check is on the resolved path, so a symlink cannot be a back door. */
-    it('follows symlinks before deciding', async () => {
+    /** The fs decides on the resolved path, so a symlink cannot be a back door. */
+    it('does not follow a symlink out', async () => {
         writeFileSync(join(outside, 'secret.txt'), 'no');
         mkdirSync(join(root, 'links'), { recursive: true });
         symlinkSync(outside, join(root, 'links', 'out'));
-        await expect(ws.within('links/out/secret.txt')).rejects.toThrow();
+        const at = await ws.within('links/out/secret.txt');
+        await expect(ws.fs.readFile(at)).rejects.toMatchObject({ code: 'EACCES' });
+        const [read] = fileTools({ root });
+        await expect(read.execute({ path: 'links/out/secret.txt' }, {} as never)).rejects.toThrow(
+            'links/out/secret.txt cannot be reached',
+        );
     });
 
     /**
@@ -85,8 +90,6 @@ describe('workspace containment', () => {
          * the model never has to translate between two names for one tree.
          */
         it('is the name paths come back under', () => {
-            // `mounted.root` rather than `root`: the workspace resolved its own
-            // symlinks, and on macOS the temp dir is behind one.
             expect(mounted.show(join(mounted.root, 'a/b.txt'))).toBe('/workspace/a/b.txt');
             expect(mounted.show(mounted.root)).toBe('/workspace');
             expect(ws.show(join(ws.root, 'a/b.txt'))).toBe('a/b.txt');
@@ -162,9 +165,9 @@ describe('a mounted tree', () => {
     };
 
     it('resolves under its own name', async () => {
-        expect(await ws.within('/assets/handbook.md')).toBe(join(ws.mounts[0].host, 'handbook.md'));
-        expect(await ws.within('/assets')).toBe(ws.mounts[0].host);
-        expect(await ws.within('/assets/')).toBe(ws.mounts[0].host);
+        expect(await ws.within('/assets/handbook.md')).toBe('/assets/handbook.md');
+        expect(await ws.within('/assets')).toBe('/assets');
+        expect(await ws.within('/assets/')).toBe('/assets');
     });
 
     it('is a name, not a way out', async () => {
@@ -179,9 +182,9 @@ describe('a mounted tree', () => {
     });
 
     it('is the name paths come back under', () => {
-        expect(ws.show(join(ws.mounts[0].host, 'specs/api.md'))).toBe('/assets/specs/api.md');
-        expect(ws.show(ws.mounts[0].host)).toBe('/assets');
-        expect(ws.rel(join(ws.mounts[0].host, 'specs/api.md'))).toBe('specs/api.md');
+        expect(ws.show('/assets/specs/api.md')).toBe('/assets/specs/api.md');
+        expect(ws.show('/assets')).toBe('/assets');
+        expect(ws.rel('/assets/specs/api.md')).toBe('specs/api.md');
     });
 
     it('can be read, listed and searched', async () => {

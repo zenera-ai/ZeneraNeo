@@ -1,4 +1,5 @@
-import { localFs, type FilesView, type FsDriver, type Mount } from '@zenera/sandbox';
+import { posix } from 'node:path';
+import { RootedFs, type FsDriver, type MountSource } from '@zenera/sandbox';
 
 // ---------------------------------------------------------------------------
 // The workspace: what an agent's files are
@@ -38,44 +39,86 @@ function agentFileError(code: string, message: string): NodeJS.ErrnoException {
     return err;
 }
 
-/** The trees the file tools reach — `FilesView` from `@zenera/sandbox`, under the name these tools use. */
-export type WorkspaceOptions = FilesView;
-
-/** One directory the agent can reach, the name it reaches it by, and what it may do there. */
-interface Root {
-    path: string;
-    at?: string;
-    readOnly: boolean;
+/** A tree beside the workspace: its name, and — without a sandbox — its directory here. */
+export interface WorkspaceMount {
+    /** the absolute name the agent reaches it by, e.g. `/assets` */
+    at: string;
+    /** the directory on this machine; only read when the workspace builds its own `fs` */
+    host?: string;
+    /** read-only unless it says otherwise: an extra tree is reference material */
+    readOnly?: boolean;
+    source?: MountSource;
 }
 
-/** A mount as the workspace holds it: resolved, with its permission decided. */
-export type ResolvedMount = Mount & { readOnly: boolean };
+/**
+ * The trees the file tools reach. Two ways to say it, one result:
+ *
+ * - with `fs` — a sandbox's own, already contained — `root` is the workspace's
+ *   name in it (`/workspace`) and each mount is a name in it too;
+ * - without, for a host with no sandbox, `root` and each mount's `host` are
+ *   directories on this machine, and the workspace contains them itself with
+ *   the same `RootedFs` a podman sandbox uses.
+ *
+ * `mount` is the name paths are shown by; unset, the workspace's own paths are
+ * shown relative to it.
+ */
+export interface WorkspaceOptions {
+    root: string;
+    mount?: string;
+    mounts?: readonly WorkspaceMount[];
+    /** refuse every mutating tool; `zen run --read-only` */
+    readOnly?: boolean;
+    fs?: FsDriver;
+}
 
+/** The name the workspace has inside a contained fs when nobody named it. */
+const LOCAL_ROOT = '/workspace';
+
+/** One tree the agent can reach, by name, and what it may do there. */
+interface Tree {
+    at: string;
+    readOnly: boolean;
+    /** for saying which directory is missing, when there is one */
+    host?: string;
+}
+
+/** A mount as the workspace holds it: named, with its permission decided. */
+export type ResolvedMount = Required<Pick<WorkspaceMount, 'at' | 'readOnly'>> &
+    Pick<WorkspaceMount, 'source'>;
+
+/**
+ * What an agent may do with its files, on top of a filesystem that already
+ * decides what it may reach. Every path here is the agent's own: it comes in as
+ * the model spelled it, is made the one name the fs knows, and goes back out in
+ * the model's spelling. Containment — symlinks, `..`, read-only trees — is the
+ * fs's; what is left is the tools' own rules.
+ */
 export class Workspace implements AgentFiles {
-    /** the workspace as given, made absolute; where it really is is settled on first use */
+    /** the workspace's name in `fs`, and where relative paths start */
     readonly root: string;
     readonly readOnly: boolean;
+    /** the name paths are shown by; unset, workspace paths are shown relative */
     readonly mount: string | undefined;
-    /** the extra trees, resolved — the primary root is not among them */
+    /** the extra trees — the workspace itself is not among them */
     readonly mounts: readonly ResolvedMount[];
-    /** where the bytes are; every resolved path is in its namespace */
+    /** the agent's files, contained, in the agent's paths */
     readonly fs: FsDriver;
 
-    /** primary first */
-    readonly #roots: Root[];
-    /** the ones with a name, longest name first */
-    readonly #named: (Root & { at: string })[];
-    /** every root, deepest host path first, for attributing a resolved path to one */
-    #deep: Root[];
+    /** the workspace first */
+    readonly #trees: Tree[];
+    /** longest name first, for finding the tree a path is in */
+    readonly #byName: Tree[];
     #ready?: Promise<void>;
 
     constructor(opts: WorkspaceOptions) {
-        this.fs = opts.fs ?? localFs;
-        this.root = this.fs.path.resolve(opts.root);
         this.readOnly = opts.readOnly ?? false;
         this.mount = mountPoint(opts.mount);
+        const local = opts.fs === undefined;
+        this.root = local ? (this.mount ?? LOCAL_ROOT) : (mountPoint(opts.root) ?? LOCAL_ROOT);
 
-        const roots: Root[] = [{ path: this.root, at: this.mount, readOnly: this.readOnly }];
+        const trees: Tree[] = [
+            { at: this.root, readOnly: this.readOnly, ...(local ? { host: opts.root } : {}) },
+        ];
         const mounts: ResolvedMount[] = [];
         for (const m of opts.mounts ?? []) {
             const at = mountPoint(m.at);
@@ -84,47 +127,45 @@ export class Workspace implements AgentFiles {
             }
             // Overlapping names would make one path mean two directories, and
             // which one won would depend on the order they were passed in.
-            for (const taken of roots) {
-                if (taken.at && (at === taken.at || under(at, taken.at) || under(taken.at, at))) {
+            for (const taken of trees) {
+                if (at === taken.at || under(at, taken.at) || under(taken.at, at)) {
                     throw new Error(`workspace mounts overlap: ${at} and ${taken.at}`);
                 }
             }
-            const host = this.fs.path.resolve(m.host);
+            if (local && !m.host) {
+                throw new Error(`workspace mount ${at} needs a host directory`);
+            }
             const readOnly = m.readOnly ?? true;
-            roots.push({ path: host, at, readOnly });
-            mounts.push({ host, at, readOnly, ...(m.source ? { source: m.source } : {}) });
+            trees.push({ at, readOnly, ...(local ? { host: m.host } : {}) });
+            mounts.push({ at, readOnly, ...(m.source ? { source: m.source } : {}) });
         }
 
         this.mounts = mounts;
-        this.#roots = roots;
-        this.#named = roots
-            .filter((r): r is Root & { at: string } => r.at !== undefined)
-            .sort((a, b) => b.at.length - a.at.length);
-        // A mount may sit inside the workspace root; the deeper one owns the path.
-        this.#deep = [...roots].sort((a, b) => b.path.length - a.path.length);
+        this.#trees = trees;
+        this.#byName = [...trees].sort((a, b) => b.at.length - a.at.length);
+        this.fs =
+            opts.fs ??
+            new RootedFs(trees.map((t) => ({ at: t.at, dir: t.host!, readOnly: t.readOnly })));
     }
 
     /**
-     * Every root's symlinks resolved, once, so a workspace that *is* a symlink
-     * does not fail every containment check against itself. On first use rather
-     * than at construction: the driver may be on another machine, and asking it
-     * is a round trip.
+     * Every tree has to be there. Asked once, on first use rather than at
+     * construction: the fs may be on another machine, and asking is a round trip.
      */
     #settle(): Promise<void> {
         this.#ready ??= (async () => {
-            for (const [i, root] of this.#roots.entries()) {
-                const real = await this.fs.resolve(root.path);
-                const info = await this.fs.stat(real).catch(() => undefined);
+            for (const [i, tree] of this.#trees.entries()) {
+                // There at all; that it is a directory is the first listing's to say.
+                const info = await this.fs.stat(tree.at).catch(() => undefined);
                 if (!info) {
+                    const where = tree.host ?? tree.at;
                     throw new Error(
                         i === 0
-                            ? `the workspace does not exist: ${root.path}`
-                            : `workspace mount ${root.at}: no such directory: ${root.path}`,
+                            ? `the workspace does not exist: ${where}`
+                            : `workspace mount ${tree.at}: no such directory: ${where}`,
                     );
                 }
-                root.path = real;
             }
-            this.#deep = [...this.#roots].sort((a, b) => b.path.length - a.path.length);
         })().catch((err: unknown) => {
             this.#ready = undefined;
             throw err;
@@ -132,30 +173,14 @@ export class Workspace implements AgentFiles {
         return this.#ready;
     }
 
-    /** Every tree, where it really is: the workspace first. */
-    async trees(): Promise<string[]> {
-        await this.#settle();
-        return this.#roots.map((r) => r.path);
+    /** Every tree by name: the workspace first. */
+    trees(): string[] {
+        return this.#trees.map((t) => t.at);
     }
 
     /**
-     * Where a name points on this machine, lexically: no symlink followed, no
-     * file touched. For drawing a link to a file, never for deciding access —
-     * that is `within`.
-     */
-    hostOf(input: string): string | undefined {
-        const { root, rest } = this.#locate(input);
-        const { resolve, sep } = this.fs.path;
-        const at = resolve(root.path, rest);
-        return at === root.path || at.startsWith(root.path + sep) ? at : undefined;
-    }
-
-    /**
-     * The one gate. Returns an absolute path inside one of the roots, or throws.
-     *
-     * A path that does not exist yet cannot be realpath'd, so the nearest
-     * existing ancestor is resolved instead and the remainder appended — which
-     * is exactly what a create needs and closes the same hole a create opens.
+     * The one gate: the name the fs knows a path by, or a refusal in the
+     * model's words. What the fs then does with it is contained by the fs.
      */
     async within(input: string, opts: { write?: boolean } = {}): Promise<string> {
         if (typeof input !== 'string' || input.length === 0) {
@@ -165,68 +190,53 @@ export class Workspace implements AgentFiles {
             throw new Error('path contains a null byte');
         }
         await this.#settle();
-        const { root, rest } = this.#locate(input);
-        const { resolve, sep } = this.fs.path;
-        const real = await this.fs.resolve(resolve(root.path, rest));
-        if (real !== root.path && !real.startsWith(root.path + sep)) {
+        const found = this.locate(input);
+        if (!found) {
             throw new Error(`outside the workspace: ${input}`);
         }
-        if (opts.write && root.readOnly) {
+        if (opts.write && found.tree.readOnly) {
             throw new Error(
-                root === this.#roots[0]
+                found.tree === this.#trees[0]
                     ? 'the workspace is read-only for this run'
-                    : `${root.at} is read-only`,
+                    : `${found.tree.at} is read-only`,
             );
         }
-        return real;
+        return found.at;
     }
 
     /**
-     * Which tree a path names, and where in it. `/workspace/src/a.ts` and
-     * `src/a.ts` are one file under two names, and only the second resolves
-     * against the root, so the mounted spelling is rewritten before anything
-     * else looks at it.
-     *
-     * This is renaming, not permission. What comes out is still resolved, still
-     * symlink-followed and still checked against its root by the caller:
-     * `/workspace/../etc/passwd` loses its prefix and then fails containment
-     * exactly as `../etc/passwd` does.
+     * Which tree a path names, and its one name there. `/workspace/src/a.ts`
+     * and `src/a.ts` are one file under two names; a lone `/` is the model's
+     * other name for the top of what it can see, so it means the workspace;
+     * `..` that climbs out of a tree, and any other absolute path, names
+     * nothing. Lexical: no file is touched.
      */
-    #locate(input: string): { root: Root; rest: string } {
-        const primary = this.#roots[0];
-        // A lone `/` is the model's other name for "the top of what I can see".
-        // There is nothing above the root for it to mean, so it means the root
-        // — refusing it teaches nothing and costs a turn. This is the only
-        // absolute path treated as rooted: `/etc/passwd` still names the
-        // machine's file and still fails containment.
+    locate(input: string): { tree: Tree; at: string } | undefined {
+        const primary = this.#trees[0]!;
         if (/^[\\/]+$/.test(input)) {
-            return { root: primary, rest: '.' };
+            return { tree: primary, at: primary.at };
         }
-        const at = input.replace(/\\/g, '/');
-        for (const root of this.#named) {
-            if (at === root.at) {
-                return { root, rest: '.' };
-            }
-            if (at.startsWith(root.at + '/')) {
-                return { root, rest: at.slice(root.at.length + 1).replace(/^\/+/, '') || '.' };
-            }
-        }
-        return { root: primary, rest: input };
-    }
-
-    /** The root a resolved path belongs to; the primary when nothing else claims it. */
-    #owner(path: string): Root {
-        const { sep } = this.fs.path;
-        return (
-            this.#deep.find((r) => path === r.path || path.startsWith(r.path + sep)) ??
-            this.#roots[0]
+        const spelled = input.replace(/\\/g, '/');
+        const at = trim(
+            posix.normalize(spelled.startsWith('/') ? spelled : posix.join(primary.at, spelled)),
         );
+        const tree = this.#owner(at);
+        // Unnamed, the workspace is only ever spelled relative: an absolute
+        // path is the machine's, and the machine's is not in reach.
+        if (tree === primary && spelled.startsWith('/') && this.mount === undefined) {
+            return undefined;
+        }
+        return tree ? { tree, at } : undefined;
     }
 
-    /** Where a path sits under its own root, in posix form. `.` is that root. */
+    #owner(at: string): Tree | undefined {
+        return this.#byName.find((t) => at === t.at || under(at, t.at));
+    }
+
+    /** Where a path sits under its own tree, in posix form. `.` is that tree. */
     rel(path: string): string {
-        const { relative, sep } = this.fs.path;
-        return relative(this.#owner(path).path, path).split(sep).join('/') || '.';
+        const tree = this.#owner(path);
+        return tree ? posix.relative(tree.at, path) || '.' : path;
     }
 
     /**
@@ -237,25 +247,23 @@ export class Workspace implements AgentFiles {
      * would have to translate between them to feed one tool's output to the
      * other. With a mount configured every path in and every path out is the
      * mounted one, and copying a path from a command's output into read_file
-     * is exact. Without one, everything stays relative as before.
+     * is exact. Without one, the workspace's own paths stay relative.
      */
     show(path: string): string {
-        const root = this.#owner(path);
-        const rel = this.rel(path);
-        if (root.at === undefined) {
-            return rel;
+        if (this.mount === undefined && this.#owner(path) === this.#trees[0]) {
+            return this.rel(path);
         }
-        return rel === '.' ? root.at : `${root.at}/${rel}`;
+        return path;
     }
 
-    /** Whether a resolved path *is* one of the roots. Nothing may move or delete one. */
+    /** Whether a path *is* one of the trees. Nothing may move or delete one. */
     isRoot(path: string): boolean {
-        return this.#roots.some((r) => r.path === path);
+        return this.#trees.some((t) => t.at === path);
     }
 
-    /** Whether resolved `inner` sits strictly below resolved `outer`. */
+    /** Whether `inner` sits strictly below `outer`. */
     isInside(inner: string, outer: string): boolean {
-        return inner.startsWith(outer + this.fs.path.sep);
+        return under(inner, outer);
     }
 
     /**
@@ -327,7 +335,11 @@ export class Workspace implements AgentFiles {
  */
 function mountPoint(at: string | undefined): string | undefined {
     const clean = at?.replace(/\\/g, '/').replace(/\/+$/, '');
-    return clean && clean.startsWith('/') ? clean : undefined;
+    return clean && clean.startsWith('/') ? posix.normalize(clean) : undefined;
+}
+
+function trim(at: string): string {
+    return at.length > 1 ? at.replace(/\/+$/, '') : at;
 }
 
 function under(inner: string, outer: string): boolean {

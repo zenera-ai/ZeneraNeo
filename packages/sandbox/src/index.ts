@@ -9,3 +9,4 @@ export * from './limits.ts';
 export * from './mounts.ts';
 export * from './podman.ts';
 export * from './process.ts';
+export * from './rooted-fs.ts';
