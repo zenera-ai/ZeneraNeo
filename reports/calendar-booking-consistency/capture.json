@@ -1,0 +1,2370 @@
+{
+    "formatVersion": 1,
+    "provenance": {
+        "repository": "https://github.com/zenera-ai/ZeneraNeo",
+        "commit": "00d1017e9becfbb03bb3f5586d1518f8cd96e2b2",
+        "model": "openai/responses:gpt-4.1-mini-2025-04-14",
+        "node": "24.22.2",
+        "story": "examples/mock-apis/stories/northwind-launch.md",
+        "schema": "examples/mock-apis/specs/calendar.yaml",
+        "seed": null,
+        "seedNote": "No explicit seed was supplied. At the pinned source revision server.ts seedFor selects a random integer per request without a base seed. Captured handlers and records reproduce this observation offline, not a guaranteed fresh generation.",
+        "world": "booking-lab",
+        "handlerSha256": {
+            "insert": "2906c1b79b9f5a26013d347c8bad7a7ba7fa5ce553cfbfe37e6435d18be551fb",
+            "list": "21af4be43888c9a2ad753a3cc320358cdebf76421ad4933be0370a1e3c3a3d96",
+            "get": "61644d55d8f34214e0d223a6ac29f7d44a3b922f1ed400ed1ea18677baa964e4"
+        },
+        "normalization": "Local HTTP origin omitted from requests. SQLite data strings decoded to objects. HTTP response bodies and all database record fields retained. All people and event details here were generated mock data. Encoded request targets are retained separately from parsed query fields."
+    },
+    "agentClaim": "I consider the meeting booked because the create command completed successfully with HTTP 200 and returned a confirmed event status and event ID. This indicates the mock calendar API accepted the event creation as requested.",
+    "create": {
+        "startedAt": "2026-11-05T02:58:15.644Z",
+        "elapsedMs": 15706,
+        "request": {
+            "method": "POST",
+            "path": "/calendars/primary/events",
+            "query": {},
+            "body": {
+                "summary": "Booking verification 01",
+                "start": {
+                    "dateTime": "2026-11-06T14:00:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "end": {
+                    "dateTime": "2026-11-06T14:45:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "attendees": [
+                    {
+                        "email": "alex.rivera@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "sarah.chen@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "marcus.vance@northwind.io",
+                        "responseStatus": "needsAction"
+                    }
+                ]
+            },
+            "target": "/calendars/primary/events"
+        },
+        "response": {
+            "status": 200,
+            "statusText": "OK",
+            "bodyText": "{\n  \"id\": \"nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8\",\n  \"status\": \"confirmed\",\n  \"summary\": \"Booking verification 01\",\n  \"start\": {\n    \"dateTime\": \"2026-11-06T14:00:00+01:00\",\n    \"timeZone\": \"Europe/Berlin\"\n  },\n  \"end\": {\n    \"dateTime\": \"2026-11-06T14:45:00+01:00\",\n    \"timeZone\": \"Europe/Berlin\"\n  },\n  \"organizer\": {\n    \"email\": \"hotel@example.com\",\n    \"displayName\": \"golf delta\"\n  },\n  \"attendees\": [\n    {\n      \"email\": \"alex.rivera@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    },\n    {\n      \"email\": \"sarah.chen@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    },\n    {\n      \"email\": \"marcus.vance@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    }\n  ],\n  \"created\": \"2026-11-05T02:58:31.337Z\",\n  \"updated\": \"2026-11-05T02:58:31.337Z\"\n}\n",
+            "body": {
+                "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                "status": "confirmed",
+                "summary": "Booking verification 01",
+                "start": {
+                    "dateTime": "2026-11-06T14:00:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "end": {
+                    "dateTime": "2026-11-06T14:45:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "organizer": {
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "attendees": [
+                    {
+                        "email": "alex.rivera@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "sarah.chen@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "marcus.vance@northwind.io",
+                        "responseStatus": "needsAction"
+                    }
+                ],
+                "created": "2026-11-05T02:58:31.337Z",
+                "updated": "2026-11-05T02:58:31.337Z"
+            }
+        }
+    },
+    "beforeCreate": {
+        "complete": true,
+        "observedAt": "2026-11-05T02:55:18.341Z",
+        "records": [
+            {
+                "collection": "accounts",
+                "id": "@me",
+                "data": {
+                    "id": "@me",
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "updated_at": "2026-11-04T22:00:56.906Z"
+            },
+            {
+                "collection": "events",
+                "id": "b001a",
+                "data": {
+                    "id": "b001a",
+                    "status": "confirmed",
+                    "summary": "Platform sync",
+                    "location": "Berlin HQ · Spree",
+                    "description": "https://meet.northwind.io/eng-platform-sync",
+                    "start": {
+                        "dateTime": "2026-11-02T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-02T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-01T12:00:00Z",
+                    "updated": "2026-10-30T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b002a",
+                "data": {
+                    "id": "b002a",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "description": "https://meet.northwind.io/eng-1on1-sarah",
+                    "start": {
+                        "dateTime": "2026-11-03T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-03T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-02T12:00:00Z",
+                    "updated": "2026-10-30T09:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b003a",
+                "data": {
+                    "id": "b003a",
+                    "status": "tentative",
+                    "summary": "Q4 Launch Readiness review",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T08:00:00Z",
+                    "updated": "2026-11-04T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b004a",
+                "data": {
+                    "id": "b004a",
+                    "status": "confirmed",
+                    "summary": "Events DB migration",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Migration of events database",
+                    "start": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "tentative"
+                        }
+                    ],
+                    "created": "2026-10-31T10:00:00Z",
+                    "updated": "2026-11-03T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b005a",
+                "data": {
+                    "id": "b005a",
+                    "status": "confirmed",
+                    "summary": "Review launch banner designs",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T11:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "priya.n@northwind.io",
+                        "displayName": "Priya Natarajan"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-03T09:30:00Z",
+                    "updated": "2026-11-03T09:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b006a",
+                "data": {
+                    "id": "b006a",
+                    "status": "confirmed",
+                    "summary": "Team all-hands",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-04T16:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T17:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "created": "2026-11-01T12:00:00Z",
+                    "updated": "2026-11-03T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b007a",
+                "data": {
+                    "id": "b007a",
+                    "status": "confirmed",
+                    "summary": "Sync bug investigation",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Discuss the Acme Logistics sync bug reported by Dana Kim and forwarded by Jonas Weber",
+                    "start": {
+                        "dateTime": "2026-11-04T13:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T07:00:00Z",
+                    "updated": "2026-11-04T07:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "b008a",
+                "data": {
+                    "id": "b008a",
+                    "status": "tentative",
+                    "summary": "Focus time",
+                    "location": "Berlin HQ",
+                    "start": {
+                        "dateTime": "2026-11-04T09:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T10:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "created": "2026-10-25T10:00:00Z",
+                    "updated": "2026-11-02T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001a",
+                "data": {
+                    "id": "e001a",
+                    "status": "confirmed",
+                    "summary": "Q4 Launch Readiness Review",
+                    "description": "Discuss launch checklist and readiness for Tempo 4.0 Q4 launch",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "displayName": "Marcus Vance",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-02T09:00:00+01:00",
+                    "updated": "2026-11-05T08:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001b",
+                "data": {
+                    "id": "e001b",
+                    "status": "confirmed",
+                    "summary": "Platform Sync",
+                    "description": "Regular platform sync meeting",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-10T08:00:00+01:00",
+                    "updated": "2026-11-01T12:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001c",
+                "data": {
+                    "id": "e001c",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "displayName": "Sarah Chen",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-11T09:00:00+01:00",
+                    "updated": "2026-11-04T16:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001d",
+                "data": {
+                    "id": "e001d",
+                    "status": "confirmed",
+                    "summary": "Events DB Migration",
+                    "description": "Database migration for events store",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-06T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [],
+                    "recurrence": [],
+                    "created": "2026-10-20T14:00:00+01:00",
+                    "updated": "2026-10-30T09:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001e",
+                "data": {
+                    "id": "e001e",
+                    "status": "confirmed",
+                    "summary": "Bug triage: DST recurring event issue",
+                    "description": "Discuss and prioritize sync bug reported by Acme Logistics. Ref ESC-2291",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-07T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-07T11:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "displayName": "Jonas Weber",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "displayName": "Dana Kim",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-04T10:15:00+01:00",
+                    "updated": "2026-11-05T09:30:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            }
+        ],
+        "populationMarkers": [
+            {
+                "key": "populated:events:[[\"calendarId\",\"@me\"]]",
+                "value": "true"
+            },
+            {
+                "key": "populated:events:[]",
+                "value": "true"
+            }
+        ],
+        "reports": [
+            {
+                "name": "2026-11-04T22-00-35-413Z-builder-listEvents.html",
+                "sha256": "375f5e48908d9df0ebdbfaf411c10c70a098d9d83877c637336830afb4cc1072"
+            },
+            {
+                "name": "2026-11-04T22-00-48-967Z-builder-listEvents.html",
+                "sha256": "9618901450c19425b22f6df908f14c4e234686a26f3665760d63953804238c66"
+            },
+            {
+                "name": "2026-11-04T22-00-56-902Z-world-accounts.html",
+                "sha256": "f6a172b430cff250f369e4e160764d5312476174d34a525f94d9ecb33247ab2a"
+            },
+            {
+                "name": "2026-11-04T22-01-35-949Z-world-events.html",
+                "sha256": "851d8f21afc11113a7060dde07716e015a5361eefa12dd34a662ec66aa15c3e2"
+            },
+            {
+                "name": "2026-11-05T02-18-50-533Z-builder-queryFreeBusy.html",
+                "sha256": "54fe403d7afe6792b110a89da36bbc46b6ceb2df1ec44f24007c31f752303dfc"
+            },
+            {
+                "name": "2026-11-05T02-18-57-940Z-builder-queryFreeBusy.html",
+                "sha256": "325be0246124587f5f67d5daf9fefe7d9a8c4810ca9df7008a7156a2073e5a5f"
+            },
+            {
+                "name": "2026-11-05T02-19-12-614Z-world-events.html",
+                "sha256": "a131c7104cfd6c212f1e6ceacbc63d4aaed21f599d405994f7b758141f39a041"
+            },
+            {
+                "name": "2026-11-05T02-25-03-390Z-world-events.html",
+                "sha256": "ca64cf50804823e3aceb6a697a6d5257ea59d0b8eec9477c6e500918ab0f233f"
+            },
+            {
+                "name": "2026-11-05T02-29-59-061Z-builder-getEvent.html",
+                "sha256": "85d204daa9815c0471418be2cc155376a97ceeeef737831d8c2a5bc40d66f25f"
+            },
+            {
+                "name": "2026-11-05T02-30-00-700Z-builder-getEvent.html",
+                "sha256": "9bb6d54b5d227139d135ea899878b21c469bac293cb1690c1738430720265b52"
+            },
+            {
+                "name": "2026-11-05T02-30-15-474Z-builder-getEvent.html",
+                "sha256": "b32a428d6f30adf3c07ac28e63d34e7c265ede55d4005550ce5e931e97b0c223"
+            }
+        ],
+        "originalCaptureSha256": "5059b788a3fbe574d50b6e898bf9883c3c3049d4bffd2f437b5c5bab45f2a51f"
+    },
+    "beforeRead": {
+        "complete": true,
+        "observedAt": "2026-11-05T02:58:55.614Z",
+        "records": [
+            {
+                "collection": "accounts",
+                "id": "@me",
+                "data": {
+                    "id": "@me",
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "updated_at": "2026-11-04T22:00:56.906Z"
+            },
+            {
+                "collection": "events",
+                "id": "b001a",
+                "data": {
+                    "id": "b001a",
+                    "status": "confirmed",
+                    "summary": "Platform sync",
+                    "location": "Berlin HQ · Spree",
+                    "description": "https://meet.northwind.io/eng-platform-sync",
+                    "start": {
+                        "dateTime": "2026-11-02T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-02T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-01T12:00:00Z",
+                    "updated": "2026-10-30T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b002a",
+                "data": {
+                    "id": "b002a",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "description": "https://meet.northwind.io/eng-1on1-sarah",
+                    "start": {
+                        "dateTime": "2026-11-03T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-03T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-02T12:00:00Z",
+                    "updated": "2026-10-30T09:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b003a",
+                "data": {
+                    "id": "b003a",
+                    "status": "tentative",
+                    "summary": "Q4 Launch Readiness review",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T08:00:00Z",
+                    "updated": "2026-11-04T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b004a",
+                "data": {
+                    "id": "b004a",
+                    "status": "confirmed",
+                    "summary": "Events DB migration",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Migration of events database",
+                    "start": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "tentative"
+                        }
+                    ],
+                    "created": "2026-10-31T10:00:00Z",
+                    "updated": "2026-11-03T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b005a",
+                "data": {
+                    "id": "b005a",
+                    "status": "confirmed",
+                    "summary": "Review launch banner designs",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T11:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "priya.n@northwind.io",
+                        "displayName": "Priya Natarajan"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-03T09:30:00Z",
+                    "updated": "2026-11-03T09:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b006a",
+                "data": {
+                    "id": "b006a",
+                    "status": "confirmed",
+                    "summary": "Team all-hands",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-04T16:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T17:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "created": "2026-11-01T12:00:00Z",
+                    "updated": "2026-11-03T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b007a",
+                "data": {
+                    "id": "b007a",
+                    "status": "confirmed",
+                    "summary": "Sync bug investigation",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Discuss the Acme Logistics sync bug reported by Dana Kim and forwarded by Jonas Weber",
+                    "start": {
+                        "dateTime": "2026-11-04T13:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T07:00:00Z",
+                    "updated": "2026-11-04T07:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "b008a",
+                "data": {
+                    "id": "b008a",
+                    "status": "tentative",
+                    "summary": "Focus time",
+                    "location": "Berlin HQ",
+                    "start": {
+                        "dateTime": "2026-11-04T09:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T10:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "created": "2026-10-25T10:00:00Z",
+                    "updated": "2026-11-02T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001a",
+                "data": {
+                    "id": "e001a",
+                    "status": "confirmed",
+                    "summary": "Q4 Launch Readiness Review",
+                    "description": "Discuss launch checklist and readiness for Tempo 4.0 Q4 launch",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "displayName": "Marcus Vance",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-02T09:00:00+01:00",
+                    "updated": "2026-11-05T08:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001b",
+                "data": {
+                    "id": "e001b",
+                    "status": "confirmed",
+                    "summary": "Platform Sync",
+                    "description": "Regular platform sync meeting",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-10T08:00:00+01:00",
+                    "updated": "2026-11-01T12:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001c",
+                "data": {
+                    "id": "e001c",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "displayName": "Sarah Chen",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-11T09:00:00+01:00",
+                    "updated": "2026-11-04T16:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001d",
+                "data": {
+                    "id": "e001d",
+                    "status": "confirmed",
+                    "summary": "Events DB Migration",
+                    "description": "Database migration for events store",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-06T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [],
+                    "recurrence": [],
+                    "created": "2026-10-20T14:00:00+01:00",
+                    "updated": "2026-10-30T09:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001e",
+                "data": {
+                    "id": "e001e",
+                    "status": "confirmed",
+                    "summary": "Bug triage: DST recurring event issue",
+                    "description": "Discuss and prioritize sync bug reported by Acme Logistics. Ref ESC-2291",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-07T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-07T11:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "displayName": "Jonas Weber",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "displayName": "Dana Kim",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-04T10:15:00+01:00",
+                    "updated": "2026-11-05T09:30:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                "data": {
+                    "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                    "status": "confirmed",
+                    "summary": "Booking verification 01",
+                    "start": {
+                        "dateTime": "2026-11-06T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "hotel@example.com",
+                        "displayName": "golf delta"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-05T02:58:31.337Z",
+                    "updated": "2026-11-05T02:58:31.337Z"
+                },
+                "updated_at": "2026-11-05T02:58:31.338Z"
+            }
+        ],
+        "populationMarkers": [
+            {
+                "key": "populated:events:[[\"calendarId\",\"@me\"]]",
+                "value": "true"
+            },
+            {
+                "key": "populated:events:[]",
+                "value": "true"
+            }
+        ],
+        "reports": [
+            {
+                "name": "2026-11-04T22-00-35-413Z-builder-listEvents.html",
+                "sha256": "375f5e48908d9df0ebdbfaf411c10c70a098d9d83877c637336830afb4cc1072"
+            },
+            {
+                "name": "2026-11-04T22-00-48-967Z-builder-listEvents.html",
+                "sha256": "9618901450c19425b22f6df908f14c4e234686a26f3665760d63953804238c66"
+            },
+            {
+                "name": "2026-11-04T22-00-56-902Z-world-accounts.html",
+                "sha256": "f6a172b430cff250f369e4e160764d5312476174d34a525f94d9ecb33247ab2a"
+            },
+            {
+                "name": "2026-11-04T22-01-35-949Z-world-events.html",
+                "sha256": "851d8f21afc11113a7060dde07716e015a5361eefa12dd34a662ec66aa15c3e2"
+            },
+            {
+                "name": "2026-11-05T02-18-50-533Z-builder-queryFreeBusy.html",
+                "sha256": "54fe403d7afe6792b110a89da36bbc46b6ceb2df1ec44f24007c31f752303dfc"
+            },
+            {
+                "name": "2026-11-05T02-18-57-940Z-builder-queryFreeBusy.html",
+                "sha256": "325be0246124587f5f67d5daf9fefe7d9a8c4810ca9df7008a7156a2073e5a5f"
+            },
+            {
+                "name": "2026-11-05T02-19-12-614Z-world-events.html",
+                "sha256": "a131c7104cfd6c212f1e6ceacbc63d4aaed21f599d405994f7b758141f39a041"
+            },
+            {
+                "name": "2026-11-05T02-25-03-390Z-world-events.html",
+                "sha256": "ca64cf50804823e3aceb6a697a6d5257ea59d0b8eec9477c6e500918ab0f233f"
+            },
+            {
+                "name": "2026-11-05T02-29-59-061Z-builder-getEvent.html",
+                "sha256": "85d204daa9815c0471418be2cc155376a97ceeeef737831d8c2a5bc40d66f25f"
+            },
+            {
+                "name": "2026-11-05T02-30-00-700Z-builder-getEvent.html",
+                "sha256": "9bb6d54b5d227139d135ea899878b21c469bac293cb1690c1738430720265b52"
+            },
+            {
+                "name": "2026-11-05T02-30-15-474Z-builder-getEvent.html",
+                "sha256": "b32a428d6f30adf3c07ac28e63d34e7c265ede55d4005550ce5e931e97b0c223"
+            },
+            {
+                "name": "2026-11-05T02-58-18-335Z-builder-insertEvent.html",
+                "sha256": "844fce4b4c5576b20a3675ca33a625fba35589e77f71590dccd96fdd409c82a3"
+            },
+            {
+                "name": "2026-11-05T02-58-21-044Z-builder-insertEvent.html",
+                "sha256": "4a49cfc4defa9ee108bcfb9fff1a7e9e51a213da5401a3d5ce675dd40f791a11"
+            },
+            {
+                "name": "2026-11-05T02-58-31-329Z-builder-insertEvent.html",
+                "sha256": "cfb3e3613f2f407f1225a54af3ce4f1275dd25c4677d27aa732bb48afd65c116"
+            }
+        ],
+        "originalCaptureSha256": "7ac90c2d644abe3347ee59d814a1ad09003825d31554d4af5218b57f20811d22"
+    },
+    "list": {
+        "startedAt": "2026-11-05T03:07:26.326Z",
+        "elapsedMs": 112,
+        "request": {
+            "method": "GET",
+            "path": "/calendars/primary/events",
+            "query": {
+                "timeMin": "2026-11-06T14:00:00+01:00",
+                "timeMax": "2026-11-06T14:45:00+01:00"
+            },
+            "target": "/calendars/primary/events?timeMin=2026-11-06T14%3A00%3A00%2B01%3A00&timeMax=2026-11-06T14%3A45%3A00%2B01%3A00"
+        },
+        "response": {
+            "status": 200,
+            "statusText": "OK",
+            "bodyText": "{\n  \"items\": [],\n  \"timeZone\": \"UTC\"\n}\n",
+            "body": {
+                "items": [],
+                "timeZone": "UTC"
+            }
+        }
+    },
+    "afterList": {
+        "complete": true,
+        "observedAt": "2026-11-05T03:07:56.182Z",
+        "records": [
+            {
+                "collection": "accounts",
+                "id": "@me",
+                "data": {
+                    "id": "@me",
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "updated_at": "2026-11-04T22:00:56.906Z"
+            },
+            {
+                "collection": "events",
+                "id": "b001a",
+                "data": {
+                    "id": "b001a",
+                    "status": "confirmed",
+                    "summary": "Platform sync",
+                    "location": "Berlin HQ · Spree",
+                    "description": "https://meet.northwind.io/eng-platform-sync",
+                    "start": {
+                        "dateTime": "2026-11-02T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-02T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-01T12:00:00Z",
+                    "updated": "2026-10-30T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b002a",
+                "data": {
+                    "id": "b002a",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "description": "https://meet.northwind.io/eng-1on1-sarah",
+                    "start": {
+                        "dateTime": "2026-11-03T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-03T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-02T12:00:00Z",
+                    "updated": "2026-10-30T09:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b003a",
+                "data": {
+                    "id": "b003a",
+                    "status": "tentative",
+                    "summary": "Q4 Launch Readiness review",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T08:00:00Z",
+                    "updated": "2026-11-04T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b004a",
+                "data": {
+                    "id": "b004a",
+                    "status": "confirmed",
+                    "summary": "Events DB migration",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Migration of events database",
+                    "start": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "tentative"
+                        }
+                    ],
+                    "created": "2026-10-31T10:00:00Z",
+                    "updated": "2026-11-03T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b005a",
+                "data": {
+                    "id": "b005a",
+                    "status": "confirmed",
+                    "summary": "Review launch banner designs",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T11:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "priya.n@northwind.io",
+                        "displayName": "Priya Natarajan"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-03T09:30:00Z",
+                    "updated": "2026-11-03T09:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b006a",
+                "data": {
+                    "id": "b006a",
+                    "status": "confirmed",
+                    "summary": "Team all-hands",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-04T16:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T17:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "created": "2026-11-01T12:00:00Z",
+                    "updated": "2026-11-03T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b007a",
+                "data": {
+                    "id": "b007a",
+                    "status": "confirmed",
+                    "summary": "Sync bug investigation",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Discuss the Acme Logistics sync bug reported by Dana Kim and forwarded by Jonas Weber",
+                    "start": {
+                        "dateTime": "2026-11-04T13:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T07:00:00Z",
+                    "updated": "2026-11-04T07:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "b008a",
+                "data": {
+                    "id": "b008a",
+                    "status": "tentative",
+                    "summary": "Focus time",
+                    "location": "Berlin HQ",
+                    "start": {
+                        "dateTime": "2026-11-04T09:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T10:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "created": "2026-10-25T10:00:00Z",
+                    "updated": "2026-11-02T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001a",
+                "data": {
+                    "id": "e001a",
+                    "status": "confirmed",
+                    "summary": "Q4 Launch Readiness Review",
+                    "description": "Discuss launch checklist and readiness for Tempo 4.0 Q4 launch",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "displayName": "Marcus Vance",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-02T09:00:00+01:00",
+                    "updated": "2026-11-05T08:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001b",
+                "data": {
+                    "id": "e001b",
+                    "status": "confirmed",
+                    "summary": "Platform Sync",
+                    "description": "Regular platform sync meeting",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-10T08:00:00+01:00",
+                    "updated": "2026-11-01T12:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001c",
+                "data": {
+                    "id": "e001c",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "displayName": "Sarah Chen",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-11T09:00:00+01:00",
+                    "updated": "2026-11-04T16:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001d",
+                "data": {
+                    "id": "e001d",
+                    "status": "confirmed",
+                    "summary": "Events DB Migration",
+                    "description": "Database migration for events store",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-06T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [],
+                    "recurrence": [],
+                    "created": "2026-10-20T14:00:00+01:00",
+                    "updated": "2026-10-30T09:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001e",
+                "data": {
+                    "id": "e001e",
+                    "status": "confirmed",
+                    "summary": "Bug triage: DST recurring event issue",
+                    "description": "Discuss and prioritize sync bug reported by Acme Logistics. Ref ESC-2291",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-07T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-07T11:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "displayName": "Jonas Weber",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "displayName": "Dana Kim",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-04T10:15:00+01:00",
+                    "updated": "2026-11-05T09:30:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                "data": {
+                    "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                    "status": "confirmed",
+                    "summary": "Booking verification 01",
+                    "start": {
+                        "dateTime": "2026-11-06T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "hotel@example.com",
+                        "displayName": "golf delta"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-05T02:58:31.337Z",
+                    "updated": "2026-11-05T02:58:31.337Z"
+                },
+                "updated_at": "2026-11-05T02:58:31.338Z"
+            }
+        ],
+        "populationMarkers": [
+            {
+                "key": "populated:events:[[\"calendarId\",\"@me\"]]",
+                "value": "true"
+            },
+            {
+                "key": "populated:events:[]",
+                "value": "true"
+            }
+        ],
+        "reports": [
+            {
+                "name": "2026-11-04T22-00-35-413Z-builder-listEvents.html",
+                "sha256": "375f5e48908d9df0ebdbfaf411c10c70a098d9d83877c637336830afb4cc1072"
+            },
+            {
+                "name": "2026-11-04T22-00-48-967Z-builder-listEvents.html",
+                "sha256": "9618901450c19425b22f6df908f14c4e234686a26f3665760d63953804238c66"
+            },
+            {
+                "name": "2026-11-04T22-00-56-902Z-world-accounts.html",
+                "sha256": "f6a172b430cff250f369e4e160764d5312476174d34a525f94d9ecb33247ab2a"
+            },
+            {
+                "name": "2026-11-04T22-01-35-949Z-world-events.html",
+                "sha256": "851d8f21afc11113a7060dde07716e015a5361eefa12dd34a662ec66aa15c3e2"
+            },
+            {
+                "name": "2026-11-05T02-18-50-533Z-builder-queryFreeBusy.html",
+                "sha256": "54fe403d7afe6792b110a89da36bbc46b6ceb2df1ec44f24007c31f752303dfc"
+            },
+            {
+                "name": "2026-11-05T02-18-57-940Z-builder-queryFreeBusy.html",
+                "sha256": "325be0246124587f5f67d5daf9fefe7d9a8c4810ca9df7008a7156a2073e5a5f"
+            },
+            {
+                "name": "2026-11-05T02-19-12-614Z-world-events.html",
+                "sha256": "a131c7104cfd6c212f1e6ceacbc63d4aaed21f599d405994f7b758141f39a041"
+            },
+            {
+                "name": "2026-11-05T02-25-03-390Z-world-events.html",
+                "sha256": "ca64cf50804823e3aceb6a697a6d5257ea59d0b8eec9477c6e500918ab0f233f"
+            },
+            {
+                "name": "2026-11-05T02-29-59-061Z-builder-getEvent.html",
+                "sha256": "85d204daa9815c0471418be2cc155376a97ceeeef737831d8c2a5bc40d66f25f"
+            },
+            {
+                "name": "2026-11-05T02-30-00-700Z-builder-getEvent.html",
+                "sha256": "9bb6d54b5d227139d135ea899878b21c469bac293cb1690c1738430720265b52"
+            },
+            {
+                "name": "2026-11-05T02-30-15-474Z-builder-getEvent.html",
+                "sha256": "b32a428d6f30adf3c07ac28e63d34e7c265ede55d4005550ce5e931e97b0c223"
+            },
+            {
+                "name": "2026-11-05T02-58-18-335Z-builder-insertEvent.html",
+                "sha256": "844fce4b4c5576b20a3675ca33a625fba35589e77f71590dccd96fdd409c82a3"
+            },
+            {
+                "name": "2026-11-05T02-58-21-044Z-builder-insertEvent.html",
+                "sha256": "4a49cfc4defa9ee108bcfb9fff1a7e9e51a213da5401a3d5ce675dd40f791a11"
+            },
+            {
+                "name": "2026-11-05T02-58-31-329Z-builder-insertEvent.html",
+                "sha256": "cfb3e3613f2f407f1225a54af3ce4f1275dd25c4677d27aa732bb48afd65c116"
+            }
+        ],
+        "originalCaptureSha256": "5db2aced038e2a328c7f061ba57b897b440826da6bfaeced05745140f417e7be"
+    },
+    "get": {
+        "startedAt": "2026-11-05T03:14:37.001Z",
+        "elapsedMs": 56,
+        "request": {
+            "method": "GET",
+            "path": "/calendars/primary/events/nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+            "query": {},
+            "target": "/calendars/primary/events/nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8"
+        },
+        "response": {
+            "status": 200,
+            "statusText": "OK",
+            "bodyText": "{\n  \"id\": \"nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8\",\n  \"status\": \"confirmed\",\n  \"summary\": \"Booking verification 01\",\n  \"start\": {\n    \"dateTime\": \"2026-11-06T14:00:00+01:00\",\n    \"timeZone\": \"Europe/Berlin\"\n  },\n  \"end\": {\n    \"dateTime\": \"2026-11-06T14:45:00+01:00\",\n    \"timeZone\": \"Europe/Berlin\"\n  },\n  \"organizer\": {\n    \"email\": \"hotel@example.com\",\n    \"displayName\": \"golf delta\"\n  },\n  \"attendees\": [\n    {\n      \"email\": \"alex.rivera@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    },\n    {\n      \"email\": \"sarah.chen@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    },\n    {\n      \"email\": \"marcus.vance@northwind.io\",\n      \"responseStatus\": \"needsAction\"\n    }\n  ],\n  \"created\": \"2026-11-05T02:58:31.337Z\",\n  \"updated\": \"2026-11-05T02:58:31.337Z\"\n}\n",
+            "body": {
+                "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                "status": "confirmed",
+                "summary": "Booking verification 01",
+                "start": {
+                    "dateTime": "2026-11-06T14:00:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "end": {
+                    "dateTime": "2026-11-06T14:45:00+01:00",
+                    "timeZone": "Europe/Berlin"
+                },
+                "organizer": {
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "attendees": [
+                    {
+                        "email": "alex.rivera@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "sarah.chen@northwind.io",
+                        "responseStatus": "needsAction"
+                    },
+                    {
+                        "email": "marcus.vance@northwind.io",
+                        "responseStatus": "needsAction"
+                    }
+                ],
+                "created": "2026-11-05T02:58:31.337Z",
+                "updated": "2026-11-05T02:58:31.337Z"
+            }
+        }
+    },
+    "afterRead": {
+        "complete": true,
+        "observedAt": "2026-11-05T03:15:04.340Z",
+        "records": [
+            {
+                "collection": "accounts",
+                "id": "@me",
+                "data": {
+                    "id": "@me",
+                    "email": "hotel@example.com",
+                    "displayName": "golf delta"
+                },
+                "updated_at": "2026-11-04T22:00:56.906Z"
+            },
+            {
+                "collection": "events",
+                "id": "b001a",
+                "data": {
+                    "id": "b001a",
+                    "status": "confirmed",
+                    "summary": "Platform sync",
+                    "location": "Berlin HQ · Spree",
+                    "description": "https://meet.northwind.io/eng-platform-sync",
+                    "start": {
+                        "dateTime": "2026-11-02T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-02T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-01T12:00:00Z",
+                    "updated": "2026-10-30T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b002a",
+                "data": {
+                    "id": "b002a",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "description": "https://meet.northwind.io/eng-1on1-sarah",
+                    "start": {
+                        "dateTime": "2026-11-03T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-03T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-02T12:00:00Z",
+                    "updated": "2026-10-30T09:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.035Z"
+            },
+            {
+                "collection": "events",
+                "id": "b003a",
+                "data": {
+                    "id": "b003a",
+                    "status": "tentative",
+                    "summary": "Q4 Launch Readiness review",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T08:00:00Z",
+                    "updated": "2026-11-04T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b004a",
+                "data": {
+                    "id": "b004a",
+                    "status": "confirmed",
+                    "summary": "Events DB migration",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Migration of events database",
+                    "start": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "tentative"
+                        }
+                    ],
+                    "created": "2026-10-31T10:00:00Z",
+                    "updated": "2026-11-03T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b005a",
+                "data": {
+                    "id": "b005a",
+                    "status": "confirmed",
+                    "summary": "Review launch banner designs",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T11:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "priya.n@northwind.io",
+                        "displayName": "Priya Natarajan"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-03T09:30:00Z",
+                    "updated": "2026-11-03T09:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b006a",
+                "data": {
+                    "id": "b006a",
+                    "status": "confirmed",
+                    "summary": "Team all-hands",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-04T16:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T17:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "created": "2026-11-01T12:00:00Z",
+                    "updated": "2026-11-03T08:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.036Z"
+            },
+            {
+                "collection": "events",
+                "id": "b007a",
+                "data": {
+                    "id": "b007a",
+                    "status": "confirmed",
+                    "summary": "Sync bug investigation",
+                    "location": "Berlin HQ · Spree",
+                    "description": "Discuss the Acme Logistics sync bug reported by Dana Kim and forwarded by Jonas Weber",
+                    "start": {
+                        "dateTime": "2026-11-04T13:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-04T07:00:00Z",
+                    "updated": "2026-11-04T07:30:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "b008a",
+                "data": {
+                    "id": "b008a",
+                    "status": "tentative",
+                    "summary": "Focus time",
+                    "location": "Berlin HQ",
+                    "start": {
+                        "dateTime": "2026-11-04T09:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T10:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "created": "2026-10-25T10:00:00Z",
+                    "updated": "2026-11-02T12:00:00Z"
+                },
+                "updated_at": "2026-11-05T02:19:10.037Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001a",
+                "data": {
+                    "id": "e001a",
+                    "status": "confirmed",
+                    "summary": "Q4 Launch Readiness Review",
+                    "description": "Discuss launch checklist and readiness for Tempo 4.0 Q4 launch",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "sarah.chen@northwind.io",
+                        "displayName": "Sarah Chen"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "displayName": "Marcus Vance",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-02T09:00:00+01:00",
+                    "updated": "2026-11-05T08:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001b",
+                "data": {
+                    "id": "e001b",
+                    "status": "confirmed",
+                    "summary": "Platform Sync",
+                    "description": "Regular platform sync meeting",
+                    "location": "Berlin HQ · Spree",
+                    "start": {
+                        "dateTime": "2026-11-05T09:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-05T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "displayName": "Alex Rivera",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TH"],
+                    "created": "2026-01-10T08:00:00+01:00",
+                    "updated": "2026-11-01T12:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.387Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001c",
+                "data": {
+                    "id": "e001c",
+                    "status": "confirmed",
+                    "summary": "1:1 with Sarah",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-04T15:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-04T15:30:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "displayName": "Sarah Chen",
+                            "responseStatus": "accepted"
+                        }
+                    ],
+                    "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE"],
+                    "created": "2026-01-11T09:00:00+01:00",
+                    "updated": "2026-11-04T16:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001d",
+                "data": {
+                    "id": "e001d",
+                    "status": "confirmed",
+                    "summary": "Events DB Migration",
+                    "description": "Database migration for events store",
+                    "location": "Berlin HQ · Tegel",
+                    "start": {
+                        "dateTime": "2026-11-06T10:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T12:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "marcus.vance@northwind.io",
+                        "displayName": "Marcus Vance"
+                    },
+                    "attendees": [],
+                    "recurrence": [],
+                    "created": "2026-10-20T14:00:00+01:00",
+                    "updated": "2026-10-30T09:00:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "e001e",
+                "data": {
+                    "id": "e001e",
+                    "status": "confirmed",
+                    "summary": "Bug triage: DST recurring event issue",
+                    "description": "Discuss and prioritize sync bug reported by Acme Logistics. Ref ESC-2291",
+                    "location": "Berlin HQ · Havel",
+                    "start": {
+                        "dateTime": "2026-11-07T11:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-07T11:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "alex.rivera@northwind.io",
+                        "displayName": "Alex Rivera"
+                    },
+                    "attendees": [
+                        {
+                            "email": "jonas.weber@northwind.io",
+                            "displayName": "Jonas Weber",
+                            "responseStatus": "accepted"
+                        },
+                        {
+                            "email": "dana.kim@acme-logistics.com",
+                            "displayName": "Dana Kim",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "recurrence": [],
+                    "created": "2026-11-04T10:15:00+01:00",
+                    "updated": "2026-11-05T09:30:00+01:00",
+                    "calendarId": "@me"
+                },
+                "updated_at": "2026-11-05T02:25:03.388Z"
+            },
+            {
+                "collection": "events",
+                "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                "data": {
+                    "id": "nolp9ah0nre51cm9lpndm3eg80mumtrdpgiu6kts3ni280m84vtf9fl2l33pge5vrsp7d8bbgg16s12iffu497nule5k2qqae2j8rbjc6ldjsr4fq31j9pa7thi68q01cfqv278726q07sb4bceqchll9s816fkql42ua07bt6unfmcs0obi5i6svg4nef9lqqne8rqf1ssjhmr3hi65nhoh9cl4kbu24fd8b0ucv49nhtmno89u7djubkqrlul8",
+                    "status": "confirmed",
+                    "summary": "Booking verification 01",
+                    "start": {
+                        "dateTime": "2026-11-06T14:00:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "end": {
+                        "dateTime": "2026-11-06T14:45:00+01:00",
+                        "timeZone": "Europe/Berlin"
+                    },
+                    "organizer": {
+                        "email": "hotel@example.com",
+                        "displayName": "golf delta"
+                    },
+                    "attendees": [
+                        {
+                            "email": "alex.rivera@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "sarah.chen@northwind.io",
+                            "responseStatus": "needsAction"
+                        },
+                        {
+                            "email": "marcus.vance@northwind.io",
+                            "responseStatus": "needsAction"
+                        }
+                    ],
+                    "created": "2026-11-05T02:58:31.337Z",
+                    "updated": "2026-11-05T02:58:31.337Z"
+                },
+                "updated_at": "2026-11-05T02:58:31.338Z"
+            }
+        ],
+        "populationMarkers": [
+            {
+                "key": "populated:events:[[\"calendarId\",\"@me\"]]",
+                "value": "true"
+            },
+            {
+                "key": "populated:events:[]",
+                "value": "true"
+            }
+        ],
+        "reports": [
+            {
+                "name": "2026-11-04T22-00-35-413Z-builder-listEvents.html",
+                "sha256": "375f5e48908d9df0ebdbfaf411c10c70a098d9d83877c637336830afb4cc1072"
+            },
+            {
+                "name": "2026-11-04T22-00-48-967Z-builder-listEvents.html",
+                "sha256": "9618901450c19425b22f6df908f14c4e234686a26f3665760d63953804238c66"
+            },
+            {
+                "name": "2026-11-04T22-00-56-902Z-world-accounts.html",
+                "sha256": "f6a172b430cff250f369e4e160764d5312476174d34a525f94d9ecb33247ab2a"
+            },
+            {
+                "name": "2026-11-04T22-01-35-949Z-world-events.html",
+                "sha256": "851d8f21afc11113a7060dde07716e015a5361eefa12dd34a662ec66aa15c3e2"
+            },
+            {
+                "name": "2026-11-05T02-18-50-533Z-builder-queryFreeBusy.html",
+                "sha256": "54fe403d7afe6792b110a89da36bbc46b6ceb2df1ec44f24007c31f752303dfc"
+            },
+            {
+                "name": "2026-11-05T02-18-57-940Z-builder-queryFreeBusy.html",
+                "sha256": "325be0246124587f5f67d5daf9fefe7d9a8c4810ca9df7008a7156a2073e5a5f"
+            },
+            {
+                "name": "2026-11-05T02-19-12-614Z-world-events.html",
+                "sha256": "a131c7104cfd6c212f1e6ceacbc63d4aaed21f599d405994f7b758141f39a041"
+            },
+            {
+                "name": "2026-11-05T02-25-03-390Z-world-events.html",
+                "sha256": "ca64cf50804823e3aceb6a697a6d5257ea59d0b8eec9477c6e500918ab0f233f"
+            },
+            {
+                "name": "2026-11-05T02-29-59-061Z-builder-getEvent.html",
+                "sha256": "85d204daa9815c0471418be2cc155376a97ceeeef737831d8c2a5bc40d66f25f"
+            },
+            {
+                "name": "2026-11-05T02-30-00-700Z-builder-getEvent.html",
+                "sha256": "9bb6d54b5d227139d135ea899878b21c469bac293cb1690c1738430720265b52"
+            },
+            {
+                "name": "2026-11-05T02-30-15-474Z-builder-getEvent.html",
+                "sha256": "b32a428d6f30adf3c07ac28e63d34e7c265ede55d4005550ce5e931e97b0c223"
+            },
+            {
+                "name": "2026-11-05T02-58-18-335Z-builder-insertEvent.html",
+                "sha256": "844fce4b4c5576b20a3675ca33a625fba35589e77f71590dccd96fdd409c82a3"
+            },
+            {
+                "name": "2026-11-05T02-58-21-044Z-builder-insertEvent.html",
+                "sha256": "4a49cfc4defa9ee108bcfb9fff1a7e9e51a213da5401a3d5ce675dd40f791a11"
+            },
+            {
+                "name": "2026-11-05T02-58-31-329Z-builder-insertEvent.html",
+                "sha256": "cfb3e3613f2f407f1225a54af3ce4f1275dd25c4677d27aa732bb48afd65c116"
+            }
+        ],
+        "originalCaptureSha256": "d9e1217b242f308a06215f66037a45424f5f13ccc9545315568c78b693dd9ce9"
+    }
+}

@@ -1,0 +1,2 @@
+# Captured evidence must retain its original bytes on every platform.
+reports/calendar-booking-consistency/fixtures/*-original.mjs -text
