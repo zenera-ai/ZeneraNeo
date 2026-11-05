@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { IDENTITY_ENV_PREFIX } from '../tools/identity.ts';
+import { IDENTITY_ENV_PREFIX, isHostOnlyEnv } from '../tools/identity.ts';
 
 // ---------------------------------------------------------------------------
 // agents.yaml
@@ -343,6 +343,14 @@ const sandbox = z
                     message:
                         `${name} is set by the host for the user a run acts for — ` +
                         `a project cannot forward its own ${IDENTITY_ENV_PREFIX}* variables`,
+                });
+            } else if (isHostOnlyEnv(name)) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['env', i],
+                    message:
+                        `${name} configures the host — which plugins it loads and which ` +
+                        'sandbox service it uses — and is never forwarded into a sandbox',
                 });
             }
         }

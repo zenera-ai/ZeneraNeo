@@ -2,11 +2,13 @@ import {
     current as currentProject,
     dirSize,
     isProjectDir,
+    machineSandboxProvider,
     open as openProject,
     Registry,
     resolveBuild,
     sessionIds,
     type ResolvedBuild,
+    type SandboxProvider,
 } from '@zenera/engine';
 import {
     readProjectConfig,
@@ -74,6 +76,7 @@ interface Flags {
     interval?: string;
     brief?: boolean;
     theme?: string;
+    podman?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +110,8 @@ export const sandbox: Command = {
         '                         what happens with --json or when output is not a terminal.',
         '  --interval <seconds>   With top: how often the live screen refreshes (default 2).',
         '  --brief                With top: the figures without the notes explaining them.',
+        '  --podman               Podman on this machine, even when a plugin in',
+        '                         $ZEN_PLUGINS provides the sandbox.',
         '',
         'Without --project this is the project you are standing in, and standing',
         'nowhere is an answer: `status` then reports the engine and every container',
@@ -114,6 +119,9 @@ export const sandbox: Command = {
         '',
         'None of this is required. A run does all of it on its own, the first',
         'time an agent that can reach a shell is about to start one.',
+        '',
+        'When a plugin provides the sandbox, `status` and `clean` ask it instead,',
+        'and the podman-only subcommands say so.',
     ],
     run: async (ctx) => {
         const { values, positionals } = parse<Flags>(
@@ -127,6 +135,7 @@ export const sandbox: Command = {
                 interval: { type: 'string' },
                 brief: { type: 'boolean' },
                 theme: { type: 'string' },
+                podman: { type: 'boolean' },
             },
             USAGE,
         );
@@ -143,6 +152,21 @@ export const sandbox: Command = {
         // project they do not use would be reading something for nothing.
         const scoped = what === 'status' || what === 'up' || what === 'pull';
         const found = scoped ? await projectSandbox(ctx.cwd, values) : undefined;
+
+        if (!values.podman) {
+            const remote = await machineSandboxProvider(
+                { dir: found?.dir ?? ctx.cwd, name: found?.name ?? 'machine' },
+                undefined,
+                { warn: (m) => note(yellow(m)) },
+            );
+            if (remote) {
+                try {
+                    return await elsewhere(what, remote.provider, ctx.json, values);
+                } finally {
+                    await Promise.resolve(remote.plugin.close?.()).catch(() => undefined);
+                }
+            }
+        }
         const image = values.image ?? found?.image;
         const build = values.image ? undefined : found?.build;
 
@@ -168,6 +192,48 @@ export const sandbox: Command = {
         }
     },
 };
+
+/**
+ * The subcommands, when a plugin runs the sandboxes somewhere else: the two it
+ * can answer are asked of it, and the rest are about a podman that is not the
+ * one in use, so they say that rather than quietly reporting on it.
+ */
+async function elsewhere(
+    what: string,
+    provider: SandboxProvider,
+    asJson: boolean,
+    values: Flags,
+): Promise<void> {
+    if (what === 'status') {
+        const report = provider.status ? await provider.status() : undefined;
+        if (asJson) {
+            json({ provider: provider.describe, ...(report ?? {}) });
+            return;
+        }
+        write(`${bold('sandbox')}  ${provider.describe}`);
+        for (const line of report?.lines ?? [dim('it has nothing more to say')]) {
+            write(`${INDENT}${line}`);
+        }
+        return;
+    }
+    if (what === 'clean' && provider.clean) {
+        const removed = await provider.clean({ all: !(values.idle || values.stopped) });
+        if (asJson) {
+            json({ provider: provider.describe, removed });
+            return;
+        }
+        write(
+            removed.length
+                ? `removed ${count(removed.length, 'sandbox')}`
+                : dim('nothing to remove'),
+        );
+        return;
+    }
+    throw usageError(
+        `sandboxes run on ${provider.describe}, so \`zen sandbox ${what}\` has nothing to do here`,
+        'pass --podman to manage podman on this machine anyway',
+    );
+}
 
 interface ProjectSandbox {
     dir: string;

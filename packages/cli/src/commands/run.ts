@@ -1,5 +1,5 @@
 import * as Projects from '@zenera/engine';
-import { display } from '@zenera/engine';
+import { display, PODMAN_PROVIDER } from '@zenera/engine';
 import type { AgentEvent, Input, RunIdentity } from '@zenera/neo';
 import { identityFromEnv, usageByModel } from '@zenera/neo';
 import { writeFile } from 'node:fs/promises';
@@ -41,6 +41,7 @@ interface Flags {
     model?: string;
     image?: string;
     'no-keys'?: boolean;
+    podman?: boolean;
     as?: string;
     'read-only'?: boolean;
     yes?: boolean;
@@ -80,6 +81,8 @@ export const run: Command = {
         '  --image <ref>          Use this container image to run commands in.',
         '  --read-only            Take away every tool that can write.',
         '  --no-keys              Do not pass API keys into the container.',
+        '  --podman               Run commands in podman on this machine, even when a',
+        '                         plugin in $ZEN_PLUGINS provides the sandbox.',
         '  --as <user>            Act for this user: what `current_user` answers and $ZEN_USER_ID',
         '                         holds. An email also sets $ZEN_USER_EMAIL. For trying',
         '                         a project; the Zenera app passes the signed-in user.',
@@ -173,6 +176,7 @@ export const run: Command = {
                 model: { type: 'string' },
                 image: { type: 'string' },
                 'no-keys': { type: 'boolean' },
+                podman: { type: 'boolean' },
                 as: { type: 'string' },
                 'read-only': { type: 'boolean' },
                 yes: { type: 'boolean' },
@@ -261,6 +265,7 @@ export const run: Command = {
                 request?.memory ?? (values.memory ? resolve(ctx.cwd, values.memory) : undefined),
             memoryReadOnly: values['memory-read-only'],
             keys: values['no-keys'] ? false : undefined,
+            sandboxPlugins: values.podman ? false : undefined,
             user: asUser(values.as),
             yes: values.yes || ctx.json,
             disposable: values.disposable,
@@ -379,6 +384,7 @@ async function batch(
         image: values.image,
         readOnly: values['read-only'],
         keys: values['no-keys'] ? false : undefined,
+        sandboxPlugins: values.podman ? false : undefined,
         user: asUser(values.as),
         yes: values.yes,
         out: values.out,
@@ -431,6 +437,11 @@ async function once(
                     `${display(engine.workspace, cwd)}`,
             ),
         );
+        // Only when it is not the default, which is the one case worth a line:
+        // a plugin moved the commands, and the files with them, elsewhere.
+        if (engine.sandbox.provider !== PODMAN_PROVIDER) {
+            note(dim(`sandbox ${engine.sandbox.provider}`));
+        }
     }
 
     let outcome: Engine.RunOutcome;

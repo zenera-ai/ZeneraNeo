@@ -41,10 +41,31 @@ const lookup: ZenPlugin = {
 const engine = await openEngine({ project, session, user, plugins: [lookup] });
 ```
 
+A plugin can also say where the sandbox runs: `sandbox(ctx)` returns a `SandboxProvider`
+(`describe`, `newSandbox`, and optionally `status` and `clean` for `zen sandbox`), or nothing.
+The engine asks before it builds the sandbox, with the project, session, user and the project's
+`sandbox:` block. At most one plugin may answer; podman on this machine is used when none does.
+`newSandbox` passed to `openEngine` beats any plugin, and `sandboxPlugins: false` (`zen run
+--podman`) ignores them. A plugin may provide only a sandbox, with no `tools`:
+
+```ts
+const service: ZenPlugin = {
+    name: 'zenera-sandbox',
+    sandbox: ({ session }) => ({
+        describe: 'zenera-sandbox (https://sandbox.example)',
+        newSandbox: (opts) => new RemoteSandbox(opts, session),
+    }),
+};
+```
+
+The engine's `preflight` still runs; a host that wants the image ready before the first turn calls
+`setup.sandbox.prepare()` there (`allowBuild: false` when images are built elsewhere).
+
 A `zen` nobody embeds (the CLI, `zen check`, a job) loads the plugins the machine names instead:
 `ZEN_PLUGINS` is a comma-separated list of absolute paths to ES modules whose default export is a
 `ZenPlugin`. It is read from the real environment when the engine is first imported; a project's
-`.env` cannot set it. An embedding host gets them too, unless it passes a plugin of the same name or
+`.env` cannot set it, nor `ZEN_SANDBOX_*`, which a sandbox plugin reads its service and credential
+from. An embedding host gets them too, unless it passes a plugin of the same name or
 `envPlugins: false`.
 
 ## Use

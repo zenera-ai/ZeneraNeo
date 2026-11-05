@@ -48,6 +48,7 @@ import {
     envPlugins,
     loadPlugins,
     mergePlugins,
+    resolveSandboxProvider,
     type LoadedPlugins,
     type ZenPlugin,
 } from './plugins.ts';
@@ -160,6 +161,11 @@ export interface EngineOptions {
     plugins?: ZenPlugin[];
     /** false: ignore `ZEN_PLUGINS` and use only `plugins` */
     envPlugins?: boolean;
+    /**
+     * false: a plugin that provides the sandbox is not asked, and podman on
+     * this machine is used — `zen run --podman`. Its tools still load.
+     */
+    sandboxPlugins?: boolean;
 }
 
 export interface Engine {
@@ -211,7 +217,9 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
                 'which plugins load, are the host’s to say (zen run --as <user> to try one)',
         );
     }
-    const hostPlugins = mergePlugins(opts.plugins ?? [], machinePlugins);
+    // Closed at most once each: a provider is asked before the tools are, and
+    // an open that fails in between must not close it twice.
+    const hostPlugins = mergePlugins(opts.plugins ?? [], machinePlugins).map(closingOnce);
 
     const keys = await KeyStore.open();
     keys.materialize();
@@ -241,8 +249,22 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
     let files: Workspace;
     let memory: string | undefined;
     let plugins: LoadedPlugins | undefined;
+    let providedBy: ZenPlugin | undefined;
     try {
         const { root, config } = readProjectConfig(opts.project.dir);
+        // Where the sandbox runs is settled before anything is built on it:
+        // the host's own factory, else a plugin's, else podman here.
+        const chosen =
+            opts.newSandbox || opts.sandboxPlugins === false
+                ? undefined
+                : await resolveSandboxProvider(hostPlugins, {
+                      project: opts.project,
+                      session: opts.session,
+                      user,
+                      config: config.sandbox,
+                      logger,
+                  });
+        providedBy = chosen?.plugin;
         // Naming a directory declares the graph, but it cannot bind anyone to
         // it — so say when the run is pointed at a memory no agent will touch.
         if (opts.memoryDir && !opts.quiet && !config.agents.some((a) => a.memory)) {
@@ -262,7 +284,8 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             env: env?.names,
             mounts,
             identity: user,
-            newSandbox: opts.newSandbox,
+            newSandbox: opts.newSandbox ?? chosen?.provider.newSandbox,
+            provider: opts.newSandbox ? 'the host' : chosen?.provider.describe,
             ...(opts.disposable ? { persist: false } : {}),
         });
         const workspaceOptions = setup.sandbox.files({
@@ -305,7 +328,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             files,
         });
     } catch (err) {
-        await plugins?.close();
+        await (plugins ? plugins.close() : closeQuietly(providedBy, logger));
         throw invalidError(
             err instanceof Error ? err.message : String(err),
             err instanceof MemoryError && err.hint ? err.hint : `while loading ${opts.project.dir}`,
@@ -369,6 +392,27 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             lock.release();
         },
     };
+}
+
+/** A plugin whose `close` runs once, however many paths reach it. */
+function closingOnce(plugin: ZenPlugin): ZenPlugin {
+    let closing: Promise<void> | undefined;
+    return {
+        name: plugin.name,
+        ...(plugin.tools ? { tools: (ctx) => plugin.tools!(ctx) } : {}),
+        ...(plugin.sandbox ? { sandbox: (ctx) => plugin.sandbox!(ctx) } : {}),
+        close: () => (closing ??= Promise.resolve(plugin.close?.())),
+    };
+}
+
+async function closeQuietly(plugin: ZenPlugin | undefined, logger: Logger): Promise<void> {
+    try {
+        await plugin?.close?.();
+    } catch (err) {
+        logger.warn(
+            `plugin ${plugin?.name}: close failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
 }
 
 /**

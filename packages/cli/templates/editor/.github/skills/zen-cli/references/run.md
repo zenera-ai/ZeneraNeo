@@ -9,26 +9,27 @@ answers once on stdout and exits.
 
 ## Options
 
-| Flag                    | What it does                                             |
-| ----------------------- | -------------------------------------------------------- |
-| `--project <name\|dir>` | Which project. Inferred from the directory otherwise     |
-| `--session <id>`        | Continue a particular session                            |
-| `--new`                 | Start a new session rather than continuing one           |
-| `--input <file>`        | Read the whole request from JSON; `-` is stdin           |
-| `--workspace <dir>`     | What the agent may read and write                        |
-| `--here`                | `--workspace` with the directory you are in              |
-| `--memory <dir>`        | Where the agents remember into, instead of the project's |
-| `--memory-read-only`    | Recall from it; write nothing back                       |
-| `--model <ref>`         | Override the default model for this run                  |
-| `--image <ref>`         | Override the container image commands run in             |
-| `--read-only`           | Withhold every tool that can write                       |
-| `--as <user>`           | Act for this user - see below                            |
-| `--plain`               | Never open the TUI; a prompt is then required            |
-| `--theme <dark\|light>` | Palette for the TUI; `auto` detects. `$ZENERA_THEME`     |
-| `--out <file>`          | Put the answer in this file instead of on stdout         |
-| `--batch-dir <dir>`     | Where a batch's runs live. `<project>/batches/<stamp>`   |
-| `--concurrency <n>`     | How many of a batch run at once. Default 16, most 32     |
-| `--yes`                 | Say yes to the workspace and install questions           |
+| Flag                    | What it does                                              |
+| ----------------------- | --------------------------------------------------------- |
+| `--project <name\|dir>` | Which project. Inferred from the directory otherwise      |
+| `--session <id>`        | Continue a particular session                             |
+| `--new`                 | Start a new session rather than continuing one            |
+| `--input <file>`        | Read the whole request from JSON; `-` is stdin            |
+| `--workspace <dir>`     | What the agent may read and write                         |
+| `--here`                | `--workspace` with the directory you are in               |
+| `--memory <dir>`        | Where the agents remember into, instead of the project's  |
+| `--memory-read-only`    | Recall from it; write nothing back                        |
+| `--model <ref>`         | Override the default model for this run                   |
+| `--image <ref>`         | Override the container image commands run in              |
+| `--podman`              | Podman here, even when a `ZEN_PLUGINS` plugin provides it |
+| `--read-only`           | Withhold every tool that can write                        |
+| `--as <user>`           | Act for this user - see below                             |
+| `--plain`               | Never open the TUI; a prompt is then required             |
+| `--theme <dark\|light>` | Palette for the TUI; `auto` detects. `$ZENERA_THEME`      |
+| `--out <file>`          | Put the answer in this file instead of on stdout          |
+| `--batch-dir <dir>`     | Where a batch's runs live. `<project>/batches/<stamp>`    |
+| `--concurrency <n>`     | How many of a batch run at once. Default 16, most 32      |
+| `--yes`                 | Say yes to the workspace and install questions            |
 
 Flags always beat the file: the repository states intent, the invocation
 overrides it.

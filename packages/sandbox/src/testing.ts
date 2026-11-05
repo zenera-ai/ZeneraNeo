@@ -177,6 +177,17 @@ export function describeSandbox(
         );
 
         it(
+            'prepares its image without starting, once however often it is asked',
+            withSandbox(async ({ sandbox }) => {
+                await Promise.all([sandbox.prepare(), sandbox.prepare()]);
+                await sandbox.prepare();
+                expect(sandbox.started).toBe(false);
+                expect((await sandbox.exec('echo ready')).stdout).toBe('ready\n');
+            }),
+            timeout,
+        );
+
+        it(
             'is free to close, and closes once',
             withSandbox(async ({ sandbox }) => {
                 await sandbox.exec('true');

@@ -28,6 +28,12 @@ export const DEFAULT_SANDBOX_IMAGE = 'docker.io/library/python:3.14-slim-bookwor
 export interface SandboxSpec {
     /** the base image commands run in */
     image?: string;
+    /**
+     * A Dockerfile to build instead of an image to pull. The sandbox builds it
+     * where it runs — podman on this machine, a service on its own builders —
+     * under a tag derived from its content; `image` is then ignored.
+     */
+    build?: BuildSpec;
     /** fractional cores, as podman's `--cpus` */
     cpus?: number;
     /** MiB, as podman's `--memory` */
@@ -59,6 +65,31 @@ export interface SandboxSpec {
 }
 
 export type SandboxNetwork = 'bridge' | 'none' | 'host';
+
+/** A Dockerfile and what it may see. Paths are absolute and already checked by the host. */
+export interface BuildSpec {
+    dockerfile: string;
+    /** the build context: what `COPY` can reach */
+    context: string;
+    /** `--build-arg`s; part of the image's identity */
+    args?: Record<string, string>;
+}
+
+/** How a sandbox gets its image ready. */
+export interface PrepareOptions {
+    /** lines worth showing a person: what is being pulled or built, and how it ended */
+    onProgress?(line: string): void;
+    /** wraps a slow step — a pull, a build — so a host can show it is still going */
+    slow?<T>(label: string, work: Promise<T>): Promise<T>;
+    /** pull or build again even when the image is there; `zen sandbox pull` */
+    force?: boolean;
+    /**
+     * false: an image that would have to be built is a `SandboxError` instead —
+     * for a host whose images are built somewhere else, ahead of time.
+     */
+    allowBuild?: boolean;
+    signal?: AbortSignal;
+}
 
 /**
  * Two postures, because they cannot both be the default.
@@ -136,6 +167,13 @@ export interface Sandbox {
     files(opts: FilesView): FilesView;
     /** whether anything was actually started — `close` is free when not */
     readonly started: boolean;
+    /**
+     * Makes the image available — pulled, or built from `build` — without
+     * starting anything, so a host can do the slow part before the first turn
+     * and show it. Idempotent and single-flight unless `force`; `start` does
+     * whatever of it is still needed.
+     */
+    prepare(opts?: PrepareOptions): Promise<void>;
     /** idempotent and single-flight; every other call starts the sandbox itself */
     start(): Promise<void>;
     exec(command: string, opts?: ExecOptions): Promise<ExecResult>;

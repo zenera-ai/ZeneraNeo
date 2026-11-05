@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
+import { ensurePodmanImage, localImageTag } from './image.ts';
 import { localFs, type FsDriver } from './fs.ts';
 import { sandboxLimits } from './limits.ts';
 import { WORKSPACE_MOUNT, type FilesView, type Mount } from './mounts.ts';
@@ -7,6 +8,8 @@ import { MAX_TIMEOUT_MS, resilient, runProcess, type ProcResult, type Runner } f
 import {
     DEFAULT_SANDBOX_IMAGE,
     SandboxError,
+    type BuildSpec,
+    type PrepareOptions,
     type Sandbox,
     type SandboxFactory,
     type ExecOptions,
@@ -55,8 +58,10 @@ export interface PodmanHost {
     exec?: Runner;
 }
 
-interface Resolved extends Required<Omit<SandboxSpec, 'user'>> {
+interface Resolved extends Required<Omit<SandboxSpec, 'user' | 'build'>> {
     user?: string;
+    /** the Dockerfile `image` is built from, when it is */
+    build?: BuildSpec;
     root: string;
     key: string;
     readOnly: boolean;
@@ -102,8 +107,10 @@ export class PodmanSandbox implements Sandbox {
     readonly spec: Resolved;
     readonly engine: string;
     readonly #run: Runner;
+    readonly #spawn: Runner;
     readonly #jobs = new Map<string, Job>();
     #ready?: Promise<void>;
+    #prepared?: Promise<void>;
     #created = false;
     /** kills counted in this container's cgroup as of the last probe */
     #kills?: number;
@@ -111,7 +118,8 @@ export class PodmanSandbox implements Sandbox {
     constructor(opts: SandboxOptions, host: PodmanHost = {}) {
         this.spec = resolveSpec(opts);
         this.engine = host.engine ?? 'podman';
-        this.#run = resilient(host.exec ?? runProcess);
+        this.#spawn = host.exec ?? runProcess;
+        this.#run = resilient(this.#spawn);
         this.name = containerName(this.spec);
     }
 
@@ -123,6 +131,22 @@ export class PodmanSandbox implements Sandbox {
     /** The host paths, as they are: the container binds exactly these. */
     files(opts: FilesView): FilesView {
         return { ...opts, fs: this.fs };
+    }
+
+    /** Pulls the image, or builds it from the Dockerfile, unless the engine already has it. */
+    prepare(opts: PrepareOptions = {}): Promise<void> {
+        if (this.#prepared && !opts.force) {
+            return this.#prepared;
+        }
+        this.#prepared = ensurePodmanImage(
+            { image: this.spec.image, build: this.spec.build },
+            { engine: this.engine, exec: this.#spawn },
+            opts,
+        ).catch((err: unknown) => {
+            this.#prepared = undefined;
+            throw err;
+        });
+        return this.#prepared;
     }
 
     /**
@@ -154,6 +178,10 @@ export class PodmanSandbox implements Sandbox {
             }
             this.#created = true;
             return;
+        }
+        // `run` pulls a registry image by itself; a built one has to exist first.
+        if (this.spec.build) {
+            await this.prepare();
         }
         const made = await this.#podman(this.#createArgs());
         if (made.code !== 0) {
@@ -622,7 +650,8 @@ function resolveSpec(opts: SandboxOptions): Resolved {
     return {
         root: opts.root,
         key: opts.key,
-        image: opts.image ?? DEFAULT_SANDBOX_IMAGE,
+        image: opts.build ? localImageTag(opts.build) : (opts.image ?? DEFAULT_SANDBOX_IMAGE),
+        build: opts.build,
         cpus: limits.cpus,
         memory: limits.memory,
         explicitCpus: opts.cpus !== undefined,
