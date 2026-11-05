@@ -1,4 +1,12 @@
-import { parseConfig, type RunIdentity } from '@zenera/neo';
+import {
+    logicalMounts,
+    parseConfig,
+    podmanSandbox,
+    type PodmanSandbox,
+    type RunIdentity,
+    type SandboxFactory,
+    type SandboxOptions,
+} from '@zenera/neo';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +19,7 @@ import {
     prepareHome,
     readProjectEnv,
     resolveUser,
+    teardown,
     RUNTIME_NODE,
     RUNTIME_PYTHON,
 } from '../src/index.ts';
@@ -79,10 +88,7 @@ describe('the sandbox a run gets', () => {
     function setup(identity?: RunIdentity, root = scratch()) {
         const session = createSessionAt(join(root, 'session'), join(root, 'ws'));
         return buildSandbox({
-            config: parseConfig(
-                'agents:\n  - name: solo\n  - name: own\n    sandbox:\n      image: alpine\n',
-                'agents.yaml',
-            ),
+            config: parseConfig('agents:\n  - name: solo\n  - name: other\n', 'agents.yaml'),
             session,
             workspace: join(root, 'ws'),
             root,
@@ -91,28 +97,53 @@ describe('the sandbox a run gets', () => {
         });
     }
 
-    it('carries the user on every agent’s container, never by name from the host', () => {
-        const s = setup(ANN);
-        for (const agent of ['solo', 'own']) {
-            const box = s.pool.for(agent);
-            expect(box.spec.execEnv).toMatchObject({ ZEN_USER_ID: 'u-1', ZEN_USER_ROLE: 'editor' });
-            expect(box.spec.execPaths.PYTHONPATH).toEqual([RUNTIME_PYTHON]);
-            expect(box.spec.secrets).not.toContain('ZEN_USER_ID');
-            expect(Object.keys(box.spec.env).some((k) => k.startsWith('ZEN_USER_'))).toBe(false);
-        }
-        expect(s.pool.for('solo').name).not.toBe(s.pool.for('own').name);
+    it('carries the user on every command, never by name from the host', () => {
+        const box = setup(ANN).sandbox as PodmanSandbox;
+        expect(box.spec.execEnv).toMatchObject({ ZEN_USER_ID: 'u-1', ZEN_USER_ROLE: 'editor' });
+        expect(box.spec.execPaths.PYTHONPATH).toEqual([RUNTIME_PYTHON]);
+        expect(box.spec.secrets).not.toContain('ZEN_USER_ID');
+        expect(Object.keys(box.spec.env).some((k) => k.startsWith('ZEN_USER_'))).toBe(false);
     });
 
     it('names the same containers whoever the user is', () => {
         const root = scratch();
         const names = [undefined, ANN, { id: 'u-2', source: 'host' as const }].map(
-            (who) => setup(who, root).pool.for('solo').name,
+            (who) => setup(who, root).sandbox.name,
         );
         expect(new Set(names).size).toBe(1);
     });
 
+    it('opens the sandbox the host chose, with the mounts labelled for one that cannot bind them', async () => {
+        const root = scratch();
+        const opened: SandboxOptions[] = [];
+        let closed = 0;
+        const newSandbox: SandboxFactory = (opts) => {
+            opened.push(opts);
+            return Object.assign(podmanSandbox(opts), { close: async () => void closed++ });
+        };
+        const paths = createSessionAt(join(root, 'session'), join(root, 'ws'));
+        const s = buildSandbox({
+            config: parseConfig('agents:\n  - name: solo\n', 'agents.yaml'),
+            session: paths,
+            workspace: join(root, 'ws'),
+            root,
+            keys: false,
+            identity: ANN,
+            newSandbox,
+        });
+        expect(opened).toHaveLength(1);
+        expect(opened[0]).toMatchObject({ key: paths.id, root: join(root, 'ws') });
+        expect(opened[0].execEnv).toMatchObject({ ZEN_USER_ID: 'u-1' });
+        expect(logicalMounts(s.mounts)).toEqual([
+            { at: '/home/agent', readOnly: false, source: { kind: 'home' } },
+        ]);
+
+        await teardown(s);
+        expect(closed).toBe(1);
+    });
+
     it('has no user at all when the run has none', () => {
-        expect(setup().pool.for('solo').spec.execEnv).toEqual({});
+        expect((setup().sandbox as PodmanSandbox).spec.execEnv).toEqual({});
     });
 });
 

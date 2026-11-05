@@ -78,10 +78,10 @@ the sandbox pin. Finish setup and all edits before saving the final receipt.
 
 ### `check-paths.sh` - the §2.5 sweep
 
-A running agent's whole world is four paths: `/workspace`, `/assets`, `/skills`
-and `/memory`. Every path-shaped token in `agents/*instructions.md`,
+A running agent's whole world is three paths: `/workspace`, `/assets` and
+`/skills`. Every path-shaped token in `agents/*instructions.md`,
 `agents/prompts/*.md` and a skill's markdown is read by a model as an
-instruction to open something, so anything outside those four is an instruction
+instruction to open something, so anything outside those three is an instruction
 to open a file that is not there.
 
 ```sh

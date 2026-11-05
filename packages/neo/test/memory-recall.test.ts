@@ -279,7 +279,7 @@ describe('rendering a recollection', () => {
         // The old format named every id in an arrow and again in a legend.
         expect(out.match(/\bask\b/g)?.length).toBe(1);
         expect(out.match(/\bcall\b/g)?.length).toBe(1);
-        expect(out).toContain('\n      /memory/script.py · 4.2 KB · unused');
+        expect(out).toContain('\n      script.py · 4.2 KB · unused');
         expect(out).toContain('\n      risk report generator');
     });
 

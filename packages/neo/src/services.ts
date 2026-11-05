@@ -2,6 +2,7 @@ import { PayloadResolver, type PayloadStore } from './payload.ts';
 // The composition root is the one place in the core allowed to name a backend:
 // it has to fall back to something when the caller supplies no store.
 import { systemClock, type IdClock } from './ids.ts';
+import type { WorkspaceFiles } from './memory/files.ts';
 import type { MemoryIndex } from './memory/index.ts';
 import { InMemoryPayloadStore } from './payload-stores/in-memory.ts';
 import type { SkillProvider } from './skills.ts';
@@ -21,12 +22,13 @@ export class Services {
     /** the one memory graph, when the project has one */
     readonly memory?: MemoryIndex;
     /**
-     * Turns a path the agent can see into a host path, for the one tool that
-     * needs it: remembering a file. Supplied by whoever built the workspace,
-     * because only it knows the mounts. Without it, files cannot be
-     * remembered — which is a refusal, not a crash.
+     * The agent's workspace, for the two memory tools that cross into it:
+     * remembering a file reads from it, and copying a remembered file back
+     * writes to it — memory is never mounted, so that copy is the only way its
+     * files reach the sandbox. Supplied by whoever built the workspace, because
+     * only it knows the mounts. Without it both are refusals, not crashes.
      */
-    readonly resolveFile?: (path: string) => string;
+    readonly files?: WorkspaceFiles;
     /** the driver's clock, so a tool that stamps a node stays replayable */
     readonly clock: IdClock;
     readonly #skills = new Map<string, SkillProvider>();
@@ -37,13 +39,13 @@ export class Services {
             memory?: MemoryIndex;
             skills?: SkillProvider[];
             clock?: IdClock;
-            resolveFile?: (path: string) => string;
+            files?: WorkspaceFiles;
         } = {},
     ) {
         const p = opts.payloads ?? new InMemoryPayloadStore();
         this.payloads = p instanceof PayloadResolver ? p : new PayloadResolver(p);
         this.memory = opts.memory;
-        this.resolveFile = opts.resolveFile;
+        this.files = opts.files;
         this.clock = opts.clock ?? systemClock;
         for (const s of opts.skills ?? []) {
             this.#skills.set(s.id, s);

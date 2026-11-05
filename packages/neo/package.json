@@ -62,6 +62,7 @@
         "prepack": "tsc -b"
     },
     "dependencies": {
+        "@zenera/sandbox": "^1.1.55",
         "graphology": "^0.26.0",
         "yaml": "^2.9.1",
         "zod": "^4.6.7"

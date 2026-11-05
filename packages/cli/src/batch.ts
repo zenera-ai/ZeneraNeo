@@ -290,9 +290,9 @@ export async function runBatch(opts: BatchOptions): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * The most containers one item can start: one shared by the agents on the
- * project's sandbox block, one more for each agent with a block of its own.
- * A project that does not load is each item's to report, so it counts none.
+ * The containers one item can start: one, shared by every agent, when any
+ * agent can reach a shell, and none otherwise. A project that does not load
+ * is each item's to report, so it counts none.
  */
 export function containersPerItem(dir: string): number {
     let read: ReturnType<typeof readProjectConfig>;
@@ -302,7 +302,7 @@ export function containersPerItem(dir: string): number {
         return 0;
     }
     const tools = availableTools(read.root, read.config);
-    const shells = read.config.agents.filter((a) => {
+    const shell = read.config.agents.some((a) => {
         try {
             return selectTools(tools, [...(a.tools ?? [])], { where: a.name }).some(
                 (t) => t.group === SANDBOX_GROUP,
@@ -311,8 +311,7 @@ export function containersPerItem(dir: string): number {
             return false;
         }
     });
-    const own = shells.filter((a) => a.sandbox).length;
-    return own + (shells.length > own ? 1 : 0);
+    return shell ? 1 : 0;
 }
 
 interface ItemContext {

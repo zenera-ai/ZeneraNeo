@@ -1,6 +1,6 @@
 ---
 name: zen-sandbox
-description: 'How the container sandbox works, when and how to configure it in `agents.yaml` (`sandbox:` and `agents[].sandbox`), the four `sandbox:*` tools, mount layout (/workspace, $HOME, /tmp, /run/zenera/keys), lifecycle and persistence (`persist: true`), credential forwarding by name, resource ceilings (cpus, memory, pids), standard vs strict hardening profiles, path rules, and debugging container issues with `zen sandbox`. Refers to `zen-cli` (`.github/skills/zen-cli/references/sandbox.md`).'
+description: 'How the container sandbox works, when and how to configure it in `agents.yaml` (the project's `sandbox:` block, one container per session), the four `sandbox:*` tools, mount layout (/workspace, $HOME, /tmp, /run/zenera/keys), lifecycle and persistence (`persist: true`), credential forwarding by name, resource ceilings (cpus, memory, pids), standard vs strict hardening profiles, path rules, and debugging container issues with `zen sandbox`. Refers to `zen-cli` (`.github/skills/zen-cli/references/sandbox.md`).'
 user-invocable: false
 ---
 
@@ -95,7 +95,6 @@ Inside the container, paths are isolated to designated mount points:
 | `/workspace`          | Session workspace         | read-write* | The work itself. Changes survive session completion.   |
 | `/home/agent`         | `.data/sandbox/home`      | read-write  | User home (`$HOME`). Persists across sessions.         |
 | `/tmp`                | In-memory / host tmpfs    | read-write  | Ephemeral scratch; holds `/tmp/zenera-jobs`.           |
-| `/memory`             | Session memory directory  | read-only   | Generated memory files (when `memory:` is enabled).    |
 | `/assets`             | Project assets directory  | read-only   | Reference assets declared in `SPECIFICATION.md`.       |
 | `/skills`             | Project skills directory  | read-only   | Custom skill files available to agents.                |
 | `/run/zenera/keys`    | Keychain / temp directory | read-only   | Forwarded file credentials (e.g. Vertex service keys). |
@@ -138,7 +137,7 @@ zn-<key>-<digest>
 
 ## 5. Configuring `sandbox:` in `agents.yaml`
 
-Configured at the top level and optionally overridden per agent under `agents[].sandbox`:
+Configured once, at the top level. Every agent in a session shares the one container; `agents[].sandbox` was removed and fails to load:
 
 ```yaml
 sandbox:
@@ -151,15 +150,6 @@ sandbox:
     hardening: standard
     env: [HTTPS_PROXY, NO_PROXY]
     keys: true
-
-agents:
-    - name: builder
-      # Inherits base sandbox configuration
-
-    - name: isolated-runner
-      sandbox:
-          hardening: strict
-          network: none
 ```
 
 ### Configuration Fields
@@ -247,11 +237,10 @@ Every container runs with baseline safety controls:
 
 ---
 
-## 8. Multi-Agent Sandboxes (`SandboxPool`)
+## 8. One Sandbox per Session
 
-- Two agents with identical sandbox configurations share the **same container**.
-- Two agents with different images or configurations receive separate containers.
-- The `sandbox:*` tool definitions remain uniform across the session; when an agent calls a tool, the pool routes the call to that specific agent's container at invocation time.
+- Every agent in a session runs in the **same container** and sees the same `/workspace`.
+- A tool only one agent needs still goes in the project's image; there is no per-agent sandbox.
 
 ---
 

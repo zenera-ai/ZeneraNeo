@@ -1,5 +1,5 @@
 /**
- * The five tools an agent gets. `search` and `load` are split because finding
+ * The six tools an agent gets. `search` and `load` are split because finding
  * is not reading — search returns stitched context the model never asked for,
  * and counting that as use would poison recency. `grep` is separate from
  * `search` because exactness is not a tuning of nearness: a ranking returns the
@@ -8,7 +8,8 @@
  * building it with three calls leaves the graph half-formed if the model stops
  * early. `forget` is separate because deleting rarely happens in the same
  * breath as creating, and a `forget` buried inside a truncated commit preview
- * would be both irreversible and invisible.
+ * would be both irreversible and invisible. `copy_file` is the only way a
+ * remembered file reaches the sandbox, which never mounts the memory.
  *
  * `audience` reaches the schema only when the binding grants more than one
  * label, and `sees` never does: an agent that could name its own audience
@@ -18,6 +19,7 @@ import { hash } from '../payload.ts';
 import {
     type AnyTool,
     MEMORY_COMMIT_TOOL,
+    MEMORY_COPY_FILE_TOOL,
     MEMORY_FORGET_TOOL,
     MEMORY_GREP_TOOL,
     MEMORY_LOAD_TOOL,
@@ -26,6 +28,7 @@ import {
     type ToolContext,
     withEffects,
 } from '../types.ts';
+import { storedName, type FileSource } from './files.ts';
 import { RevisionMismatch } from './graph.ts';
 import { GREP_FIELDS, type GrepField, grepMemory } from './grep.ts';
 import type { CommitEdge, CommitNode, MemoryIndex } from './index.ts';
@@ -87,6 +90,12 @@ interface CommitArgs {
         expected_revision?: number;
     }[];
     edges?: { from: string; to: string; relation: string }[];
+}
+
+interface CopyFileArgs {
+    id: string;
+    to?: string;
+    overwrite?: boolean;
 }
 
 interface ForgetArgs {
@@ -168,7 +177,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
             description:
                 'Read memories in full by id, using the ids from a ' +
                 `${MEMORY_SEARCH_TOOL} legend. A remembered file comes back inline when it ` +
-                'is small, otherwise as a path under /memory you can open or run.',
+                `is small; to open or run it, copy it into the workspace with ${MEMORY_COPY_FILE_TOOL}.`,
             parameters: {
                 type: 'object',
                 properties: {
@@ -203,7 +212,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                         revision: l.node.revision,
                         metadata: l.node.metadata,
                         file: l.node.file
-                            ? { path: l.node.file.path, bytes: l.node.file.bytes }
+                            ? { name: storedName(l.node.file), bytes: l.node.file.bytes }
                             : undefined,
                         content: l.content,
                     })),
@@ -219,7 +228,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 `instead of ${MEMORY_SEARCH_TOOL} when the answer has to be complete rather ` +
                 'than close — whether something was already recorded, or where a name, path, ' +
                 'id or command appears. This is the only correct way to search the memory ' +
-                'directly; never run a shell grep over /memory. Read a whole node with ' +
+                'directly. Read a whole node with ' +
                 `${MEMORY_LOAD_TOOL}.`,
             parameters: {
                 type: 'object',
@@ -294,7 +303,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                             id: m.node.id,
                             kind: m.node.kind,
                             stale: m.stale || undefined,
-                            file: m.node.file?.path,
+                            file: m.node.file && storedName(m.node.file),
                             hits: m.hits.map((h) => ({ in: h.where, line: h.line, text: h.text })),
                             more: m.more || undefined,
                         })),
@@ -304,6 +313,62 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                     },
                     { kind: 'memory_op', spec },
                 );
+            },
+        }),
+        // The one way a remembered file reaches the sandbox. Memory is never
+        // mounted, so the box only ever holds the workspace and the project's
+        // read-only trees, and the files stay with the graph that explains them.
+        // Reading memory is enough to copy from it: the write is the workspace's.
+        tool<CopyFileArgs, TCtx>({
+            name: MEMORY_COPY_FILE_TOOL,
+            description:
+                'Copies a remembered file into the workspace so a command can open or run it. ' +
+                `Give the id of a node that holds a file, from ${MEMORY_SEARCH_TOOL} or ` +
+                `${MEMORY_LOAD_TOOL}. The copy is yours to edit; remembering the edited ` +
+                `version is a new ${MEMORY_COMMIT_TOOL}.`,
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'the node that holds the file' },
+                    to: {
+                        type: 'string',
+                        description:
+                            'where in the workspace to put it; the file’s own name ' +
+                            '(<id>.<ext>) at the workspace root when omitted',
+                    },
+                    overwrite: {
+                        type: 'boolean',
+                        description: 'replace a file already at that path',
+                    },
+                },
+                required: ['id'],
+                additionalProperties: false,
+            },
+            execute: async (args, tc) => {
+                if (!tc.services.files) {
+                    return {
+                        error: 'this agent has no workspace to copy into',
+                        hint: `read the file inline with ${MEMORY_LOAD_TOOL} instead`,
+                    };
+                }
+                try {
+                    const { file, bytes } = await index.fileOf(args.id, binding.sees);
+                    const path = await tc.services.files.write(
+                        args.to?.trim() || storedName(file),
+                        bytes,
+                        {
+                            overwrite: args.overwrite,
+                        },
+                    );
+                    return { id: args.id, path, bytes: bytes.byteLength, copied: true };
+                } catch (err) {
+                    if (err instanceof MemoryError) {
+                        return refusal(err);
+                    }
+                    // The workspace's refusals — read-only, outside, already there —
+                    // are things the model can fix by choosing another `to`.
+                    return { error: err instanceof Error ? err.message : String(err) };
+                }
             },
         }),
     ];
@@ -420,7 +485,7 @@ export function memoryTools<TCtx>(opts: MemoryToolsOptions): AnyTool<TCtx>[] {
                 let nodes: CommitNode[];
                 try {
                     nodes = args.nodes.map((n) => {
-                        let fileSpec: { source: string; path: string } | undefined;
+                        let fileSpec: { source: FileSource; path: string } | undefined;
                         if (n.file !== undefined) {
                             const rawPath = extractFilePath(n.file);
                             if (!rawPath.trim()) {
@@ -579,15 +644,15 @@ function extractFilePath(raw: unknown): string {
     return '';
 }
 
-function source<TCtx>(tc: ToolContext<TCtx>, path: string): string {
-    if (!tc.services.resolveFile) {
+function source<TCtx>(tc: ToolContext<TCtx>, path: string): FileSource {
+    if (!tc.services.files) {
         throw new MemoryError(
             'this agent cannot remember files',
             'commit the node without `file`, or give the agent a workspace',
         );
     }
     try {
-        return tc.services.resolveFile(path);
+        return tc.services.files.source(path);
     } catch (err) {
         if (err instanceof MemoryError) {
             throw err;

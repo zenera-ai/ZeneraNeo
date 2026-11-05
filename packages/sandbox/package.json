@@ -1,0 +1,59 @@
+{
+    "name": "@zenera/sandbox",
+    "version": "1.1.55",
+    "description": "Where an agent's commands run and the files they see: the Sandbox contract, a podman implementation, filesystem drivers and a contract test suite for other implementations.",
+    "keywords": [
+        "sandbox",
+        "container",
+        "podman",
+        "ai-agents",
+        "agent-runtime"
+    ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "author": "Andrey Ryabov",
+    "homepage": "https://github.com/zenera-ai/ZeneraNeo#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zenera-ai/ZeneraNeo.git",
+        "directory": "packages/sandbox"
+    },
+    "bugs": "https://github.com/zenera-ai/ZeneraNeo/issues",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing.d.ts",
+            "default": "./dist/testing.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "sideEffects": false,
+    "files": [
+        "dist",
+        "!dist/**/*.map"
+    ],
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "clean": "tsc -b --clean && rm -rf dist",
+        "prepack": "tsc -b"
+    },
+    "peerDependencies": {
+        "vitest": ">=3"
+    },
+    "peerDependenciesMeta": {
+        "vitest": {
+            "optional": true
+        }
+    }
+}

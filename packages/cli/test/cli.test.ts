@@ -30,7 +30,7 @@ import type {
     ProcResult,
     runProcess,
 } from '@zenera/neo';
-import { MEMORY_MOUNT, readProjectConfig } from '@zenera/neo';
+import { readProjectConfig } from '@zenera/neo';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
     chmodSync,
@@ -1890,31 +1890,18 @@ describe('what a run mounts', () => {
         return dir;
     }
 
-    it('mounts the memory the project declares', () => {
+    /**
+     * Remembered files reach a sandbox only through `memory_copy_file`, so a
+     * box holds nothing that changes under it while it runs, and a remote one
+     * has nothing of the graph's to keep in sync.
+     */
+    it('never mounts the memory, and does not make its directory', () => {
         const dir = project('agents:\n  - name: solo\n    memory: true\n');
-        const { config } = readProjectConfig(dir);
-        const at = projectMounts(dir, config).find((m) => m.at === MEMORY_MOUNT);
-        expect(at?.host).toBe(realpathSync(join(dir, 'memory', 'files')));
-    });
-
-    it('mounts the one the host named instead', () => {
-        const dir = project('agents:\n  - name: solo\n    memory: true\n');
-        const away = join(dir, 'away');
-        const at = projectMounts(dir, readProjectConfig(dir).config, away).find(
-            (m) => m.at === MEMORY_MOUNT,
-        );
-        // The mount has to follow the override, or the agent would read its
-        // remembered files out of one graph and write them into another.
-        expect(at?.host).toBe(realpathSync(join(away, 'files')));
+        mkdirSync(join(dir, 'assets'));
+        const mounts = projectMounts(dir, readProjectConfig(dir).config);
+        expect(mounts.map((m) => m.at)).toEqual(['/assets']);
+        expect(mounts.some((m) => m.at === '/memory')).toBe(false);
         expect(existsSync(join(dir, 'memory'))).toBe(false);
-    });
-
-    it('mounts a named directory for a project that declares none', () => {
-        const dir = project('agents:\n  - name: solo\n');
-        const at = projectMounts(dir, readProjectConfig(dir).config, 'brain').find(
-            (m) => m.at === MEMORY_MOUNT,
-        );
-        expect(at?.host).toBe(realpathSync(join(dir, 'brain', 'files')));
     });
 });
 

@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Embedder, EmbeddingRequest, EmbeddingResponse } from '../src/embedding.ts';
 import type { IdClock } from '../src/ids.ts';
-import { hostPath } from '../src/memory/files.ts';
+import { hostFile, hostPath, type FileSource } from '../src/memory/files.ts';
 import { MemoryIndex, type MemoryTransaction } from '../src/memory/index.ts';
 import { MemoryStore } from '../src/memory/store.ts';
 import { memoryTools } from '../src/memory/tools.ts';
@@ -130,12 +130,12 @@ describe('committing a subgraph', () => {
                     ref: 'script',
                     kind: 'file',
                     text: 'risk report generator',
-                    file: { source },
+                    file: { source: hostFile(source) },
                 },
             ],
         });
         const node = index.graph.get(res.ids.script)!;
-        expect(node.file).toMatchObject({ path: '/memory/ID1.py', format: 'py' });
+        expect(node.file).toMatchObject({ path: 'ID1.py', format: 'py' });
         expect(await readFile(hostPath(dir, node.file!), 'utf8')).toBe(SCRIPT);
     });
 
@@ -190,10 +190,10 @@ describe('committing a subgraph', () => {
         await writeFile(twin, 'print("other")\n');
         const text = 'risk report generator';
         const first = await commit({
-            nodes: [{ ref: 'a', kind: 'file', text, file: { source } }],
+            nodes: [{ ref: 'a', kind: 'file', text, file: { source: hostFile(source) } }],
         });
         const second = await commit({
-            nodes: [{ ref: 'b', kind: 'file', text, file: { source: twin } }],
+            nodes: [{ ref: 'b', kind: 'file', text, file: { source: hostFile(twin) } }],
         });
         expect(second.ids.b).not.toBe(first.ids.a);
         expect(second).toMatchObject({ created: 1, merged: 0 });
@@ -321,7 +321,7 @@ describe('a commit that cannot be honoured', () => {
             commit({
                 nodes: [
                     { ref: 'a', kind: 'task', text: 'one' },
-                    { ref: 'b', kind: 'file', text: 'two', file: { source } },
+                    { ref: 'b', kind: 'file', text: 'two', file: { source: hostFile(source) } },
                 ],
                 edges: [
                     { from: 'a', to: 'b', relation: 'PRODUCED' },
@@ -384,7 +384,7 @@ describe('a commit that cannot be honoured', () => {
                         kind: 'file',
                         text: 'missing report',
                         file: {
-                            source: join(work, 'nonexistent.json'),
+                            source: hostFile(join(work, 'nonexistent.json')),
                             path: '/workspace/nonexistent.json',
                         },
                     },
@@ -419,7 +419,12 @@ describe('loading and forgetting', () => {
             {
                 nodes: [
                     { ref: 'ask', kind: 'task', text: 'audit the firewall rules' },
-                    { ref: 'script', kind: 'file', text: 'generator', file: { source } },
+                    {
+                        ref: 'script',
+                        kind: 'file',
+                        text: 'generator',
+                        file: { source: hostFile(source) },
+                    },
                     {
                         ref: 'note',
                         kind: 'fact',
@@ -473,7 +478,7 @@ describe('loading and forgetting', () => {
         index.store.release();
         const reopened = await MemoryStore.open(dir, { embedding: EMBEDDING });
         expect(reopened.graph.order).toBe(3);
-        expect(reopened.graph.get(ids.script)?.file?.path).toBe('/memory/ID2.py');
+        expect(reopened.graph.get(ids.script)?.file?.path).toBe('ID2.py');
         expect(reopened.vectors!.rows).toBe(3);
         reopened.release();
         // the afterEach release must still find a lock it owns
@@ -507,13 +512,13 @@ describe('the memory_commit tool', () => {
         await rm(work, { recursive: true, force: true });
     });
 
-    const tc = (resolveFile?: (p: string) => string): ToolContext =>
+    const tc = (source?: (p: string) => FileSource): ToolContext =>
         ({
             callId: 'call1',
             state: { runId: 'run1' },
             services: {
                 clock,
-                resolveFile: resolveFile ?? ((p: string) => join(work, p)),
+                files: { source: source ?? ((p: string) => hostFile(join(work, p))) },
             },
         }) as unknown as ToolContext;
 
@@ -565,7 +570,7 @@ describe('the memory_commit tool', () => {
                         },
                     ],
                 },
-                tc((p: string) => join(work, basename(p))),
+                tc((p: string) => hostFile(join(work, basename(p)))),
             ),
         ) as { error: string; hint?: string };
         expect(res.error).toBe('/workspace/app-vm-1011-report.json does not exist');

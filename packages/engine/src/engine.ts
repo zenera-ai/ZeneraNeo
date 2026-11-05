@@ -2,7 +2,6 @@ import {
     AgentRunner,
     FilePayloadStore,
     MemoryError,
-    SANDBOX_MOUNT,
     SKILLS_MOUNT,
     Workspace,
     assertState,
@@ -27,6 +26,7 @@ import {
     type MemoryIndex,
     type RunIdentity,
     type RunResult,
+    type SandboxFactory,
 } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -106,7 +106,6 @@ export interface EngineOptions {
      * An already-open graph to remember into instead of opening `memoryDir`.
      * Sessions may each open the same directory; handing them one index saves
      * every session loading the graph again.
-     * Name its directory in `memoryDir` too: that is what is mounted at `/memory`.
      */
     memory?: MemoryIndex;
     /** whether credentials reach the sandbox — `--no-keys` sets this false */
@@ -130,6 +129,13 @@ export interface EngineOptions {
     onIssue?: (issue: ModelIssue) => void;
     /** readies the container engine when the project can shell out; nothing when unset */
     preflight?: Preflight;
+    /**
+     * Opens the session's sandbox — where its commands run and its files
+     * live. Podman on this machine when unset, which is what `zen run` is; a
+     * host with a sandbox service passes its own, and the file tools then read
+     * the files where that sandbox keeps them.
+     */
+    newSandbox?: SandboxFactory;
     /** draws each finished run as `graph.mmd`; no graph when unset */
     graph?: GraphRenderer;
     /**
@@ -230,7 +236,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
     // resolved against them. They are always registered, whether or not anyone
     // selects them: a project that names `sandbox:*` against an empty tool list
     // fails to load with "unknown tool", which would be a lie.
-    let sandbox: SandboxSetup;
+    let setup: SandboxSetup;
     let project: AgentProject;
     let files: Workspace;
     let memory: string | undefined;
@@ -244,8 +250,8 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         }
         memory = memoryDir(root, config, opts.memoryDir);
         // Assets and the skill catalog are mounted for both, under one name.
-        const mounts = projectMounts(root, config, opts.memoryDir);
-        sandbox = buildSandbox({
+        const mounts = projectMounts(root, config);
+        setup = buildSandbox({
             config,
             root,
             session: opts.session,
@@ -256,14 +262,15 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             env: env?.names,
             mounts,
             identity: user,
+            newSandbox: opts.newSandbox,
             ...(opts.disposable ? { persist: false } : {}),
         });
-        const workspaceOptions = {
+        const workspaceOptions = setup.sandbox.files({
             root: workspace,
             readOnly: opts.readOnly,
-            mount: sandbox.spec.workdir ?? SANDBOX_MOUNT,
+            mount: setup.workdir,
             mounts,
-        };
+        });
         // The same view the file tools have, so a path the agent just wrote
         // resolves the same way when it asks memory to keep a copy.
         files = new Workspace(workspaceOptions);
@@ -272,7 +279,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             // one name for it: whatever `run_command` prints a path as,
             // `read_file` accepts.
             ...fileTools(workspaceOptions),
-            ...sandboxTools(sandbox.pool),
+            ...sandboxTools(setup.sandbox),
             // Registered whether or not a key exists: the credential is
             // read when a tool is called, so a project that names `exa:*`
             // loads on a machine that cannot yet search, and says so on the
@@ -295,7 +302,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             memoryDir: opts.memoryDir,
             memoryReadOnly: opts.memoryReadOnly,
             payloads,
-            resolveFile: (path: string) => files.within(path),
+            files,
         });
     } catch (err) {
         await plugins?.close();
@@ -314,8 +321,8 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         // container engine costs an error instead of a round trip. Nothing is
         // started: the container itself waits until something actually runs.
         if (usesSandbox(project)) {
-            prepareHome(sandbox);
-            await opts.preflight?.(sandbox, opts.yes);
+            prepareHome(setup);
+            await opts.preflight?.(setup, opts.yes);
         }
 
         // `recordRequests` is what makes the report show the exact bytes sent
@@ -342,18 +349,18 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         runner,
         name: opts.project.name,
         workspace,
-        workspaceMount: sandbox.spec.workdir ?? SANDBOX_MOUNT,
+        workspaceMount: setup.workdir,
         files,
         readOnly: Boolean(opts.readOnly),
         session: opts.session,
         memory,
         state,
-        sandbox,
+        sandbox: setup,
         lock,
         graph: opts.graph,
         user,
         close: async () => {
-            await teardown(sandbox.pool, logger);
+            await teardown(setup, logger);
             // A host-supplied graph is the host's to release.
             if (!opts.memory) {
                 project.close();

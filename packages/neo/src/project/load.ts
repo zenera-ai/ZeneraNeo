@@ -4,6 +4,7 @@ import { Agent, AgentRegistry, type ForkOptions } from '../agent.ts';
 import type { Embedder } from '../embedding.ts';
 import { RunStream } from '../events.ts';
 import { frontmatter, toList } from '../frontmatter.ts';
+import type { WorkspaceFiles } from '../memory/files.ts';
 import { MemoryIndex } from '../memory/index.ts';
 import { DEFAULT_SEEDS } from '../memory/recall.ts';
 import { MemoryStore } from '../memory/store.ts';
@@ -85,9 +86,7 @@ export interface ProjectOptions<TCtx = unknown> {
     memory?: MemoryIndex;
     /**
      * Another directory to keep the memory graph in, relative to the project
-     * root when it is not absolute. Whoever sets it must mount that directory
-     * as `/memory` too, or the agent reads its remembered files from one graph
-     * and writes to another.
+     * root when it is not absolute.
      */
     memoryDir?: string;
     /**
@@ -97,8 +96,8 @@ export interface ProjectOptions<TCtx = unknown> {
      * warmed memory at once, which the directory lock otherwise forbids.
      */
     memoryReadOnly?: boolean;
-    /** turns an agent-visible path into a host path, so files can be remembered */
-    resolveFile?: (path: string) => string;
+    /** the agent's workspace, so files can be remembered and copied back */
+    files?: WorkspaceFiles;
     payloads?: PayloadStore;
     /** extra providers merged with the ones the project declares */
     skills?: SkillProvider[];
@@ -316,7 +315,7 @@ export class AgentProject<TCtx = unknown> {
         const runner = new AgentRunner<TCtx>({
             payloads: this.#options.payloads,
             memory: this.memory,
-            resolveFile: this.#options.resolveFile,
+            files: this.#options.files,
             skills: [...this.skillProviders],
             ...overrides,
         });
@@ -718,9 +717,8 @@ function memoryFor(spec: AgentConfig): MemoryBinding | undefined {
 
 /**
  * Where this project's memory lives, or `undefined` when it has none. Shared
- * with the front end, which has to mount the same directory into the sandbox:
- * two answers to this question would mean `/memory` pointing somewhere the
- * graph is not.
+ * with the front end, which reports and exports the same directory: two
+ * answers to this question would mean two graphs.
  *
  * `override` is the host pointing the run at another graph — `zen run
  * --memory`. It answers for a project that declares no memory at all, because

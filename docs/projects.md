@@ -296,10 +296,10 @@ is what keeps a loaded project from being able to touch anything the host did
 not hand it.
 
 ```ts
-import { loadProject, fileTools, sandboxTools, SANDBOX_MOUNT } from '@zenera/neo';
+import { loadProject, fileTools, sandboxTools, WORKSPACE_MOUNT } from '@zenera/neo';
 
 const project = await loadProject('./my-project', {
-    tools: [...fileTools({ root: workspace, mount: SANDBOX_MOUNT }), ...sandboxTools(pool)],
+    tools: [...fileTools({ root: workspace, mount: WORKSPACE_MOUNT }), ...sandboxTools(pool)],
 });
 ```
 
@@ -320,12 +320,43 @@ is worth setting whenever both are present.
 **The loader never starts a container.** `sandbox:` is validated and left on
 `project.config.sandbox` for the host to act on, because building an image and
 running a container are host concerns - `SandboxSpec` does not know what a
-Dockerfile is. `zen run` resolves that block into a `SandboxPool` and passes the
-tools above; a host embedding the runtime does the same thing itself.
+Dockerfile is. `zen run` resolves that block into one box for the session and
+passes the tools above; a host embedding the runtime does the same thing
+itself. Every agent of the session shares that box.
 
-`SandboxPool.for(agent)` merges `agents[].sandbox` over the project block and
-dedupes by the resulting spec, so identical specs share one container and an
-agent that names its own image gets its own.
+### Where the sandbox runs
+
+A **sandbox** is everything a session's agents work in: one place their
+commands run, and the files those commands see. Every agent of the session
+shares it. It lives in its own package, `@zenera/sandbox`, which depends on Node
+alone (`@zenera/neo` re-exports it). The tools are written against one
+interface, so it does not have to be on this machine:
+
+- `Sandbox` - `start`, `exec`, the job calls
+  (`startJob` returns an id, `readJob` a `JobOutput`, `stopJob` a
+  `JobStopped`; an unknown id is a `SandboxError`), and `close` at the end of
+  a turn. It also holds the files: `fs`, an `FsDriver`, and `files(opts)`,
+  which turns the host's workspace and mounts into the paths `fs` actually
+  finds them at. The invariant every implementation keeps: **a file written
+  through `fs` is the file `exec` sees under the same name, and the reverse**.
+- `PodmanSandbox` is the one `zen run` uses: a container binding host
+  directories, with `fs = localFs`, and `files()` returns the host paths as
+  they are. `podmanSandbox` is its factory. A second constructor argument,
+  `{ engine, exec }`, drives another binary or a fake runner.
+- A sandbox that keeps its files with the container (a sandbox service)
+  serves `fs` itself, and its `files()` returns `inSandboxPaths(opts, fs)`:
+  the workspace at `/workspace`, each tree where the container has it
+  (`logicalMounts()` merges the skill folders into one `/skills`).
+
+Another implementation proves itself with the suites in
+`@zenera/sandbox/testing`: `describeFsDriver` for a filesystem driver and
+`describeSandbox` for the invariant, the same ones podman passes.
+
+`FsDriver` stays its own seam because the file tools need no running sandbox:
+`fileTools({ ..., fs })` works on `localFs` or `InMemoryFs` on their own.
+`sandboxTools(sandbox)` builds the shell tools on one sandbox, and
+`openEngine({ newSandbox })` takes a `SandboxFactory` for any other kind;
+podman when unset.
 
 ## Embeddings
 

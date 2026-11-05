@@ -1,17 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseConfig } from '../src/project/config.ts';
 import {
+    PodmanSandbox,
     resilient,
-    Sandbox,
-    SANDBOX_GROUP,
-    SANDBOX_MOUNT,
+    SandboxError,
     sandboxLimits,
-    SandboxPool,
-    sandboxTools,
+    WORKSPACE_MOUNT,
     type ProcOptions,
     type ProcResult,
     type Runner,
-} from '../src/tools/sandbox.ts';
+} from '@zenera/sandbox';
+import { SANDBOX_GROUP, sandboxTools } from '../src/tools/sandbox.ts';
 import { selectTools, type ToolContext } from '../src/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -62,8 +61,11 @@ function fresh(): Fake {
     return f;
 }
 
-function box(f: Fake, over: Record<string, unknown> = {}): Sandbox {
-    return new Sandbox({ root: '/host/ws', key: '20260827-120000-abcd', exec: f.run, ...over });
+function box(f: Fake, over: Record<string, unknown> = {}): PodmanSandbox {
+    return new PodmanSandbox(
+        { root: '/host/ws', key: '20260827-120000-abcd', ...over },
+        { exec: f.run },
+    );
 }
 
 const find = (f: Fake, verb: string): Call | undefined => f.calls.find((c) => c.args[0] === verb);
@@ -76,7 +78,7 @@ describe('starting a container', () => {
         const create = find(f, 'run');
         expect(create).toBeDefined();
         expect(create?.args).toContain('--detach');
-        expect(create?.args).toContain(`/host/ws:${SANDBOX_MOUNT}`);
+        expect(create?.args).toContain(`/host/ws:${WORKSPACE_MOUNT}`);
         expect(create?.args.at(-3)).toBe('docker.io/library/python:3.14-slim-bookworm');
         expect(create?.args.slice(-2)).toEqual(['sleep', 'infinity']);
     });
@@ -174,7 +176,7 @@ describe('starting a container', () => {
     it('mounts the workspace read-only when the run is', async () => {
         const f = fresh();
         await box(f, { readOnly: true }).start();
-        expect(find(f, 'run')?.args).toContain(`/host/ws:${SANDBOX_MOUNT}:ro`);
+        expect(find(f, 'run')?.args).toContain(`/host/ws:${WORKSPACE_MOUNT}:ro`);
     });
 
     /** Reference material and the skill catalog, under the names the tools use. */
@@ -302,12 +304,12 @@ describe('running a command', () => {
         const b = box(f);
         await b.exec('ls');
         const first = find(f, 'exec');
-        expect(first?.args[first.args.indexOf('--workdir') + 1]).toBe(SANDBOX_MOUNT);
+        expect(first?.args[first.args.indexOf('--workdir') + 1]).toBe(WORKSPACE_MOUNT);
 
         await b.exec('ls', { cwd: 'packages/cli' });
         const last = f.calls.at(-1);
         expect(last?.args[last.args.indexOf('--workdir') + 1]).toBe(
-            `${SANDBOX_MOUNT}/packages/cli`,
+            `${WORKSPACE_MOUNT}/packages/cli`,
         );
     });
 
@@ -393,17 +395,17 @@ describe('running a command', () => {
 describe('background jobs', () => {
     it('writes the command to a file rather than into the launcher', async () => {
         const f = fresh();
-        const job = await box(f).startJob('npm run dev', { cwd: 'app' });
+        const id = await box(f).startJob('npm run dev', { cwd: 'app' });
 
-        expect(job.id).toMatch(/^job-[0-9a-f]{6}$/);
+        expect(id).toMatch(/^job-[0-9a-f]{6}$/);
 
         const write = f.calls.find((c) => c.opts?.input === 'npm run dev');
         expect(write).toBeDefined();
-        expect(write?.args.at(-1)).toContain(`cat > /tmp/zenera-jobs/${job.id}.sh`);
+        expect(write?.args.at(-1)).toContain(`cat > /tmp/zenera-jobs/${id}.sh`);
 
         const launch = f.calls.at(-1);
-        expect(launch?.opts?.input).toContain(`/bin/sh /tmp/zenera-jobs/${job.id}.sh`);
-        expect(launch?.opts?.input).toContain(`cd '${SANDBOX_MOUNT}/app'`);
+        expect(launch?.opts?.input).toContain(`/bin/sh /tmp/zenera-jobs/${id}.sh`);
+        expect(launch?.opts?.input).toContain(`cd '${WORKSPACE_MOUNT}/app'`);
         expect(launch?.opts?.input).not.toContain('npm run dev');
 
         // The redirection and the `&` have to be on the same line as the
@@ -411,19 +413,17 @@ describe('background jobs', () => {
         // the job runs in the foreground of the exec that started it — which
         // no argument assertion notices, because every fragment is still
         // present and in order.
-        const line = (launch?.opts?.input ?? '')
-            .split('\n')
-            .find((l) => l.includes(`${job.id}.sh`));
+        const line = (launch?.opts?.input ?? '').split('\n').find((l) => l.includes(`${id}.sh`));
         expect(line).toMatch(/> \S+\.log 2>&1 < \/dev\/null &$/);
     });
 
     it('reads the log back with the running flag and a resumable window', async () => {
         const f = fresh();
         const b = box(f);
-        const job = await b.startJob('npm run dev');
+        const id = await b.startJob('npm run dev');
 
         f.reply('/bin/sh -s', { stdout: 'lines=3\n---\nfirst\nsecond\nthird\n' });
-        const running = (await b.readJob(job.id)) as Record<string, unknown>;
+        const running = await b.readJob(id);
 
         expect(running.running).toBe(true);
         expect(running.exit_code).toBeUndefined();
@@ -432,7 +432,7 @@ describe('background jobs', () => {
         expect(running.end_line).toBe(3);
 
         f.reply('/bin/sh -s', { stdout: 'lines=4\nexit=0\n---\nfourth\n' });
-        const done = (await b.readJob(job.id, 4)) as Record<string, unknown>;
+        const done = await b.readJob(id, 4);
         expect(done.running).toBe(false);
         expect(done.exit_code).toBe(0);
         expect(done.start_line).toBe(4);
@@ -441,15 +441,15 @@ describe('background jobs', () => {
     it('will not read or stop a job it never started', async () => {
         const f = fresh();
         const b = box(f);
-        expect(await b.readJob('job-000000')).toMatchObject({ error: expect.any(String) });
-        expect(await b.stopJob('job-000000')).toMatchObject({ error: expect.any(String) });
+        await expect(b.readJob('job-000000')).rejects.toThrow(SandboxError);
+        await expect(b.stopJob('job-000000')).rejects.toThrow(/no such job/);
     });
 
     it('signals the whole process group', async () => {
         const f = fresh();
         const b = box(f);
-        const job = await b.startJob('npm run dev');
-        await b.stopJob(job.id);
+        const id = await b.startJob('npm run dev');
+        await b.stopJob(id);
 
         expect(f.calls.at(-1)?.opts?.input).toContain('kill -TERM -"$pid"');
     });
@@ -527,14 +527,14 @@ describe('an out-of-memory kill', () => {
     it('explains a killed job once, however often its log is read', async () => {
         const f = fresh();
         const b = box(f, { memory: 512 });
-        const job = await b.startJob('npm run build');
+        const id = await b.startJob('npm run build');
 
         f.reply('/bin/sh -s', { stdout: 'lines=1\nexit=137\n---\nboom\n' });
         f.reply('/bin/sh -s', { stdout: 'peak=536870912 kills=1\n' });
-        const first = (await b.readJob(job.id)) as Record<string, unknown>;
+        const first = await b.readJob(id);
 
         f.reply('/bin/sh -s', { stdout: 'lines=1\nexit=137\n---\nboom\n' });
-        const again = (await b.readJob(job.id)) as Record<string, unknown>;
+        const again = await b.readJob(id);
 
         expect(first.out_of_memory).toMatchObject({ limit_mib: 512, retryable: false });
         // Re-probing would find the counter unchanged and change its mind.
@@ -548,7 +548,7 @@ describe('disposal', () => {
         const f = fresh();
         const b = box(f);
         await b.start();
-        await b.dispose();
+        await b.close();
         expect(find(f, 'rm')?.args).toContain(b.name);
     });
 
@@ -556,46 +556,20 @@ describe('disposal', () => {
         const f = fresh();
         const b = box(f, { persist: true });
         await b.start();
-        await b.dispose();
+        await b.close();
         expect(find(f, 'rm')).toBeUndefined();
         expect(find(f, 'stop')?.args).toContain(b.name);
     });
 
     it('is free when nothing was ever started', async () => {
         const f = fake();
-        await box(f).dispose();
+        await box(f).close();
         expect(f.calls).toHaveLength(0);
     });
 });
 
-describe('one container per configuration', () => {
-    const pool = (agents: Record<string, Record<string, unknown>>): SandboxPool =>
-        new SandboxPool({
-            root: '/host/ws',
-            key: 'session',
-            exec: fake().run,
-            image: 'base',
-            agents,
-        });
-
-    it('shares one container between agents that agree', () => {
-        const p = pool({});
-        expect(p.for('alpha')).toBe(p.for('beta'));
-    });
-
-    it('gives an agent that names its own image its own container', () => {
-        const p = pool({ analyst: { image: 'python' } });
-        expect(p.for('analyst').name).not.toBe(p.for('writer').name);
-    });
-
-    it('still shares between two agents that made the same choice', () => {
-        const p = pool({ a: { image: 'python' }, b: { image: 'python' } });
-        expect(p.for('a')).toBe(p.for('b'));
-    });
-});
-
 describe('the tools', () => {
-    const tools = sandboxTools({ root: '/host/ws', key: 'session', exec: fake().run });
+    const tools = sandboxTools(box(fake()));
 
     it('are one selectable family', () => {
         expect(tools.map((t) => t.name)).toEqual([
@@ -612,29 +586,8 @@ describe('the tools', () => {
         ).toEqual(['run_command', 'run_command_background', 'read_command_output']);
     });
 
-    /**
-     * The container is chosen from `tc.agent` at call time rather than captured
-     * when the tool was built, so one tool object — one schema, one cached
-     * prompt prefix — still serves agents that need different images.
-     */
-    it('pick their container from the calling agent', async () => {
-        const f = fresh();
-        const pool = new SandboxPool({
-            root: '/host/ws',
-            key: 'session',
-            exec: f.run,
-            image: 'base',
-            agents: { analyst: { image: 'python' } },
-        });
-        const [runCommand] = sandboxTools(pool);
-        const tc = { agent: { name: 'analyst' } } as ToolContext;
-
-        await runCommand.execute({ command: 'python -V' }, tc);
-        expect(find(f, 'run')?.args).toContain('python');
-    });
-
     it('turn a path escape into something the model can act on', async () => {
-        const [runCommand] = sandboxTools({ root: '/host/ws', key: 's', exec: fake().run });
+        const [runCommand] = sandboxTools(box(fake()));
         const out = await runCommand.execute({ command: 'ls', cwd: '../../etc' }, {
             agent: { name: 'a' },
         } as ToolContext);
@@ -670,13 +623,15 @@ describe('the sandbox block in agents.yaml', () => {
     //     });
     // });
 
-    it('lets one agent differ from the rest', () => {
-        const parsed = parseConfig(
-            'version: 1\nsandbox:\n  image: base\nagents:\n' +
-                '  - name: a\n    sandbox:\n      image: python\n',
-            'agents.yaml',
-        );
-        expect(parsed.agents[0].sandbox?.image).toBe('python');
+    /** A session has one box, so an agent's own block is refused with where it goes instead. */
+    it('refuses a sandbox block on an agent', () => {
+        expect(() =>
+            parseConfig(
+                'version: 1\nsandbox:\n  image: base\nagents:\n' +
+                    '  - name: a\n    sandbox:\n      image: python\n',
+                'agents.yaml',
+            ),
+        ).toThrow(/per-agent sandboxes were removed.*top-level `sandbox:`/);
     });
 });
 

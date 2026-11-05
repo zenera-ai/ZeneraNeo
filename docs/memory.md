@@ -94,12 +94,19 @@ does not fit - a wider vocabulary is a vaguer one.
 Two kinds do something the others do not.
 
 **Files.** An agent that writes a working script can keep it. The file is copied
-under a generated id and mounted read-only at `/memory`, so a later run executes
-it directly:
+into the memory directory under a generated id. It is never mounted into the
+sandbox; a later run copies it back into its workspace and runs the copy:
 
 ```
-run_command  python3 /memory/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+memory_copy_file  { "id": "01JD9Q7X8N2K4M6P8R0T2V4W6Y" }   → /workspace/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+run_command       python3 01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
 ```
+
+`memory_copy_file` needs only read access to memory, takes an optional `to`
+inside the workspace, and refuses to replace an existing file unless given
+`overwrite`. Keeping the files out of the sandbox means a sandbox holds nothing
+that changes while it runs, and the files stay with the graph that explains
+them.
 
 The graph holds the provenance around it - what asked for it, what plan it came
 from, what it called - and that subgraph is what comes back on recall.
@@ -130,8 +137,8 @@ agents:
 ```
 
 `access` decides the tools and nothing else does: `read` gets `memory_search`,
-`memory_grep` and `memory_load`, `read-write` adds `memory_commit`, `full` adds
-`memory_forget`. These five are never named in `tools:` - the binding is what
+`memory_grep`, `memory_load` and `memory_copy_file`, `read-write` adds
+`memory_commit`, `full` adds `memory_forget`. These six are never named in `tools:` - the binding is what
 grants them.
 
 **One memory, masked - not one memory each.** Every node carries an audience,

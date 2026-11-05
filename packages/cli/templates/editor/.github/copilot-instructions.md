@@ -128,9 +128,9 @@ reports the first as `memory.uninstructed` and the second as `rules.stale` -
 by bytes, so trailing whitespace inside a table, invisible on screen, is caught
 too - and `zen check --fix` repairs both.
 
-Nothing else tells a running agent how the store works, so without it nothing
-forbids an agent from pointing `grep` or `cat` at `/memory` - a read that
-bypasses the audience mask and serves superseded nodes as current. Leave the
+Nothing else tells a running agent how the store works, so without it an agent
+guesses at paths for remembered files instead of copying them into the workspace
+with `memory_copy_file`, and treats a stale recollection as current. Leave the
 file untouched and put this project's own memory policy in a second topic file,
 `agents/memory-policy-instructions.md`, which is read straight after it: then
 `zen check --fix` can replace the first after any upgrade without losing
@@ -381,10 +381,10 @@ it. Its entire world is the tools it was granted (§3.5) and four paths:
 | `/workspace` | the session's workspace - the work itself | read/write; `zen run --read-only` withholds the writes |
 | `/assets`    | `assets/`, reference material - §3.11     | read-only                                              |
 | `/skills`    | the whole skill catalog - §3.4.1          | read-only                                              |
-| `/memory`    | files carried by remembered nodes - §5.3  | read-only, and only when `memory:` is configured       |
 
 Commands run inside the container `sandbox:` describes (§3.7): the same
-`/workspace`, and whatever the image ships.
+`/workspace`, and whatever the image ships. Remembered files are not mounted
+anywhere: an agent copies one into `/workspace` with `memory_copy_file` (§5.3).
 
 Everything else in the project directory is **invisible at run time** -
 `agents.yaml`, `agents/instructions.md`, `agents/prompts/`, `agents/skills/`
@@ -413,8 +413,9 @@ Run this over every `agents/*instructions.md`, every `agents/prompts/*.md` and
 every `agents/skills/*/SKILL.md` after editing any of them. Every path-shaped
 token in those files is read by a model as an instruction to open something:
 
-- [ ] Every absolute path begins `/workspace`, `/assets`, `/skills` or
-      `/memory`. Nothing else exists.
+- [ ] Every absolute path begins `/workspace`, `/assets` or `/skills`. Nothing
+      else exists - remembered files included; they reach the workspace through
+      `memory_copy_file`.
 - [ ] No project file is named: `agents.yaml`, `agents/instructions.md`,
       `agents/prompts/…`, `agents/skills/…`, `sandbox/Dockerfile`, `.env`,
       `.github/…`, `sessions/…`, `SPECIFICATION.md`, `README.md`, `docs/…`.
@@ -426,8 +427,8 @@ token in those files is read by a model as an instruction to open something:
 - [ ] A skill referring to its own sibling file writes the full
       `/skills/<name>/` prefix, not `./rates.csv`: the body is rendered into a
       prompt, not executed from its folder.
-- [ ] `/memory` is named only in prompts for agents that have `memory:` (§5.3),
-      and `/assets` only where an `assets/` directory exists.
+- [ ] `memory_copy_file` is named only in prompts for agents that have
+      `memory:` (§5.3), and `/assets` only where an `assets/` directory exists.
 - [ ] The agent holding the prompt has the tool the path implies - `read_file`
       to open one, `sandbox:*` to run one (§3.4.1).
 - [ ] Every instruction that opens a file states what to do when it is not there
@@ -1031,22 +1032,9 @@ prompt is executed on every run, by an agent that is root in a filesystem that
 is about to be thrown away.
 
 Agents share one container, because they share the workspace and a hand-off is
-meant to be continuous. An agent that needs something else says so and gets its
-own, with its block merged over the top-level one:
-
-```yaml
-sandbox:
-    image: docker.io/library/python:3.14-slim-bookworm
-
-agents:
-    - name: builder
-      tools: [files:*, sandbox:*]
-      sandbox:
-          image: docker.io/library/node:22-bookworm-slim
-          memory: 8192
-    - name: analyst
-      tools: [files:*, sandbox:*] # shares the project's container
-```
+meant to be continuous. There is one `sandbox:` block, at the top level; an
+agent cannot have its own (`agents[].sandbox` fails to load). A tool one agent
+needs goes into the project's image, so every agent has it.
 
 **Write `persist: true` unless you have a reason not to.** By default the
 container is _removed_ when the session closes, and only two paths survive it:
@@ -1407,7 +1395,7 @@ zen check --fix
 
 It is what tells the agent that the store is reached only through the tools, that
 `memory_search` clips a node's text and `memory_load` reads it whole, that a
-remembered file's path comes from `memory_load` and not from listing `/memory`,
+remembered file is run by copying it into the workspace with `memory_copy_file`,
 what a node must carry to be worth having, and that a correction is a
 `SUPERSEDES` edge rather than an edit. It is its own file rather than a section of
 `agents/instructions.md` because it arrives with the `memory:` block and leaves
@@ -1431,7 +1419,7 @@ persist. Anything authoritative - a rate, a policy clause, a procedure - belongs
 in a skill, where it is versioned and reviewable.
 
 The full treatment - kinds and relations, how ranking and stitching spend their
-budget, remembered files under `/memory`, audience design, and how to put memory
+budget, remembered files and `memory_copy_file`, audience design, and how to put memory
 in front of a `zen rag` index - is in the `zen-memory` skill.
 
 ### 5.4 Cache discipline
@@ -1979,8 +1967,7 @@ Before finishing any change here:
 candidates; these are the judgements to make about each one)**
 
 - [ ] Every absolute path in `agents/*instructions.md`, `agents/prompts/*.md` and
-      `agents/skills/*/SKILL.md` is under `/workspace`, `/assets`, `/skills` or
-      `/memory`
+      `agents/skills/*/SKILL.md` is under `/workspace`, `/assets` or `/skills`
 - [ ] No prompt or skill names a project file - `agents.yaml`, a prompt path, a
       skill's repository path, `sandbox/Dockerfile`, `.env`, `sessions/`
 - [ ] No `../`, `~`, or host path; nothing assumes the workspace is the project
@@ -2089,7 +2076,7 @@ candidates; these are the judgements to make about each one)**
 | Fails only on genuinely hard cases            | Promote that agent's tier, or split the hard path out               |
 | Shows no reasoning while it works             | Turn summaries on for that model - §7.6                             |
 | Forgets across conversations                  | Continue the session rather than starting a new one                 |
-| Greps `/memory` or queries `memory.db`        | `agents/memory-instructions.md` is missing the block - §5.3         |
+| Guesses a path for a remembered file          | `agents/memory-instructions.md` is missing the block - §5.3         |
 | Recalls a note it cannot check or continue    | Same block: it is what requires provenance on every node - §5.3     |
 | Breaks at load with a named path              | Read the message - it names the exact key                           |
 

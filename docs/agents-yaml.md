@@ -736,12 +736,13 @@ the model afterwards is refused rather than silently mixing two vector spaces.
 
 ### Remembered files
 
-An agent that writes a working script can keep it. The file is copied under a
-generated id and mounted read-only at `/memory`, so a later run can execute it
-directly:
+An agent that writes a working script can keep it. The file is copied into the
+memory directory under a generated id. It is not mounted into the sandbox: a
+later run copies it into the workspace with `memory_copy_file`, then runs it:
 
 ```
-run_command  python3 /memory/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+memory_copy_file  { "id": "01JD9Q7X8N2K4M6P8R0T2V4W6Y" }   → /workspace/01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
+run_command       python3 01JD9Q7X8N2K4M6P8R0T2V4W6Y.py
 ```
 
 The graph holds the provenance around it - what asked for it, what plan it came
@@ -794,18 +795,18 @@ agents:
 
 | Field        | Type                       | Default          | Meaning                                      |
 | ------------ | -------------------------- | ---------------- | -------------------------------------------- |
-| `access`     | `read`/`read-write`/`full` | `read-write`     | Which of the five tools this agent gets      |
+| `access`     | `read`/`read-write`/`full` | `read-write`     | Which of the six tools this agent gets       |
 | `sees`       | name[]                     | `[]`             | Private slices this agent may read, plus `*` |
 | `writes`     | name[]                     | `[*]`            | Labels it may write under                    |
 | `autoRecall` | boolean or `{ limit }`     | `true`, limit 10 | Recall before a turn that follows user input |
 
 `access` decides the tools, and nothing else does:
 
-| Level        | Tools                                         |
-| ------------ | --------------------------------------------- |
-| `read`       | `memory_search`, `memory_grep`, `memory_load` |
-| `read-write` | the above, plus `memory_commit`               |
-| `full`       | the above, plus `memory_forget`               |
+| Level        | Tools                                                             |
+| ------------ | ----------------------------------------------------------------- |
+| `read`       | `memory_search`, `memory_grep`, `memory_load`, `memory_copy_file` |
+| `read-write` | the above, plus `memory_commit`                                   |
+| `full`       | the above, plus `memory_forget`                                   |
 
 **One memory, masked - not one memory each.** Every node carries an audience,
 and `sees` is the set of audiences an agent reads. `*` is the public slice and
@@ -1097,33 +1098,16 @@ a key does not abandon a `persist: true` container's filesystem.
 only the host sets them. They are set on each command, never on the container,
 so `env:` cannot name one. See [identity.md](identity.md).
 
-### `agents[].sandbox`
+### One sandbox per session
 
-Agents share one container by default. They already share the workspace, and a
-hand-off is meant to be continuous: whatever the first agent installed should
-still be there when the second takes over.
+Every agent in a session shares one container. They already share the
+workspace, and a hand-off is meant to be continuous: whatever the first agent
+installed should still be there when the second takes over. An agent that
+needs a tool gets it from the project's image - put it in the Dockerfile
+`build:` names.
 
-An agent that needs a different image says so, and gets its own:
-
-```yaml
-sandbox:
-    image: docker.io/library/debian:bookworm-slim
-
-agents:
-    - name: analyst
-      tools: [sandbox:*]
-      sandbox:
-          image: docker.io/library/python:3.13-slim
-    - name: writer
-      tools: [sandbox:*] # shares the project's container
-```
-
-The fields are the same, merged over the top-level block. Two agents that
-resolve to the same configuration still share one container.
-
-An agent that sets `image` displaces a project-level `build`, and an agent that
-sets `build` displaces a project-level `image` - the two are exclusive after
-the merge as well as before it.
+`agents[].sandbox` was removed. A project that still has one fails to load,
+saying to move those settings to the top-level `sandbox:`.
 
 ---
 

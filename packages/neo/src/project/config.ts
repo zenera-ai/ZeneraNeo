@@ -382,11 +382,17 @@ const agent = z
             )
             .optional(),
         /**
-         * Overrides on the project's sandbox. An agent that overrides nothing
-         * shares the container with everyone else, which is what a hand-off
-         * usually wants; an agent that names its own image gets its own.
+         * Gone: a session has one sandbox, the project's, shared by every
+         * agent. Refused rather than ignored, so a project that relied on it
+         * hears where its settings have to go instead.
          */
-        sandbox: sandbox.optional(),
+        sandbox: z
+            .never({
+                error:
+                    'per-agent sandboxes were removed — a session has one sandbox, shared by ' +
+                    "every agent; move these settings to the project's top-level `sandbox:`",
+            })
+            .optional(),
         /** entrypoint, when no top-level `default` is given */
         default: z.boolean().optional(),
     })

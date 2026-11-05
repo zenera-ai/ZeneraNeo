@@ -4,7 +4,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MEMORY_MOUNT } from '../src/memory/files.ts';
 import { MergeConflicts, mergeMemories } from '../src/memory/merge.ts';
 import { FILES_DIR, MemoryStore, type MemoryEmbedding } from '../src/memory/store.ts';
 import type { MemoryFile, MemoryNode, Relation } from '../src/memory/types.ts';
@@ -337,7 +336,7 @@ describe('merging memories', () => {
 async function keep(dir: string, id: string, body: string): Promise<MemoryFile> {
     await writeFile(join(dir, FILES_DIR, `${id}.py`), body);
     return {
-        path: `${MEMORY_MOUNT}/${id}.py`,
+        path: `${id}.py`,
         bytes: Buffer.byteLength(body),
         sha256: createHash('sha256').update(body).digest('hex'),
         format: 'py',

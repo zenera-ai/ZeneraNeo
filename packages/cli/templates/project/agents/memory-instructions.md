@@ -71,9 +71,10 @@ above produced it, `←informed` means it informed the line above.
 background. A `+` reference points to an id already shown above.
 
 Node text is clipped to 160 characters. A file node adds one line with its
-`/memory/<id>.<ext>` path, size, and use count. Use `memory_load` to obtain the
-complete node and its usable path. Touch only paths returned by a `memory_*`
-tool.
+`<id>.<ext>` name, size, and use count. Use `memory_load` to obtain the
+complete node; a small file comes back inline. To open or run a remembered
+file, copy it into the workspace with `memory_copy_file`, then use the path it
+returns. Remembered files are not on any mounted path.
 
 Direct store access is prohibited because it bypasses audience controls, may
 serve superseded nodes, does not record use, and can race with another writer.
@@ -93,7 +94,7 @@ inputs, outputs, and credentials handling.
 ### Keep memory out of ordinary answers
 
 Report findings and checkable sources, not the mechanism that found them. Do
-not expose `/memory` paths, node ids, or say that something was recalled or
+not expose remembered file names, node ids, or say that something was recalled or
 remembered. The exception is a request about the store itself, where ids and
 memory state are the subject.
 
@@ -208,8 +209,9 @@ of living project files.
 
 Put provenance in the file itself as a short header. Make executable artifacts
 self-contained, take request-specific values as arguments, read credentials
-from the environment, and accept an output path under `/workspace`. The
-`/memory` mount is read-only.
+from the environment, and accept an output path under `/workspace`. A later run
+reaches the script only through `memory_copy_file`, so it must not depend on
+where it was stored.
 
 Commit a script only after it ran successfully against the intended environment
 and produced verified output. Commit its invocation and operations, not its

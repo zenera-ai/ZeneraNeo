@@ -1,17 +1,14 @@
 import {
     ASSETS_MOUNT,
     assetsDir,
-    FILES_DIR,
-    MEMORY_MOUNT,
-    memoryDir,
     pidAlive,
     skillDirs,
     skillMounts,
     SKILLS_MOUNT,
     type ProjectConfig,
-    type SandboxMount,
+    type Mount,
 } from '@zenera/neo';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { invalidError, usageError } from './errors.ts';
 import { paths, readJson, writeJson } from './home.ts';
@@ -58,29 +55,27 @@ export interface Project {
  * and does not edit — and the paths are resolved, because the podman machine on
  * macOS shares the real path or nothing.
  */
-export function projectMounts(
-    root: string,
-    config: ProjectConfig,
-    memoryAt?: string,
-): SandboxMount[] {
-    const mounts: SandboxMount[] = [];
+export function projectMounts(root: string, config: ProjectConfig): Mount[] {
+    const mounts: Mount[] = [];
     const assets = assetsDir(root, config);
     if (assets) {
-        mounts.push({ host: realpathSync(assets), at: ASSETS_MOUNT, readOnly: true });
+        mounts.push({
+            host: realpathSync(assets),
+            at: ASSETS_MOUNT,
+            readOnly: true,
+            source: { kind: 'assets' },
+        });
     }
     // The catalog goes in whole, at fixed names, before anything is loaded: a
     // container's mounts are decided when it is created, so a skill folder
     // cannot be added at the moment `skill_load` asks for it.
     for (const dir of skillMounts(skillDirs(root, config), SKILLS_MOUNT)) {
-        mounts.push({ host: realpathSync(dir.path), at: dir.at, readOnly: true });
-    }
-    const memory = memoryDir(root, config, memoryAt);
-    if (memory) {
-        // Created here because the mount is decided before the project is
-        // loaded, and podman would refuse a source that does not exist yet.
-        const files = join(memory, FILES_DIR);
-        mkdirSync(files, { recursive: true });
-        mounts.push({ host: realpathSync(files), at: MEMORY_MOUNT, readOnly: true });
+        mounts.push({
+            host: realpathSync(dir.path),
+            at: dir.at,
+            readOnly: true,
+            source: { kind: 'skills' },
+        });
     }
     return mounts;
 }

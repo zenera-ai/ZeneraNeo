@@ -127,8 +127,8 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     }, 12 * MINUTE);
 
     afterAll(async () => {
-        await forwarding?.pool.dispose();
-        await withheld?.pool.dispose();
+        await forwarding?.sandbox.close();
+        await withheld?.sandbox.close();
         process.env = { ...kept };
         rmSync(dir, { recursive: true, force: true });
     }, 3 * MINUTE);
@@ -136,7 +136,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     it(
         'hands a secret over without writing it down anywhere',
         async () => {
-            const box = forwarding.pool.for('main');
+            const box = forwarding.sandbox;
             expect((await box.exec('printf %s "$OPENAI_API_KEY"')).stdout).toBe(SECRET);
 
             // Which is the half argv cannot show. This is the other half: the
@@ -152,7 +152,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     it(
         'mounts the credential file, and nothing that was sitting beside it',
         async () => {
-            const box = forwarding.pool.for('main');
+            const box = forwarding.sandbox;
 
             const at = (await box.exec('printf %s "$GOOGLE_APPLICATION_CREDENTIALS"')).stdout;
             expect(at).toBe('/run/zenera/keys/creds.json');
@@ -178,7 +178,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     it(
         'brings the two things a service account cannot say for itself',
         async () => {
-            const box = forwarding.pool.for('main');
+            const box = forwarding.sandbox;
             const res = await box.exec(
                 'printf "%s %s" "$GOOGLE_CLOUD_PROJECT" "$GOOGLE_CLOUD_LOCATION"',
             );
@@ -190,7 +190,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     it(
         'forwards credentials and not the rest of the shell',
         async () => {
-            const box = forwarding.pool.for('main');
+            const box = forwarding.sandbox;
             const absent = async (name: string): Promise<string> =>
                 (await box.exec(`printf %s "\${${name}:-absent}"`)).stdout;
 
@@ -203,7 +203,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
     it(
         'gives a run that refused them a container with none of it',
         async () => {
-            const box = withheld.pool.for('main');
+            const box = withheld.sandbox;
 
             expect((await box.exec('printf %s "${OPENAI_API_KEY:-absent}"')).stdout).toBe('absent');
             expect(
@@ -216,7 +216,7 @@ describe.skipIf(!ENABLED)('the credentials a real container is given', () => {
             // And it is a different container, not the same one with the
             // variables dropped: which credentials reach a box is part of what
             // that box *is*.
-            expect(box.name).not.toBe(forwarding.pool.for('main').name);
+            expect(box.name).not.toBe(forwarding.sandbox.name);
         },
         3 * MINUTE,
     );

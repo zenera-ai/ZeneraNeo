@@ -17,8 +17,8 @@ import {
 import {
     EXA_GROUP,
     FileSkillProvider,
-    SANDBOX_MOUNT,
-    Sandbox,
+    PodmanSandbox,
+    WORKSPACE_MOUNT,
     exaTools,
     fileTools,
     frontmatter,
@@ -979,9 +979,9 @@ export function availableTools(root: string, config: ProjectConfig): AnyTool<unk
     return [
         ...fileTools<unknown>({
             root,
-            mount: config.sandbox?.workdir ?? SANDBOX_MOUNT,
+            mount: config.sandbox?.workdir ?? WORKSPACE_MOUNT,
         }),
-        ...sandboxTools<unknown>({ root, key: 'check' }),
+        ...sandboxTools<unknown>(new PodmanSandbox({ root, key: 'check' })),
         ...exaTools<unknown>(),
     ];
 }
@@ -1910,22 +1910,23 @@ async function probeSandbox(
     }
 
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-check-')));
-    const box = new Sandbox({
-        root,
-        key: 'check',
-        image,
-        cpus: config.sandbox?.cpus,
-        memory: config.sandbox?.memory,
-        network: config.sandbox?.network,
-        workdir: config.sandbox?.workdir,
-        user: config.sandbox?.user,
-        engine,
-        exec: opts.exec,
-        // Not the project's: a check forwards no host values, and keeping the
-        // container is the caller's choice about their work, not about this.
-        env: {},
-        persist: false,
-    });
+    const box = new PodmanSandbox(
+        {
+            root,
+            key: 'check',
+            image,
+            cpus: config.sandbox?.cpus,
+            memory: config.sandbox?.memory,
+            network: config.sandbox?.network,
+            workdir: config.sandbox?.workdir,
+            user: config.sandbox?.user,
+            // Not the project's: a check forwards no host values, and keeping the
+            // container is the caller's choice about their work, not about this.
+            env: {},
+            persist: false,
+        },
+        { engine, exec: opts.exec },
+    );
 
     opts.onProgress?.(`starting ${image ?? 'the container'}`);
     try {
@@ -1961,7 +1962,7 @@ async function probeSandbox(
         });
         return false;
     } finally {
-        await box.dispose().catch(() => undefined);
+        await box.close().catch(() => undefined);
         rmSync(root, { recursive: true, force: true });
     }
 }

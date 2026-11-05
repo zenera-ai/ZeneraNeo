@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { IdClock } from '../src/ids.ts';
+import { hostFile } from '../src/memory/files.ts';
 import { MemoryGraph, RevisionMismatch } from '../src/memory/graph.ts';
 import { MemoryIndex } from '../src/memory/index.ts';
 import { LEGACY_DIR, migrateMemory } from '../src/memory/migrate.ts';
@@ -137,7 +138,14 @@ describe('one memory, several writers', () => {
             await expect(
                 b.commit(
                     {
-                        nodes: [{ ref: 'y', kind: 'fact', text: 'points at it', file: { source } }],
+                        nodes: [
+                            {
+                                ref: 'y',
+                                kind: 'fact',
+                                text: 'points at it',
+                                file: { source: hostFile(source) },
+                            },
+                        ],
                         edges: [{ from: 'y', to: 'A1', relation: 'INFORMED' }],
                     },
                     opts('B'),
