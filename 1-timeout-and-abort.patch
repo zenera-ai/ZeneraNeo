@@ -1,0 +1,29 @@
+--- a/packages/sandbox/src/process.ts
++++ b/packages/sandbox/src/process.ts
+@@ -156,7 +156,8 @@
+  * `run`, retried while the engine could not be reached at all.
+  *
+  * Empty stdout is the guard that keeps this from retrying real work: a command
+- * that produced output ran, whatever its stderr says afterwards. The wait is
++ * that produced output ran, whatever its stderr says afterwards. So did one
++ * that ran out its timeout, which a refused connection never does. The wait is
+  * jittered because the burst being backed off from is N clients arriving
+  * together, and a fixed delay would only reassemble it.
+  */
+@@ -168,12 +169,16 @@
+                 n >= attempts ||
+                 res.code === 0 ||
+                 res.stdout !== '' ||
++                res.timedOut ||
+                 opts.signal?.aborted ||
+                 !TRANSPORT.test(res.stderr)
+             ) {
+                 return res;
+             }
+             await new Promise((go) => setTimeout(go, 2 ** n * 50 + Math.random() * 100));
++            if (opts.signal?.aborted) {
++                return res;
++            }
+         }
+     };
+ }
