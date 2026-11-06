@@ -12,6 +12,7 @@ const root = mkdtempSync(join(tmpdir(), 'trace-'));
 const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
+    token: 'x'.repeat(32),
     projectId: 'project',
     user: { id: '00000000-0000-0000-0000-000000000001' },
     stateDir: root,

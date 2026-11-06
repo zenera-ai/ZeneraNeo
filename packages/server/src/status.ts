@@ -16,7 +16,7 @@ export interface ServerStatus {
     node: string;
     project: { id: string; dir: string };
     user: string;
-    /** where it listens: unix:<path> or tcp:<host>:<port>; unset before it does */
+    /** where it listens, host:port; unset before it does */
     listen?: string;
     debug: boolean;
     sandbox: {

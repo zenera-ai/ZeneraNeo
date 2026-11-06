@@ -4,11 +4,11 @@ One user's chats with a project, over HTTP: the server the agent image runs.
 Each turn opens the project with [`@zenera/engine`](../engine), streams its
 events as [AG-UI](https://docs.ag-ui.com), and runs the agents' commands in a
 [`BwrapSandbox`](../sandbox): bubblewrap inside the container, with nothing of
-the server's environment, state or socket visible to them.
+the server's environment or state visible to them.
 
 ```sh
-zen server start --user ann                       # unix:/state/server.sock
-zen server start --user ann --port 3000           # tcp:127.0.0.1:3000
+zen server start --user ann                       # 127.0.0.1:3000
+zen server start --user ann --host 0.0.0.0        # in a container
 zen server check --user ann                       # could it start here?
 zen server status                                 # a running one's report
 ```
@@ -21,26 +21,27 @@ const server = createServer({
     projectDir: '/project',
     stateDir: '/state',
     user: { id: 'ann', email: 'ann@acme.com' },
+    token: process.env.ZEN_SERVER_TOKEN!,
 });
-await server.listen({ socket: '/state/server.sock' });
+await server.listen({ port: 3000, host: '0.0.0.0' });
 ```
 
-## No authentication, by design
+## One token, no identity
 
-The server has no notion of callers. It serves **its one user** (named by its
-host: `--user` / `ZEN_USER_ID`, `ZEN_USER_EMAIL`, `ZEN_USER_ROLE`) to whoever
-can reach it, and who can reach it is the host's to decide:
+Who the server is for is its host's to say: **one user**, `--user` /
+`ZEN_USER_ID` (`ZEN_USER_EMAIL`, `ZEN_USER_ROLE`). No request can name another.
 
-- **Unix socket** (the default): owner-only (`0600`, in a `0700` directory),
-  and its directory is hidden from every sandboxed command, so an agent cannot
-  call its own server.
-- **TCP**: only when asked, loopback unless a host is named (with a warning:
-  anything that reaches it acts for the user).
-- **In front of it**, whatever the deployment needs: in ZeneraLite a guard that
-  checks zenera-app's per-request tokens and forwards to the socket; on a single
-  box a reverse proxy with its own login.
+Every request but `/healthz` carries `Authorization: Bearer <token>`, the one
+token the host gave it (`ZEN_SERVER_TOKEN`; `zen server start` otherwise makes
+`<state>/server.token`, owner-only, and `zen server status` reads it there).
+The token names nobody: it only proves the caller may reach this server.
+Logging people in and deciding who may use which server happen in front of it
+— zenera-app in ZeneraLite, which keeps one token per user's pod; a proxy on
+ZeneraSrv — so that can change without the server.
 
-Authentication can then change without touching the server.
+Sandboxed commands share the container's network, so they can reach the port;
+they cannot see the token (it is in neither their environment nor their view of
+the filesystem), so they are refused.
 
 ## Routes
 
@@ -65,7 +66,7 @@ MCP plugin (`ZEN_PLUGINS`, `ZEN_MCP_BROKER_URL`).
 
 ```
 <state>/state.json            layout version, project, user — refused if not this server's
-<state>/server.sock           the default socket
+<state>/server.token          the token, when the environment gave none (0600)
 <state>/data/sessions/<tid>/  one zen session per thread (its workspace inside)
 <state>/data/runs/<tid>/      each run's AG-UI events and record
 <state>/data/memory/          the user's memory graph
@@ -75,8 +76,8 @@ MCP plugin (`ZEN_PLUGINS`, `ZEN_MCP_BROKER_URL`).
 
 ## Sandbox
 
-`'bwrap'` by default: the state directory, the socket's directory, `/state` and
-`/run/secrets` are never visible to commands. `sandbox: 'podman'` gives the
+`'bwrap'` by default: the state directory, `/state` and `/run/secrets` are
+never visible to commands. `sandbox: 'podman'` gives the
 engine's own default instead, as `zen run` has it. `zen server start` refuses
 to listen when commands cannot be isolated, when the image was built for
 another project environment (`ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE`), or when the

@@ -19,6 +19,7 @@ const { configure, DEFAULTS } = await import('../src/config.ts');
 const serveAs = (id: string) =>
     configure({
         ...DEFAULTS,
+        token: 'x'.repeat(32),
         projectId: 'memory-test',
         user: { id },
         stateDir: join(dataDir, 'users', id),

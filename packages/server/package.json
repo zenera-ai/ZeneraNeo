@@ -1,7 +1,7 @@
 {
     "name": "@zenera/server",
     "version": "1.1.59",
-    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. No authentication of its own: it listens on a Unix socket, behind whatever guard its host puts in front.",
+    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. One bearer token guards it; who may use it is decided in front of it.",
     "keywords": [
         "agents",
         "ai-agents",

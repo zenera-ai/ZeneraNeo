@@ -9,16 +9,19 @@ import {
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer as createHttpServer, request, type Server } from 'node:http';
+import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import {
     createServer,
+    MIN_TOKEN_LENGTH,
     openState,
+    serverToken,
     STATE_VERSION,
     stopAllRuns,
+    TOKEN_FILE,
     type AgentServer,
 } from '../src/index.ts';
 
@@ -142,6 +145,15 @@ const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
 };
 
 // --- servers ---------------------------------------------------------------------------------
+const TOKEN = 'test-token-0123456789-abcdefghijklmnop';
+
+/** fetch, with the server's token. */
+const call = (url: string, init: RequestInit = {}) =>
+    fetch(url, {
+        ...init,
+        headers: { authorization: `Bearer ${TOKEN}`, ...(init.headers as Record<string, string>) },
+    });
+
 let running: { server: AgentServer; http: Server; url: string } | undefined;
 
 async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
@@ -152,6 +164,7 @@ async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
         projectDir,
         stateDir,
         user: { id: 'local' },
+        token: TOKEN,
         sandbox: fakeSandbox,
         sandboxProvider: 'fake',
         ...opts,
@@ -179,14 +192,14 @@ describe('the server', () => {
         const { url, http } = await start();
         expect((http.address() as AddressInfo).address).toBe('127.0.0.1');
         expect((await fetch(`${url}/healthz`)).status).toBe(200);
-        expect(await (await fetch(`${url}/api/activity`)).json()).toEqual({ busy: false, runs: 0 });
+        expect(await (await call(`${url}/api/activity`)).json()).toEqual({ busy: false, runs: 0 });
     });
 
     it('runs a turn end to end: the model calls run_command, the sandbox runs it', async () => {
         const { url, stateDir } = await start();
         const thread = randomUUID();
         commands.length = 0;
-        const res = await fetch(`${url}/api/sessions/${thread}/runs`, {
+        const res = await call(`${url}/api/sessions/${thread}/runs`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'say hello' }] }),
@@ -214,13 +227,13 @@ describe('the server', () => {
 
         // The stream ends with the run's last event; the run lets go of the thread just after.
         for (let i = 0; i < 50; i++) {
-            const a = (await (await fetch(`${url}/api/activity`)).json()) as {
+            const a = (await (await call(`${url}/api/activity`)).json()) as {
                 busy: boolean;
             };
             if (!a.busy) break;
             await new Promise((r) => setTimeout(r, 20));
         }
-        const history = await fetch(`${url}/api/sessions/${thread}`);
+        const history = await call(`${url}/api/sessions/${thread}`);
         const body = (await history.json()) as { events: AGUIEvent[]; running: unknown };
         expect(body.running).toBeNull();
         expect(body.events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
@@ -229,18 +242,18 @@ describe('the server', () => {
     it('keeps the debug routes off unless asked for', async () => {
         const thread = randomUUID();
         let { url } = await start();
-        expect((await fetch(`${url}/api/sessions/${thread}/runs`)).status).toBe(404);
+        expect((await call(`${url}/api/sessions/${thread}/runs`)).status).toBe(404);
         ({ url } = await start({ debug: true }));
-        expect((await fetch(`${url}/api/sessions/${thread}/runs`)).status).toBe(200);
+        expect((await call(`${url}/api/sessions/${thread}/runs`)).status).toBe(200);
     });
 
     it('reports itself', async () => {
         const { url } = await start();
-        const status = (await (await fetch(`${url}/api/status`)).json()) as Record<string, unknown>;
+        const status = (await (await call(`${url}/api/status`)).json()) as Record<string, unknown>;
         expect(status).toMatchObject({
             project: { id: 'p1', dir: projectDir },
             user: 'local',
-            listen: expect.stringMatching(/^tcp:127\.0\.0\.1:\d+$/),
+            listen: expect.stringMatching(/^127\.0\.0\.1:\d+$/),
             debug: false,
             sandbox: { provider: 'fake', ok: true },
             state: { version: STATE_VERSION, supported: STATE_VERSION },
@@ -253,6 +266,7 @@ const bwrap = await probeBwrap();
 describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
     it('runs the model’s command under bwrap, with nothing of the server’s environment', async () => {
         process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
+        process.env.ZEN_SERVER_TOKEN = TOKEN;
         try {
             const { url, stateDir } = await start({ sandbox: 'bwrap', sandboxProvider: 'bwrap' });
             // Not under /tmp, which every command has its own of anyway.
@@ -260,10 +274,13 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
             mkdirSync(visible);
             writeFileSync(join(visible, 'state.json'), '{}');
             running!.server.settings.hidden.push(visible);
+            const port = new URL(url).port;
             script =
                 'echo hello; env | grep -c ZEN_SERVER_LIVE_SECRET || true; ' +
+                `env | grep -q ${TOKEN} && echo TOKEN-SEEN; ` +
+                `node -e "fetch('http://127.0.0.1:${port}/api/activity').then(r => console.log('server says', r.status))"; ` +
                 `test -e ${visible}/state.json && echo STATE-SEEN; test -e ${stateDir}/state.json && echo OWN-STATE-SEEN; true`;
-            const res = await fetch(`${url}/api/sessions/${randomUUID()}/runs`, {
+            const res = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ messages: [{ role: 'user', content: 'go' }] }),
@@ -276,55 +293,52 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
             expect(text).not.toContain('leaked');
             expect(text).toMatch(/hello\\n0/);
             expect(text).not.toContain('STATE-SEEN');
+            expect(text).not.toContain('TOKEN-SEEN');
+            // The command reaches the port, and is refused: it has no token.
+            expect(text).toContain('server says 401');
             rmSync(visible, { recursive: true, force: true });
         } finally {
             script = 'echo hello';
             delete process.env.ZEN_SERVER_LIVE_SECRET;
+            delete process.env.ZEN_SERVER_TOKEN;
         }
     });
 });
 
-describe('on a Unix socket', () => {
-    it('is its owner’s alone, answers there, and is gone when it stops', async () => {
-        await running?.server.stop(1000);
-        running = undefined;
-        const stateDir = mkdtempSync(join(root, 'state-'));
-        const socket = join(root, `run-${randomUUID().slice(0, 8)}`, 'server.sock');
-        const server = createServer({
-            projectId: 'p1',
-            projectDir,
-            stateDir,
-            user: { id: 'local' },
-            sandbox: fakeSandbox,
-            sandboxProvider: 'fake',
-        });
-        await server.listen({ socket });
-        try {
-            expect(statSync(socket).mode & 0o777).toBe(0o600);
-            expect(statSync(join(socket, '..')).mode & 0o777).toBe(0o700);
-            // Every command the server runs is kept from the socket's directory.
-            expect(server.settings.hidden).toContain(join(socket, '..'));
-            const answer = await new Promise<{ status?: number; body: string }>((done, fail) => {
-                const req = request({ socketPath: socket, path: '/api/status' }, (res) => {
-                    let body = '';
-                    res.on('data', (c) => (body += c));
-                    res.on('end', () => done({ status: res.statusCode, body }));
-                });
-                req.on('error', fail);
-                req.end();
+describe('its token', () => {
+    it('is wanted on every route but /healthz, and only that one', async () => {
+        const { url } = await start();
+        expect((await fetch(`${url}/healthz`)).status).toBe(200);
+        for (const path of ['/api/status', '/api/activity', `/api/sessions/${randomUUID()}`]) {
+            expect((await fetch(`${url}${path}`)).status).toBe(401);
+            const wrong = await fetch(`${url}${path}`, {
+                headers: { authorization: `Bearer ${TOKEN}x` },
             });
-            expect(answer.status).toBe(200);
-            expect(JSON.parse(answer.body)).toMatchObject({ listen: `unix:${socket}` });
-        } finally {
-            await server.stop(1000);
+            expect(wrong.status).toBe(401);
+            expect((await call(`${url}${path}`)).status).toBe(200);
         }
-        expect(existsSync(socket)).toBe(false);
     });
 
-    it('refuses a user that is not one', () => {
-        expect(() =>
-            createServer({ projectId: 'p1', projectDir, stateDir: root, user: { id: '../x' } }),
-        ).toThrow(/not a user id/);
+    it('is refused when short, and so is a user that is not one', () => {
+        const base = { projectId: 'p1', projectDir, stateDir: root, user: { id: 'local' } };
+        expect(() => createServer({ ...base, token: 'short' })).toThrow(/at least 32/);
+        expect(() => createServer({ ...base, token: TOKEN, user: { id: '../x' } })).toThrow(
+            /not a user id/,
+        );
+    });
+
+    it('is made once per state directory, owner-only, unless the environment gives one', () => {
+        const dir = mkdtempSync(join(root, 'token-'));
+        expect(serverToken(dir, { env: {} })).toBeUndefined();
+        const made = serverToken(dir, { create: true, env: {} })!;
+        expect(made.token.length).toBeGreaterThanOrEqual(MIN_TOKEN_LENGTH);
+        expect(made.from).toBe(join(dir, TOKEN_FILE));
+        expect(statSync(made.from).mode & 0o777).toBe(0o600);
+        expect(serverToken(dir, { create: true, env: {} })).toEqual(made);
+        expect(serverToken(dir, { env: { ZEN_SERVER_TOKEN: 'given' } })).toEqual({
+            token: 'given',
+            from: 'env',
+        });
     });
 });
 
@@ -348,7 +362,7 @@ describe('state.json', () => {
 
     it('refuses new runs once the server is stopping, and a new server takes them again', async () => {
         const post = (url: string) =>
-            fetch(`${url}/api/sessions/${randomUUID()}/runs`, {
+            call(`${url}/api/sessions/${randomUUID()}/runs`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),

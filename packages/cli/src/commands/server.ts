@@ -1,5 +1,4 @@
-import { request } from 'node:http';
-import { basename, join, resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { parse } from '../args.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
@@ -8,7 +7,6 @@ const USAGE = 'zen server <start|check|status> [options]';
 const SUBCOMMANDS = ['start', 'check', 'status'];
 
 interface Flags {
-    listen?: string;
     port?: string;
     host?: string;
     project?: string;
@@ -23,9 +21,9 @@ interface Flags {
  * agent image runs (`/opt/zenera/bin/zen server start`); `@zenera/server` is
  * loaded only here, so no other command pays for it.
  *
- * It does no authentication. It listens on a Unix socket that sandboxed
- * commands cannot see, and whatever may reach it acts for its user: on a
- * laptop that is the socket's owner, in ZeneraLite the guard in front of it.
+ * Every request carries the one token it was given ($ZEN_SERVER_TOKEN, else
+ * <state>/server.token, made on first start). The token names nobody: who the
+ * server is for is --user, and who may use it is decided in front of it.
  */
 export const server: Command = {
     summary: 'Serve a project’s chats over HTTP: the agent image’s server.',
@@ -38,17 +36,18 @@ export const server: Command = {
         '                         /state that is this user\u2019s.',
         '  status                 A running server\u2019s own report (/api/status).',
         '',
-        '  --listen <where>       unix:<path> (default unix:<state>/server.sock) or',
-        '                         tcp:<host>:<port>. No authentication: whoever',
-        '                         reaches it acts for its user. A socket is the',
-        '                         owner\u2019s only and hidden from every command.',
-        '  --port <n>             Shorthand for tcp:127.0.0.1:<n>; --host widens it.',
+        '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
+        '  --host <addr>          Default $ZEN_SERVER_HOST, else 127.0.0.1.',
         '  --project <dir>        The project; default $PROJECT_DIR, else /project.',
         '  --state <dir>          Everything it writes; default $ZEN_STATE_DIR, else /state.',
         '  --user <id>            Whose server it is; default $ZEN_USER_ID ($ZEN_USER_EMAIL,',
         '                         $ZEN_USER_ROLE say more about them).',
         '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
         '  --sandbox <bwrap|podman>  Where commands run; bwrap unless told.',
+        '',
+        'Every request but /healthz needs `Authorization: Bearer <token>`: the',
+        'token is $ZEN_SERVER_TOKEN, else <state>/server.token (made on first start,',
+        'owner-only). Sandboxed commands see neither.',
         '',
         'Model keys come from the environment (BIFROST_BASE_URL and BIFROST_API_KEY,',
         'or a vendor\u2019s own), as anything else a run reads does.',
@@ -57,7 +56,6 @@ export const server: Command = {
         const { values, positionals } = parse<Flags>(
             ctx.args,
             {
-                listen: { type: 'string' },
                 port: { type: 'string' },
                 host: { type: 'string' },
                 project: { type: 'string' },
@@ -118,13 +116,15 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
     }
     return {
         mod,
-        listen: listenOn(values, stateDir),
+        listen: listenOn(values),
+        stateDir,
         settings: {
             ...mod.DEFAULTS,
             projectDir,
             projectId: env.ZEN_PROJECT_ID?.trim() || basename(projectDir),
             stateDir,
             user,
+            token: '',
             debug: Boolean(values.debug ?? truthy(env.ZEN_SERVER_DEBUG)),
             sandbox: sandboxName,
             sandboxProvider:
@@ -142,30 +142,18 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
 
 type ListenOn = import('@zenera/server').ListenOn;
 
-/** --listen, else --port/--host, else $ZEN_SERVER_LISTEN, else the state directory's socket. */
-function listenOn(values: Flags, stateDir: string, env: NodeJS.ProcessEnv = process.env): ListenOn {
-    if (values.port !== undefined || values.host !== undefined) {
-        if (values.listen) throw usageError('--listen, or --port/--host: not both', USAGE);
-        return tcp(values.host ?? '127.0.0.1', values.port ?? '3000');
-    }
-    const where =
-        values.listen ?? env.ZEN_SERVER_LISTEN?.trim() ?? `unix:${join(stateDir, 'server.sock')}`;
-    if (where.startsWith('unix:') && where.length > 5) return { socket: resolve(where.slice(5)) };
-    const m = /^tcp:(.+):(\d+)$/.exec(where);
-    if (m) return tcp(m[1], m[2]);
-    throw usageError(`--listen is unix:<path> or tcp:<host>:<port>, not ${where}`, USAGE);
-}
-
-function tcp(host: string, portText: string): ListenOn {
-    const port = Number(portText);
+/** --port/--host, else $ZEN_SERVER_PORT/$ZEN_SERVER_HOST, else 127.0.0.1:3000. */
+function listenOn(values: Flags, env: NodeJS.ProcessEnv = process.env): ListenOn {
+    const text = values.port ?? env.ZEN_SERVER_PORT?.trim() ?? '3000';
+    const port = Number(text);
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
-        throw usageError(`not a port: ${portText}`, USAGE);
+        throw usageError(`not a port: ${text}`, USAGE);
     }
-    return { port, host };
+    return { port, host: values.host ?? (env.ZEN_SERVER_HOST?.trim() || '127.0.0.1') };
 }
 
 function describe(on: ListenOn): string {
-    return 'socket' in on ? `unix:${on.socket}` : `tcp:${on.host}:${on.port}`;
+    return on.host?.includes(':') ? `[${on.host}]:${on.port}` : `${on.host}:${on.port}`;
 }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -188,29 +176,31 @@ async function check(ctx: Context, values: Flags): Promise<void> {
 }
 
 async function start(ctx: Context, values: Flags): Promise<void> {
-    const { mod, settings, listen } = await options(ctx, values);
+    const { mod, settings, listen, stateDir } = await options(ctx, values);
     mod.configure(settings);
     const errors = mod.startupErrors(await mod.serverStatus());
     if (errors.length) {
         for (const e of errors) note(red(`✗ ${e}`));
         throw new CliError('the server cannot start here', EXIT.sandbox, 'zen server check');
     }
-    if ('port' in listen && !LOOPBACK.has(listen.host ?? '')) {
+    if (!LOOPBACK.has(listen.host ?? '')) {
         note(
             yellow(
-                `⚠ listening on ${listen.host}: anything that reaches it acts for ${settings.user.id}, ` +
-                    'so put a guard in front of it',
+                `⚠ listening on ${listen.host}: its token is all that stands between the network ` +
+                    `and ${settings.user.id}'s chats`,
             ),
         );
     }
-    const app = mod.createServer(settings);
+    const token = mod.serverToken(stateDir, { create: true })!;
+    const app = mod.createServer({ ...settings, token: token.token });
     await app.listen(listen);
     note(
         `zen server listening on ${describe(listen)} ` +
             dim(
                 `(project=${settings.projectId}, user=${settings.user.id}, ` +
                     `state=${settings.stateDir}, sandbox=${settings.sandboxProvider}` +
-                    `${settings.debug ? ', debug' : ''})`,
+                    `${settings.debug ? ', debug' : ''}, ` +
+                    `token from ${token.from === 'env' ? '$ZEN_SERVER_TOKEN' : token.from})`,
             ),
     );
     // A stopping container: runs end as interrupted and save their sessions within the grace
@@ -227,52 +217,39 @@ async function start(ctx: Context, values: Flags): Promise<void> {
 }
 
 async function status(ctx: Context, values: Flags): Promise<void> {
+    const mod = await load();
     const stateDir = resolve(ctx.cwd, values.state ?? process.env.ZEN_STATE_DIR ?? '/state');
-    const on = listenOn(values, stateDir);
-    let answer: { status: number; body: string };
+    const on = listenOn(values);
+    const token = mod.serverToken(stateDir);
+    const url = `http://${describe(on)}/api/status`;
+    let res: Response;
     try {
-        answer = await get(on, '/api/status');
+        res = await fetch(url, {
+            headers: token ? { authorization: `Bearer ${token.token}` } : {},
+            signal: AbortSignal.timeout(10_000),
+        });
     } catch (err) {
         throw new CliError(
-            `no server answered on ${describe(on)}: ${(err as NodeJS.ErrnoException).code ?? err}`,
+            `no server answered on ${describe(on)}: ${(err as { cause?: { code?: string } }).cause?.code ?? err}`,
             EXIT.failed,
-            'is it running? --listen (or --state) says where',
+            'is it running? --port and --host say where',
         );
     }
-    if (answer.status !== 200) {
+    if (!res.ok) {
         throw new CliError(
-            `${describe(on)} answered ${answer.status}: ${answer.body.slice(0, 200)}`,
+            `${describe(on)} answered ${res.status}: ${(await res.text()).slice(0, 200)}`,
             EXIT.failed,
+            res.status === 401
+                ? 'its token: $ZEN_SERVER_TOKEN, or --state where its server.token is'
+                : undefined,
         );
     }
-    const report = JSON.parse(answer.body) as import('@zenera/server').ServerStatus;
+    const report = (await res.json()) as import('@zenera/server').ServerStatus;
     if (ctx.json) {
         json(report);
         return;
     }
     printStatus(report);
-}
-
-/** A GET over a Unix socket or TCP; `fetch` speaks only the latter. */
-function get(on: ListenOn, path: string): Promise<{ status: number; body: string }> {
-    return new Promise((done, fail) => {
-        const req = request(
-            {
-                ...('socket' in on ? { socketPath: on.socket } : { host: on.host, port: on.port }),
-                path,
-                timeout: 10_000,
-            },
-            (res) => {
-                let body = '';
-                res.setEncoding('utf8');
-                res.on('data', (c: string) => (body += c));
-                res.on('end', () => done({ status: res.statusCode ?? 0, body }));
-            },
-        );
-        req.on('timeout', () => req.destroy(new Error('timed out')));
-        req.on('error', fail);
-        req.end();
-    });
 }
 
 function printStatus(s: import('@zenera/server').ServerStatus): void {

@@ -2,10 +2,10 @@
 // One server per process — the agent image's — so they are module state rather than
 // threaded through every router; `configure` replaces them whole.
 //
-// There is no authentication here: the server serves one user, named by its host, to whoever
-// can reach it. Reaching it is the host's to control — a Unix socket by default, which no
-// sandboxed command can see; in ZeneraLite a guard in front of it that checks zenera-app's
-// tokens.
+// Who the server is for is its host's to say (`user`), never a request's. A request only proves
+// it may reach the server at all, with the one bearer `token` the host gave it: a secret that
+// names nobody. Logging people in, and deciding who may use which server, stays in front of it
+// (zenera-app, a ZeneraSrv proxy), so that can change without the server.
 import type { ZenPlugin } from '@zenera/engine';
 import type { SandboxFactory } from '@zenera/sandbox';
 
@@ -24,6 +24,8 @@ export interface ServerSettings {
     /** everything the server writes: the chats, their runs, the memory */
     stateDir: string;
     user: ServerUser;
+    /** the bearer token every request but /healthz must carry; at least 32 characters */
+    token: string;
     /** the Test tab's routes: recorded runs, traces, the memory graph */
     debug: boolean;
     /**
@@ -33,7 +35,7 @@ export interface ServerSettings {
     sandbox: 'bwrap' | 'podman' | SandboxFactory;
     /** what to call it, for `/api/status` */
     sandboxProvider: string;
-    /** more paths bwrap commands never see (the state directory and the server's socket always) */
+    /** more paths bwrap commands never see (the state directory always) */
     hidden: string[];
     /** this run's own plugins (the MCP tools for its user), given the token its caller sent */
     plugins: (run: { mcpToken: string | null }) => Promise<ZenPlugin[]>;
@@ -42,7 +44,7 @@ export interface ServerSettings {
     runLogMaxBytes: number;
 }
 
-export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user'> = {
+export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token'> = {
     projectDir: '/project',
     stateDir: '/state',
     debug: false,

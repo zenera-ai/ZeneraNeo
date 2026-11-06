@@ -11,6 +11,7 @@ import { test } from 'vitest';
 const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
+    token: 'x'.repeat(32),
     projectId: 'project',
     user: { id: 'u' },
     stateDir: mkdtempSync(join(tmpdir(), 'image-ready-')),

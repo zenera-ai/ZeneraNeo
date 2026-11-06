@@ -74,18 +74,18 @@ Docker Desktop 27.5 default (bind) and `systempaths=unconfined` (fresh), Docker 
 
 `packages/server`: ZeneraLite's runtime (`services/zenera-project/src`: runtime, sessions →
 `store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory) with its
-tests, made a package for **one user** and **no authentication**. See its README.
+tests, made a package for **one user** behind **one token**. See its README.
 
-- `createServer({ projectId, user: { id, email?, role? }, projectDir, stateDir, debug, sandbox,
-hidden, plugins, limits… })`; `listen({ socket })` or `listen({ port, host })`.
+- `createServer({ projectId, user: { id, email?, role? }, token, projectDir, stateDir, debug,
+sandbox, hidden, plugins, limits… })`; `listen({ port, host = '127.0.0.1' })`.
 - Identity is the host's: the user from settings (`ZEN_USER_*`), the thread from the URL (one safe
   path segment). Nothing of a request says who it is for.
-- Reaching it is the host's to control: a Unix socket by default (`0600`, `0700` directory,
-  hidden from every bwrap command), TCP only when asked (loopback default). ZeneraLite puts a guard
-  in front (zenera-app's per-request JWT, the checks the old runtime made); a laptop has the socket.
+- Auth is one bearer token (≥ 32 chars) on every route but `/healthz`, compared in constant time.
+  It names nobody; login and who-may-use-which-server stay in front (zenera-app, a proxy).
+  Sandboxed commands can reach the port but see no token (not in their env, state dir hidden).
 - State: `<state>/data/{sessions,runs,memory}`, `state.json` (layout 1, project, user) refuses a
-  newer layout, another project, another user; `check` only reads it.
-- Sandbox: `'bwrap'` (state dir, socket dir, `/state`, `/run/secrets` hidden), `'podman'`, or a factory.
+  newer layout, another project, another user; `check` only reads it. `<state>` is 0700.
+- Sandbox: `'bwrap'` (state dir, `/state`, `/run/secrets` hidden), `'podman'`, or a factory.
 - `GET /api/status` (includes where it listens); debug routes only with `debug`.
 - Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`,
   given the run's `x-zenera-mcp-token`).
@@ -94,29 +94,29 @@ hidden, plugins, limits… })`; `listen({ socket })` or `listen({ port, host })`
 ### N5. `zen server` — done
 
 ```
-zen server start  [--listen unix:<path>|tcp:<host>:<port>] [--port n] [--host h]
-                  [--project /project] [--state /state] [--user <id>] [--debug] [--sandbox bwrap|podman]
+zen server start  [--port 3000] [--host 127.0.0.1] [--project /project] [--state /state]
+                  [--user <id>] [--debug] [--sandbox bwrap|podman]
 zen server check  (same options)        # bwrap, image identity, /state; exit 5 when not ready
-zen server status [--listen …|--state …] # a running server's /api/status, over its socket or TCP
+zen server status [--port …] [--host …] [--state …]   # a running server's /api/status
 ```
 
 - Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
-  `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_LISTEN`,
-  `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`. Default listen: `unix:<state>/server.sock`.
-- A non-loopback TCP host starts with a warning. Keys from env; no keyring.
-- The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]`.
+  `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_PORT`,
+  `ZEN_SERVER_HOST`, `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`.
+- Token: `ZEN_SERVER_TOKEN`, else `<state>/server.token` (made on first start, 0600); `status`
+  reads the same. A non-loopback host starts with a warning. Keys from env; no keyring.
+- The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]` with
+  `ZEN_SERVER_HOST=0.0.0.0`.
 - `@zenera/server` is a dependency of the CLI, imported only by `zen server`.
 - `BwrapSandbox.prepare()` checks the image identity only when the container states one.
 
-### ZeneraLite: the guard (next, in ZeneraLite)
+### ZeneraLite: tokens per pod (next, in ZeneraLite)
 
-```
-pod agt-<user>
-├ guard :3000     verifies zenera-app's JWT (iss, aud, 2-min age, prj, sub = the pod's user,
-│                 req = this request), forwards to the socket; passes x-zenera-mcp-token
-└ agent           zen server start --listen unix:/run/agent/server.sock   (emptyDir shared)
-NetworkPolicy: only zenera-app → :3000
-```
+- zenera-app makes a random token per user pod, keeps it in a Secret only it can read, and gives
+  it to the pod as `ZEN_SERVER_TOKEN`.
+- When it proxies a chat request it adds `Authorization: Bearer <that pod's token>` (and the run's
+  `x-zenera-mcp-token`), after its own login and project-access checks.
+- NetworkPolicy: only zenera-app → the pod's port.
 
 ### N6. `zenera/runtime` image (published per zen release, per arch)
 

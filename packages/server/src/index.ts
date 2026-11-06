@@ -28,3 +28,4 @@ export { HttpError, errorHandler, notFound } from './http.ts';
 export { envRunPlugins } from './plugins.ts';
 export { openState, STATE_VERSION, StateError, type StateInfo } from './state.ts';
 export { owner, serverStatus, startupErrors, type ServerStatus } from './status.ts';
+export { MIN_TOKEN_LENGTH, serverToken, TOKEN_ENV, TOKEN_FILE, type ServerToken } from './token.ts';

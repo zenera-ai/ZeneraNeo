@@ -129,7 +129,6 @@ export async function imageReady(setup: SandboxSetup): Promise<void> {
 /** The factory a run's engine opens its sandbox with. */
 function sandboxFactory(s: ServerSettings): SandboxFactory {
     if (s.sandbox !== 'bwrap') return s.sandbox as SandboxFactory;
-    // Read now, not when configured: listening adds the socket's directory.
     const hidden = [s.stateDir, ...s.hidden];
     return (opts) => new BwrapSandbox(opts, { hidden });
 }
