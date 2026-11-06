@@ -1,16 +1,16 @@
 # @zenera/server
 
-A project's chats over HTTP: the server the agent image runs, for the one user
-its container belongs to. Each turn opens the project with
-[`@zenera/engine`](../engine), streams its events as
-[AG-UI](https://docs.ag-ui.com), and runs the agents' commands in a
-[`BwrapSandbox`](../sandbox) — bubblewrap inside the container, with nothing of
-the server's environment or state visible to them.
+One user's chats with a project, over HTTP: the server the agent image runs.
+Each turn opens the project with [`@zenera/engine`](../engine), streams its
+events as [AG-UI](https://docs.ag-ui.com), and runs the agents' commands in a
+[`BwrapSandbox`](../sandbox): bubblewrap inside the container, with nothing of
+the server's environment, state or socket visible to them.
 
 ```sh
-zen server start --project /project --state /state --user u1   # what the image runs
-zen server check                                                # could it start here?
-zen server status --url http://localhost:3000                   # a running one's report
+zen server start --user ann                       # unix:/state/server.sock
+zen server start --user ann --port 3000           # tcp:127.0.0.1:3000
+zen server check --user ann                       # could it start here?
+zen server status                                 # a running one's report
 ```
 
 ```ts
@@ -20,17 +20,33 @@ const server = createServer({
     projectId: 'p1',
     projectDir: '/project',
     stateDir: '/state',
-    userId: 'u1',
-    auth: { mode: 'token', token: process.env.ZEN_SERVER_TOKEN! },
+    user: { id: 'ann', email: 'ann@acme.com' },
 });
-await server.listen(3000);
+await server.listen({ socket: '/state/server.sock' });
 ```
+
+## No authentication, by design
+
+The server has no notion of callers. It serves **its one user** (named by its
+host: `--user` / `ZEN_USER_ID`, `ZEN_USER_EMAIL`, `ZEN_USER_ROLE`) to whoever
+can reach it, and who can reach it is the host's to decide:
+
+- **Unix socket** (the default): owner-only (`0600`, in a `0700` directory),
+  and its directory is hidden from every sandboxed command, so an agent cannot
+  call its own server.
+- **TCP**: only when asked, loopback unless a host is named (with a warning:
+  anything that reaches it acts for the user).
+- **In front of it**, whatever the deployment needs: in ZeneraLite a guard that
+  checks zenera-app's per-request tokens and forwards to the socket; on a single
+  box a reverse proxy with its own login.
+
+Authentication can then change without touching the server.
 
 ## Routes
 
 | Route                                            | What                                                          |
 | ------------------------------------------------ | ------------------------------------------------------------- |
-| `GET /healthz`                                   | Open, for probes                                              |
+| `GET /healthz`                                   | For probes                                                    |
 | `GET /api/status`                                | Versions, sandbox (and why not), image identity, state layout |
 | `GET /api/activity`                              | Whether a run is going, for idle stop                         |
 | `GET /api/sessions/:tid`                         | The chat so far, as AG-UI events                              |
@@ -40,40 +56,30 @@ await server.listen(3000);
 | `DELETE /api/sessions/:tid`                      | The thread and its files                                      |
 | `/api/sessions/:tid/{runs,…/trace,memory}` debug | With `debug: true` only: recorded runs, traces, memory graph  |
 
-Thread ids are UUIDs. A run belongs to the server, not the request: it goes on
-when the caller leaves and can be followed again.
-
-## Auth
-
-- **`jwt`** — zenera-app signs an EdDSA token per request (`iss: zenera-app`,
-  `aud: zenera-runtime`, `prj`, `req: "<METHOD> <url>"`, `sub`, `thr`, `role`);
-  the server holds only the public key. A single-user server refuses a token
-  for anyone but its user.
-- **`token`** — one bearer token, for a host with no zenera-app (ZeneraSrv, a
-  laptop). The caller is the server's user, as owner.
+A thread id is one path segment (letters, digits, `_`, `-`). A run belongs to
+the server, not the request: it goes on when the caller leaves and can be
+followed again. An `x-zenera-mcp-token` header on a run is handed to the run's
+MCP plugin (`ZEN_PLUGINS`, `ZEN_MCP_BROKER_URL`).
 
 ## State
 
-Everything it writes is under `stateDir`, described by `state.json`: layout
-version, project, and mode — `single` with its user, or `shared`. A server
-refuses a newer layout, another project, the other mode, or another user's
-directory. `zen server check` only reads it; the server writes it on start.
-
 ```
-<state>/state.json
-<state>/data/sessions/<tid>/   one zen session per thread (its workspace inside)
-<state>/data/runs/<tid>/       each run's AG-UI events and record
-<state>/data/memory/           the user's memory graph
+<state>/state.json            layout version, project, user — refused if not this server's
+<state>/server.sock           the default socket
+<state>/data/sessions/<tid>/  one zen session per thread (its workspace inside)
+<state>/data/runs/<tid>/      each run's AG-UI events and record
+<state>/data/memory/          the user's memory graph
 ```
 
-Without a `userId` it serves any user a token names, each under
-`<state>/users/<id>/` instead of `data/` — a project pod shared by its users.
+`zen server check` only reads `state.json`; the server writes it on start.
 
 ## Sandbox
 
-`bwrapSandbox` by default; `sandbox: 'podman'` gives the engine's own default
-instead, as `zen run` has it. `zen server start` refuses to listen when commands
-cannot be isolated, when the image was built for another project environment
-(`ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE`), or when the state layout is unknown.
+`'bwrap'` by default: the state directory, the socket's directory, `/state` and
+`/run/secrets` are never visible to commands. `sandbox: 'podman'` gives the
+engine's own default instead, as `zen run` has it. `zen server start` refuses
+to listen when commands cannot be isolated, when the image was built for
+another project environment (`ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE`), or when the
+state is not this user's.
 
 Model keys come from the environment, as for any run.

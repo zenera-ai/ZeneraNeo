@@ -1,16 +1,15 @@
 import { EventType, type AGUIEvent } from '@ag-ui/core';
 import {
-    bwrapSandbox,
     probeBwrap,
     RootedFs,
     type Sandbox,
     type SandboxFactory,
     type SandboxOptions,
 } from '@zenera/sandbox';
-import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer as createHttpServer, type Server } from 'node:http';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,9 +29,6 @@ import {
 const root = mkdtempSync(join(tmpdir(), 'zen-server-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 process.env.ZENERA_HOME = join(root, 'zenera-home');
-
-const USER = '00000000-0000-4000-8000-000000000001';
-const OTHER = '00000000-0000-4000-8000-000000000002';
 
 // --- a model: call run_command, then answer with what it printed ---------------------------
 let script = 'echo hello';
@@ -146,24 +142,6 @@ const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
 };
 
 // --- servers ---------------------------------------------------------------------------------
-const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
-const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
-
-function jwt(claims: Record<string, unknown>): string {
-    const now = Math.floor(Date.now() / 1000);
-    const head = b64({ alg: 'EdDSA', typ: 'JWT' });
-    const body = b64({
-        iss: 'zenera-app',
-        aud: 'zenera-runtime',
-        iat: now,
-        exp: now + 60,
-        ...claims,
-    });
-    const sig = sign(null, Buffer.from(`${head}.${body}`), privateKey).toString('base64url');
-    return `${head}.${body}.${sig}`;
-}
-
 let running: { server: AgentServer; http: Server; url: string } | undefined;
 
 async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
@@ -173,13 +151,12 @@ async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
         projectId: 'p1',
         projectDir,
         stateDir,
-        auth: { mode: 'token', token: 'secret' },
-        userId: 'local',
+        user: { id: 'local' },
         sandbox: fakeSandbox,
         sandboxProvider: 'fake',
         ...opts,
     });
-    const http = await server.listen(0, '127.0.0.1');
+    const http = await server.listen({ port: 0 });
     running = { server, http, url: `http://127.0.0.1:${(http.address() as AddressInfo).port}` };
     return { ...running, stateDir };
 }
@@ -197,19 +174,12 @@ async function events(res: Response): Promise<AGUIEvent[]> {
         .map((l) => JSON.parse(l.slice(6)) as AGUIEvent);
 }
 
-describe('token auth (ZeneraSrv, a laptop)', () => {
-    it('answers /healthz to anyone, everything else only with the token', async () => {
-        const { url } = await start();
+describe('the server', () => {
+    it('answers on loopback TCP when asked', async () => {
+        const { url, http } = await start();
+        expect((http.address() as AddressInfo).address).toBe('127.0.0.1');
         expect((await fetch(`${url}/healthz`)).status).toBe(200);
-        expect((await fetch(`${url}/api/activity`)).status).toBe(401);
-        const wrong = await fetch(`${url}/api/activity`, {
-            headers: { authorization: 'Bearer nope' },
-        });
-        expect(wrong.status).toBe(401);
-        const ok = await fetch(`${url}/api/activity`, {
-            headers: { authorization: 'Bearer secret' },
-        });
-        expect(await ok.json()).toEqual({ busy: false, runs: 0 });
+        expect(await (await fetch(`${url}/api/activity`)).json()).toEqual({ busy: false, runs: 0 });
     });
 
     it('runs a turn end to end: the model calls run_command, the sandbox runs it', async () => {
@@ -218,7 +188,7 @@ describe('token auth (ZeneraSrv, a laptop)', () => {
         commands.length = 0;
         const res = await fetch(`${url}/api/sessions/${thread}/runs`, {
             method: 'POST',
-            headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'say hello' }] }),
         });
         if (res.status !== 200) throw new Error(await res.text());
@@ -243,15 +213,14 @@ describe('token auth (ZeneraSrv, a laptop)', () => {
         expect(existsSync(join(stateDir, 'users'))).toBe(false);
 
         // The stream ends with the run's last event; the run lets go of the thread just after.
-        const auth = { authorization: 'Bearer secret' };
         for (let i = 0; i < 50; i++) {
-            const a = (await (await fetch(`${url}/api/activity`, { headers: auth })).json()) as {
+            const a = (await (await fetch(`${url}/api/activity`)).json()) as {
                 busy: boolean;
             };
             if (!a.busy) break;
             await new Promise((r) => setTimeout(r, 20));
         }
-        const history = await fetch(`${url}/api/sessions/${thread}`, { headers: auth });
+        const history = await fetch(`${url}/api/sessions/${thread}`);
         const body = (await history.json()) as { events: AGUIEvent[]; running: unknown };
         expect(body.running).toBeNull();
         expect(body.events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
@@ -260,25 +229,18 @@ describe('token auth (ZeneraSrv, a laptop)', () => {
     it('keeps the debug routes off unless asked for', async () => {
         const thread = randomUUID();
         let { url } = await start();
-        const auth = { authorization: 'Bearer secret' };
-        expect((await fetch(`${url}/api/sessions/${thread}/runs`, { headers: auth })).status).toBe(
-            404,
-        );
+        expect((await fetch(`${url}/api/sessions/${thread}/runs`)).status).toBe(404);
         ({ url } = await start({ debug: true }));
-        expect((await fetch(`${url}/api/sessions/${thread}/runs`, { headers: auth })).status).toBe(
-            200,
-        );
+        expect((await fetch(`${url}/api/sessions/${thread}/runs`)).status).toBe(200);
     });
 
     it('reports itself', async () => {
         const { url } = await start();
-        const status = (await (
-            await fetch(`${url}/api/status`, { headers: { authorization: 'Bearer secret' } })
-        ).json()) as Record<string, unknown>;
+        const status = (await (await fetch(`${url}/api/status`)).json()) as Record<string, unknown>;
         expect(status).toMatchObject({
             project: { id: 'p1', dir: projectDir },
             user: 'local',
-            auth: 'token',
+            listen: expect.stringMatching(/^tcp:127\.0\.0\.1:\d+$/),
             debug: false,
             sandbox: { provider: 'fake', ok: true },
             state: { version: STATE_VERSION, supported: STATE_VERSION },
@@ -292,11 +254,18 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
     it('runs the model’s command under bwrap, with nothing of the server’s environment', async () => {
         process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
         try {
-            const { url } = await start({ sandbox: bwrapSandbox, sandboxProvider: 'bwrap' });
-            script = 'echo hello; env | grep -c ZEN_SERVER_LIVE_SECRET || true';
+            const { url, stateDir } = await start({ sandbox: 'bwrap', sandboxProvider: 'bwrap' });
+            // Not under /tmp, which every command has its own of anyway.
+            const visible = join(process.cwd(), `.zen-live-state-${randomUUID().slice(0, 8)}`);
+            mkdirSync(visible);
+            writeFileSync(join(visible, 'state.json'), '{}');
+            running!.server.settings.hidden.push(visible);
+            script =
+                'echo hello; env | grep -c ZEN_SERVER_LIVE_SECRET || true; ' +
+                `test -e ${visible}/state.json && echo STATE-SEEN; test -e ${stateDir}/state.json && echo OWN-STATE-SEEN; true`;
             const res = await fetch(`${url}/api/sessions/${randomUUID()}/runs`, {
                 method: 'POST',
-                headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+                headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ messages: [{ role: 'user', content: 'go' }] }),
             });
             const text = (await events(res))
@@ -306,6 +275,8 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
             expect(text).toContain('hello');
             expect(text).not.toContain('leaked');
             expect(text).toMatch(/hello\\n0/);
+            expect(text).not.toContain('STATE-SEEN');
+            rmSync(visible, { recursive: true, force: true });
         } finally {
             script = 'echo hello';
             delete process.env.ZEN_SERVER_LIVE_SECRET;
@@ -313,39 +284,47 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
     });
 });
 
-describe('jwt auth (zenera-app)', () => {
-    const target = (thread: string) => `GET /api/sessions/${thread}`;
-
-    it('takes a token for this request, this project and this server’s user', async () => {
-        const { url } = await start({ auth: { mode: 'jwt', publicKey: publicPem }, userId: USER });
-        const thread = randomUUID();
-        const get = (claims: Record<string, unknown>) =>
-            fetch(`${url}/api/sessions/${thread}`, {
-                headers: { authorization: `Bearer ${jwt(claims)}` },
+describe('on a Unix socket', () => {
+    it('is its owner’s alone, answers there, and is gone when it stops', async () => {
+        await running?.server.stop(1000);
+        running = undefined;
+        const stateDir = mkdtempSync(join(root, 'state-'));
+        const socket = join(root, `run-${randomUUID().slice(0, 8)}`, 'server.sock');
+        const server = createServer({
+            projectId: 'p1',
+            projectDir,
+            stateDir,
+            user: { id: 'local' },
+            sandbox: fakeSandbox,
+            sandboxProvider: 'fake',
+        });
+        await server.listen({ socket });
+        try {
+            expect(statSync(socket).mode & 0o777).toBe(0o600);
+            expect(statSync(join(socket, '..')).mode & 0o777).toBe(0o700);
+            // Every command the server runs is kept from the socket's directory.
+            expect(server.settings.hidden).toContain(join(socket, '..'));
+            const answer = await new Promise<{ status?: number; body: string }>((done, fail) => {
+                const req = request({ socketPath: socket, path: '/api/status' }, (res) => {
+                    let body = '';
+                    res.on('data', (c) => (body += c));
+                    res.on('end', () => done({ status: res.statusCode, body }));
+                });
+                req.on('error', fail);
+                req.end();
             });
-        const mine = { sub: USER, prj: 'p1', thr: thread, role: 'owner', req: target(thread) };
-        expect((await get(mine)).status).toBe(200);
-        expect((await get({ ...mine, sub: OTHER })).status).toBe(403);
-        expect((await get({ ...mine, prj: 'p2' })).status).toBe(403);
-        expect((await get({ ...mine, req: 'GET /api/activity' })).status).toBe(401);
+            expect(answer.status).toBe(200);
+            expect(JSON.parse(answer.body)).toMatchObject({ listen: `unix:${socket}` });
+        } finally {
+            await server.stop(1000);
+        }
+        expect(existsSync(socket)).toBe(false);
     });
 
-    it('serves any user under users/<id>/ when it has no user of its own', async () => {
-        const { url, stateDir } = await start({
-            auth: { mode: 'jwt', publicKey: publicPem },
-            userId: undefined,
-        });
-        const thread = randomUUID();
-        const res = await fetch(`${url}/api/sessions/${thread}`, {
-            method: 'DELETE',
-            headers: {
-                authorization: `Bearer ${jwt({ sub: OTHER, prj: 'p1', thr: thread, role: 'owner', req: `DELETE /api/sessions/${thread}` })}`,
-            },
-        });
-        if (res.status !== 204) throw new Error(await res.text());
-        const state = JSON.parse(readFileSync(join(stateDir, 'state.json'), 'utf8'));
-        expect(state).toMatchObject({ version: STATE_VERSION, projectId: 'p1', mode: 'shared' });
-        expect(state.userId).toBeUndefined();
+    it('refuses a user that is not one', () => {
+        expect(() =>
+            createServer({ projectId: 'p1', projectDir, stateDir: root, user: { id: '../x' } }),
+        ).toThrow(/not a user id/);
     });
 });
 
@@ -353,28 +332,25 @@ describe('state.json', () => {
     it('is written once, and refuses a newer layout, another user or another project', () => {
         const dir = mkdtempSync(join(root, 'layout-'));
         const first = openState(dir, { userId: 'a', projectId: 'p' })!;
-        expect(first).toMatchObject({ version: STATE_VERSION, mode: 'single', userId: 'a' });
+        expect(first).toMatchObject({ version: STATE_VERSION, userId: 'a', projectId: 'p' });
         expect(openState(dir, { userId: 'a', projectId: 'p' })!.createdAt).toBe(first.createdAt);
         expect(() => openState(dir, { userId: 'b', projectId: 'p' })).toThrow(/belongs to user a/);
         expect(() => openState(dir, { userId: 'a', projectId: 'q' })).toThrow(/project p/);
-        expect(() => openState(dir, { projectId: 'p' })).toThrow(/one user's state/);
         writeFileSync(join(dir, 'state.json'), JSON.stringify({ version: STATE_VERSION + 1 }));
-        expect(() => openState(dir, { projectId: 'p' })).toThrow(/newer server/);
+        expect(() => openState(dir, { userId: 'a', projectId: 'p' })).toThrow(/newer server/);
     });
 
-    it('keeps a shared directory from any single user, and a read-only look claims nothing', () => {
-        const dir = mkdtempSync(join(root, 'shared-'));
-        expect(openState(dir, { projectId: 'p' }, { create: false })).toBeUndefined();
+    it('is only read by a check, which claims nothing', () => {
+        const dir = mkdtempSync(join(root, 'unclaimed-'));
+        expect(openState(dir, { userId: 'a', projectId: 'p' }, { create: false })).toBeUndefined();
         expect(existsSync(join(dir, 'state.json'))).toBe(false);
-        expect(openState(dir, { projectId: 'p' })).toMatchObject({ mode: 'shared' });
-        expect(() => openState(dir, { userId: 'bob', projectId: 'p' })).toThrow(/many users/);
     });
 
     it('refuses new runs once the server is stopping, and a new server takes them again', async () => {
         const post = (url: string) =>
             fetch(`${url}/api/sessions/${randomUUID()}/runs`, {
                 method: 'POST',
-                headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+                headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
             });
         const first = await start();

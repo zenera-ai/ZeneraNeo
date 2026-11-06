@@ -1,7 +1,7 @@
 {
     "name": "@zenera/server",
     "version": "1.1.59",
-    "description": "A project's chats over HTTP: the server in the agent image, one user per container, commands isolated with bubblewrap.",
+    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. No authentication of its own: it listens on a Unix socket, behind whatever guard its host puts in front.",
     "keywords": [
         "agents",
         "ai-agents",
@@ -48,8 +48,7 @@
         "@zenera/engine": "^1.1.59",
         "@zenera/neo": "^1.1.59",
         "@zenera/sandbox": "^1.1.59",
-        "express": "^5.3.0",
-        "jose": "^6.2.13"
+        "express": "^5.3.0"
     },
     "devDependencies": {
         "@types/express": "^5.0.6"

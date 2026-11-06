@@ -1,14 +1,21 @@
 // The server's settings: what `createServer` was given, read by every route at call time.
 // One server per process — the agent image's — so they are module state rather than
 // threaded through every router; `configure` replaces them whole.
+//
+// There is no authentication here: the server serves one user, named by its host, to whoever
+// can reach it. Reaching it is the host's to control — a Unix socket by default, which no
+// sandboxed command can see; in ZeneraLite a guard in front of it that checks zenera-app's
+// tokens.
 import type { ZenPlugin } from '@zenera/engine';
-import { bwrapSandbox, type SandboxFactory } from '@zenera/sandbox';
+import type { SandboxFactory } from '@zenera/sandbox';
 
-export type ServerAuth =
-    /** zenera-app: an EdDSA token signed for each request (auth.ts) */
-    | { mode: 'jwt'; publicKey: string }
-    /** a fixed bearer token: ZeneraSrv, a laptop */
-    | { mode: 'token'; token: string };
+/** Who the server is for: what the agent's `current_user` answers, and its commands see as ZEN_USER_*. */
+export interface ServerUser {
+    /** a path segment: letters, digits, `.`, `_`, `@`, `-` */
+    id: string;
+    email?: string;
+    role?: 'owner' | 'editor' | 'viewer' | 'admin';
+}
 
 export interface ServerSettings {
     /** the project the agents come from; read-only to the server */
@@ -16,39 +23,34 @@ export interface ServerSettings {
     projectId: string;
     /** everything the server writes: the chats, their runs, the memory */
     stateDir: string;
-    /**
-     * The one user this server is for: `stateDir/data/` is theirs, and a token
-     * for anyone else is refused. Unset, any user a token names, each under
-     * `stateDir/users/<id>/` — a project pod shared by its users.
-     */
-    userId?: string;
-    auth: ServerAuth;
+    user: ServerUser;
     /** the Test tab's routes: recorded runs, traces, the memory graph */
     debug: boolean;
     /**
-     * Where commands run: bwrap in the agent image; `'podman'` is the engine's own default,
-     * as `zen run` has it (a project pod that still runs its sandboxes in podman).
+     * Where commands run: `'bwrap'` in the agent image, with `hidden` and the state directory
+     * kept from them; `'podman'` is the engine's own default, as `zen run` has it; or a factory.
      */
-    sandbox: SandboxFactory | 'podman';
-    /** what to call it, for `/api/status` and the engine's messages */
+    sandbox: 'bwrap' | 'podman' | SandboxFactory;
+    /** what to call it, for `/api/status` */
     sandboxProvider: string;
-    /** this run's own plugins (the MCP tools for its user), given the token zenera-app sent */
+    /** more paths bwrap commands never see (the state directory and the server's socket always) */
+    hidden: string[];
+    /** this run's own plugins (the MCP tools for its user), given the token its caller sent */
     plugins: (run: { mcpToken: string | null }) => Promise<ZenPlugin[]>;
     maxRuns: number;
-    maxUserRuns: number;
     maxRunMinutes: number;
     runLogMaxBytes: number;
 }
 
-export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'auth'> = {
+export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user'> = {
     projectDir: '/project',
     stateDir: '/state',
     debug: false,
-    sandbox: bwrapSandbox,
+    sandbox: 'bwrap',
     sandboxProvider: 'bwrap (this container)',
+    hidden: [],
     plugins: async () => [],
     maxRuns: 4,
-    maxUserRuns: 2,
     maxRunMinutes: 120,
     runLogMaxBytes: 50 * 1024 * 1024,
 };

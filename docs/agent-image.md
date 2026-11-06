@@ -72,42 +72,51 @@ Docker Desktop 27.5 default (bind) and `systempaths=unconfined` (fresh), Docker 
 
 ### N4. `@zenera/server` — done
 
-`packages/server`: ZeneraLite's runtime (`services/zenera-project/src`: runtime, auth, identity,
-sessions → `store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory)
-with its tests, made a package. See its README.
+`packages/server`: ZeneraLite's runtime (`services/zenera-project/src`: runtime, sessions →
+`store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory) with its
+tests, made a package for **one user** and **no authentication**. See its README.
 
-- `createServer({ projectId, auth, projectDir, stateDir, userId?, debug, sandbox, plugins, limits… })`;
-  settings replace the old module-level environment reads.
-- Auth: `jwt` (as before, plus `sub` must be the server's user when it has one) or `token`.
-- State: `<state>/data/{sessions,runs,memory}` for one user; without `userId`,
-  `<state>/users/<id>/…` (today's `/data` layout, so ZeneraLite can adopt it before per-user pods).
-  `state.json` (layout 1, mode `single`+user or `shared`) refuses a newer layout, another
-  project, the other mode, another user; `check` only reads it.
-- Sandbox: `bwrapSandbox` by default (`newSandbox`, plugin sandboxes off); `'podman'` = engine default.
-- `GET /api/status`; debug routes (runs, trace, memory) only with `debug`.
-- Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`).
-- Tests: the moved suites (vitest now) + `server.test.ts`: a real turn over HTTP against a scripted
-  OpenAI-compatible model (run_command → answer), both auth modes, layouts, debug gating, status,
-  `state.json`; with bwrap (Linux) the turn runs under a real bwrap and sees none of the server's env.
+- `createServer({ projectId, user: { id, email?, role? }, projectDir, stateDir, debug, sandbox,
+hidden, plugins, limits… })`; `listen({ socket })` or `listen({ port, host })`.
+- Identity is the host's: the user from settings (`ZEN_USER_*`), the thread from the URL (one safe
+  path segment). Nothing of a request says who it is for.
+- Reaching it is the host's to control: a Unix socket by default (`0600`, `0700` directory,
+  hidden from every bwrap command), TCP only when asked (loopback default). ZeneraLite puts a guard
+  in front (zenera-app's per-request JWT, the checks the old runtime made); a laptop has the socket.
+- State: `<state>/data/{sessions,runs,memory}`, `state.json` (layout 1, project, user) refuses a
+  newer layout, another project, another user; `check` only reads it.
+- Sandbox: `'bwrap'` (state dir, socket dir, `/state`, `/run/secrets` hidden), `'podman'`, or a factory.
+- `GET /api/status` (includes where it listens); debug routes only with `debug`.
+- Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`,
+  given the run's `x-zenera-mcp-token`).
+- Shutdown: the listener closes, new runs get 503, running ones end as interrupted (they save).
 
 ### N5. `zen server` — done
 
 ```
-zen server start  [--port 3000] [--host 0.0.0.0] [--project /project] [--state /state] [--user <id>]
-                  [--auth jwt|token] [--debug] [--sandbox bwrap|podman]
-zen server check  (same options)        # bwrap, image identity, /state layout; exit 5 when not ready
-zen server status [--url …] [--token …] # a running server's /api/status
+zen server start  [--listen unix:<path>|tcp:<host>:<port>] [--port n] [--host h]
+                  [--project /project] [--state /state] [--user <id>] [--debug] [--sandbox bwrap|podman]
+zen server check  (same options)        # bwrap, image identity, /state; exit 5 when not ready
+zen server status [--listen …|--state …] # a running server's /api/status, over its socket or TCP
 ```
 
-- Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID`, `ZEN_PROJECT_ID` (else the project
-  dir's name), `ZEN_IDENTITY_PUBLIC_KEY` (→ jwt), `ZEN_SERVER_TOKEN` (→ token, needs a user),
-  `ZEN_SERVER_DEBUG`, `ZEN_SERVER_PORT`, `ZEN_RUNTIME_MAX_*` limits. Keys from env; no keyring.
-- `start` refuses what `check` reports; SIGTERM/SIGINT: the listener closes, new runs get 503,
-  running ones end as interrupted within 20 s, exit 0.
+- Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
+  `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_LISTEN`,
+  `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`. Default listen: `unix:<state>/server.sock`.
+- A non-loopback TCP host starts with a warning. Keys from env; no keyring.
 - The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]`.
 - `@zenera/server` is a dependency of the CLI, imported only by `zen server`.
-- `BwrapSandbox.prepare()` checks the image identity only when the container states one, as
-  `/api/status` does; `zen image build` always will.
+- `BwrapSandbox.prepare()` checks the image identity only when the container states one.
+
+### ZeneraLite: the guard (next, in ZeneraLite)
+
+```
+pod agt-<user>
+├ guard :3000     verifies zenera-app's JWT (iss, aud, 2-min age, prj, sub = the pod's user,
+│                 req = this request), forwards to the socket; passes x-zenera-mcp-token
+└ agent           zen server start --listen unix:/run/agent/server.sock   (emptyDir shared)
+NetworkPolicy: only zenera-app → :3000
+```
 
 ### N6. `zenera/runtime` image (published per zen release, per arch)
 

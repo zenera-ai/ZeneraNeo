@@ -1,4 +1,5 @@
-import { basename, resolve } from 'node:path';
+import { request } from 'node:http';
+import { basename, join, resolve } from 'node:path';
 import { parse } from '../args.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
@@ -7,23 +8,24 @@ const USAGE = 'zen server <start|check|status> [options]';
 const SUBCOMMANDS = ['start', 'check', 'status'];
 
 interface Flags {
+    listen?: string;
     port?: string;
     host?: string;
     project?: string;
     state?: string;
     user?: string;
-    auth?: string;
     debug?: boolean;
     sandbox?: string;
-    url?: string;
-    token?: string;
 }
 
 /**
- * The agent server: a project's chats over HTTP, for the one user its
- * container belongs to. It is what the agent image runs
- * (`/opt/zenera/bin/zen server start`); `@zenera/server` is loaded only here,
- * so no other command pays for it.
+ * The agent server: one user's chats with a project, over HTTP. It is what the
+ * agent image runs (`/opt/zenera/bin/zen server start`); `@zenera/server` is
+ * loaded only here, so no other command pays for it.
+ *
+ * It does no authentication. It listens on a Unix socket that sandboxed
+ * commands cannot see, and whatever may reach it acts for its user: on a
+ * laptop that is the socket's owner, in ZeneraLite the guard in front of it.
  */
 export const server: Command = {
     summary: 'Serve a project’s chats over HTTP: the agent image’s server.',
@@ -33,41 +35,36 @@ export const server: Command = {
         '  start                  Listen, after the checks below pass.',
         '  check                  Whether it could start here: commands isolated',
         '                         (bwrap), the image built for this project, a',
-        '                         /state layout this server knows.',
-        '  status                 A running server’s own report (/api/status).',
+        '                         /state that is this user\u2019s.',
+        '  status                 A running server\u2019s own report (/api/status).',
         '',
-        '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
-        '  --host <addr>          Default 0.0.0.0.',
+        '  --listen <where>       unix:<path> (default unix:<state>/server.sock) or',
+        '                         tcp:<host>:<port>. No authentication: whoever',
+        '                         reaches it acts for its user. A socket is the',
+        '                         owner\u2019s only and hidden from every command.',
+        '  --port <n>             Shorthand for tcp:127.0.0.1:<n>; --host widens it.',
         '  --project <dir>        The project; default $PROJECT_DIR, else /project.',
         '  --state <dir>          Everything it writes; default $ZEN_STATE_DIR, else /state.',
-        '  --user <id>            The one user it serves; default $ZEN_USER_ID. Without',
-        '                         one it serves any user zenera-app vouches for,',
-        '                         each under <state>/users/<id>/.',
-        '  --auth <jwt|token>     jwt: tokens zenera-app signs ($ZEN_IDENTITY_PUBLIC_KEY).',
-        '                         token: one bearer token ($ZEN_SERVER_TOKEN), for',
-        '                         a server nobody else fronts. Default: whichever is set.',
-        '  --debug                The Test tab’s routes: runs, traces, memory.',
+        '  --user <id>            Whose server it is; default $ZEN_USER_ID ($ZEN_USER_EMAIL,',
+        '                         $ZEN_USER_ROLE say more about them).',
+        '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
         '  --sandbox <bwrap|podman>  Where commands run; bwrap unless told.',
-        '  --url <url>            With status: where it listens (default localhost:3000).',
-        '  --token <t>            With status: the bearer token ($ZEN_SERVER_TOKEN).',
         '',
         'Model keys come from the environment (BIFROST_BASE_URL and BIFROST_API_KEY,',
-        'or a vendor’s own), as anything else a run reads does.',
+        'or a vendor\u2019s own), as anything else a run reads does.',
     ],
     run: async (ctx) => {
         const { values, positionals } = parse<Flags>(
             ctx.args,
             {
+                listen: { type: 'string' },
                 port: { type: 'string' },
                 host: { type: 'string' },
                 project: { type: 'string' },
                 state: { type: 'string' },
                 user: { type: 'string' },
-                auth: { type: 'string' },
                 debug: { type: 'boolean' },
                 sandbox: { type: 'string' },
-                url: { type: 'string' },
-                token: { type: 'string' },
             },
             USAGE,
         );
@@ -99,60 +96,79 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
     const mod = await load();
     const projectDir = resolve(ctx.cwd, values.project ?? env.PROJECT_DIR ?? '/project');
     const stateDir = resolve(ctx.cwd, values.state ?? env.ZEN_STATE_DIR ?? '/state');
-    const userId = values.user ?? (env.ZEN_USER_ID?.trim() || undefined);
-    const publicKey = env.ZEN_IDENTITY_PUBLIC_KEY?.trim() ?? '';
-    const token = env.ZEN_SERVER_TOKEN?.trim() ?? '';
-    const mode = values.auth ?? (publicKey ? 'jwt' : token ? 'token' : undefined);
-    let auth: import('@zenera/server').ServerAuth;
-    if (mode === 'jwt') {
-        if (!publicKey) {
-            throw usageError('--auth jwt needs $ZEN_IDENTITY_PUBLIC_KEY', USAGE);
-        }
-        auth = { mode, publicKey };
-    } else if (mode === 'token') {
-        if (!token) {
-            throw usageError('--auth token needs $ZEN_SERVER_TOKEN', USAGE);
-        }
-        if (!userId) {
-            throw usageError('--auth token serves one user: name it with --user', USAGE);
-        }
-        auth = { mode, token };
-    } else if (mode) {
-        throw usageError(`--auth is jwt or token, not ${mode}`, USAGE);
-    } else {
-        throw usageError(
-            'no caller could ever be let in',
-            'set $ZEN_IDENTITY_PUBLIC_KEY (zenera-app) or $ZEN_SERVER_TOKEN',
-        );
+    const id = values.user ?? env.ZEN_USER_ID?.trim();
+    if (!id) {
+        throw usageError('whose server is it?', 'name its user: --user or $ZEN_USER_ID');
+    }
+    const user = {
+        id,
+        ...(env.ZEN_USER_EMAIL?.trim() ? { email: env.ZEN_USER_EMAIL.trim() } : {}),
+        ...(env.ZEN_USER_ROLE?.trim()
+            ? { role: env.ZEN_USER_ROLE.trim() as import('@zenera/server').ServerUser['role'] }
+            : {}),
+    };
+    try {
+        mod.checkUser(user);
+    } catch (err) {
+        throw usageError((err as Error).message, USAGE);
     }
     const sandboxName = values.sandbox ?? 'bwrap';
     if (sandboxName !== 'bwrap' && sandboxName !== 'podman') {
         throw usageError(`--sandbox is bwrap or podman, not ${sandboxName}`, USAGE);
     }
-    const { bwrapSandbox } = await import('@zenera/sandbox');
     return {
         mod,
+        listen: listenOn(values, stateDir),
         settings: {
             ...mod.DEFAULTS,
             projectDir,
             projectId: env.ZEN_PROJECT_ID?.trim() || basename(projectDir),
             stateDir,
-            userId,
-            auth,
+            user,
             debug: Boolean(values.debug ?? truthy(env.ZEN_SERVER_DEBUG)),
-            sandbox: sandboxName === 'podman' ? ('podman' as const) : bwrapSandbox,
+            sandbox: sandboxName,
             sandboxProvider:
                 sandboxName === 'podman' ? 'podman (this machine)' : 'bwrap (this container)',
+            hidden: [],
             plugins: mod.envRunPlugins(env),
             maxRuns: positive(env.ZEN_RUNTIME_MAX_RUNS, mod.DEFAULTS.maxRuns),
-            maxUserRuns: positive(env.ZEN_RUNTIME_MAX_USER_RUNS, mod.DEFAULTS.maxUserRuns),
             maxRunMinutes: positive(env.ZEN_RUNTIME_MAX_RUN_MINUTES, mod.DEFAULTS.maxRunMinutes),
             runLogMaxBytes:
                 positive(env.ZEN_RUNTIME_RUN_LOG_MAX_MB, mod.DEFAULTS.runLogMaxBytes / 2 ** 20) *
                 2 ** 20,
-        },
+        } satisfies import('@zenera/server').ServerSettings,
     };
 }
+
+type ListenOn = import('@zenera/server').ListenOn;
+
+/** --listen, else --port/--host, else $ZEN_SERVER_LISTEN, else the state directory's socket. */
+function listenOn(values: Flags, stateDir: string, env: NodeJS.ProcessEnv = process.env): ListenOn {
+    if (values.port !== undefined || values.host !== undefined) {
+        if (values.listen) throw usageError('--listen, or --port/--host: not both', USAGE);
+        return tcp(values.host ?? '127.0.0.1', values.port ?? '3000');
+    }
+    const where =
+        values.listen ?? env.ZEN_SERVER_LISTEN?.trim() ?? `unix:${join(stateDir, 'server.sock')}`;
+    if (where.startsWith('unix:') && where.length > 5) return { socket: resolve(where.slice(5)) };
+    const m = /^tcp:(.+):(\d+)$/.exec(where);
+    if (m) return tcp(m[1], m[2]);
+    throw usageError(`--listen is unix:<path> or tcp:<host>:<port>, not ${where}`, USAGE);
+}
+
+function tcp(host: string, portText: string): ListenOn {
+    const port = Number(portText);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+        throw usageError(`not a port: ${portText}`, USAGE);
+    }
+    return { port, host };
+}
+
+function describe(on: ListenOn): string {
+    return 'socket' in on ? `unix:${on.socket}` : `tcp:${on.host}:${on.port}`;
+}
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
 async function check(ctx: Context, values: Flags): Promise<void> {
     const { mod, settings } = await options(ctx, values);
@@ -172,25 +188,28 @@ async function check(ctx: Context, values: Flags): Promise<void> {
 }
 
 async function start(ctx: Context, values: Flags): Promise<void> {
-    const { mod, settings } = await options(ctx, values);
+    const { mod, settings, listen } = await options(ctx, values);
     mod.configure(settings);
     const errors = mod.startupErrors(await mod.serverStatus());
     if (errors.length) {
         for (const e of errors) note(red(`✗ ${e}`));
         throw new CliError('the server cannot start here', EXIT.sandbox, 'zen server check');
     }
-    const port = Number(values.port ?? process.env.ZEN_SERVER_PORT ?? 3000);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) {
-        throw usageError(`not a port: ${values.port}`, USAGE);
+    if ('port' in listen && !LOOPBACK.has(listen.host ?? '')) {
+        note(
+            yellow(
+                `⚠ listening on ${listen.host}: anything that reaches it acts for ${settings.user.id}, ` +
+                    'so put a guard in front of it',
+            ),
+        );
     }
     const app = mod.createServer(settings);
-    await app.listen(port, values.host ?? '0.0.0.0');
+    await app.listen(listen);
     note(
-        `zen server listening on ${values.host ?? '0.0.0.0'}:${port} ` +
+        `zen server listening on ${describe(listen)} ` +
             dim(
-                `(project=${settings.projectId}, state=${settings.stateDir}, ` +
-                    `${settings.userId ? `user=${settings.userId}` : 'any user'}, ` +
-                    `auth=${settings.auth.mode}, sandbox=${settings.sandboxProvider}` +
+                `(project=${settings.projectId}, user=${settings.user.id}, ` +
+                    `state=${settings.stateDir}, sandbox=${settings.sandboxProvider}` +
                     `${settings.debug ? ', debug' : ''})`,
             ),
     );
@@ -208,29 +227,25 @@ async function start(ctx: Context, values: Flags): Promise<void> {
 }
 
 async function status(ctx: Context, values: Flags): Promise<void> {
-    const url = (values.url ?? 'http://localhost:3000').replace(/\/+$/, '');
-    const token = values.token ?? process.env.ZEN_SERVER_TOKEN ?? '';
-    let res: Response;
+    const stateDir = resolve(ctx.cwd, values.state ?? process.env.ZEN_STATE_DIR ?? '/state');
+    const on = listenOn(values, stateDir);
+    let answer: { status: number; body: string };
     try {
-        res = await fetch(`${url}/api/status`, {
-            headers: token ? { authorization: `Bearer ${token}` } : {},
-            signal: AbortSignal.timeout(10_000),
-        });
+        answer = await get(on, '/api/status');
     } catch (err) {
         throw new CliError(
-            `no server answered at ${url}: ${(err as { cause?: { code?: string } }).cause?.code ?? err}`,
+            `no server answered on ${describe(on)}: ${(err as NodeJS.ErrnoException).code ?? err}`,
             EXIT.failed,
-            'is it running? --url says where',
+            'is it running? --listen (or --state) says where',
         );
     }
-    if (!res.ok) {
+    if (answer.status !== 200) {
         throw new CliError(
-            `${url} answered ${res.status}: ${(await res.text()).slice(0, 200)}`,
+            `${describe(on)} answered ${answer.status}: ${answer.body.slice(0, 200)}`,
             EXIT.failed,
-            res.status === 401 ? 'pass its token: --token or $ZEN_SERVER_TOKEN' : undefined,
         );
     }
-    const report = (await res.json()) as import('@zenera/server').ServerStatus;
+    const report = JSON.parse(answer.body) as import('@zenera/server').ServerStatus;
     if (ctx.json) {
         json(report);
         return;
@@ -238,11 +253,33 @@ async function status(ctx: Context, values: Flags): Promise<void> {
     printStatus(report);
 }
 
+/** A GET over a Unix socket or TCP; `fetch` speaks only the latter. */
+function get(on: ListenOn, path: string): Promise<{ status: number; body: string }> {
+    return new Promise((done, fail) => {
+        const req = request(
+            {
+                ...('socket' in on ? { socketPath: on.socket } : { host: on.host, port: on.port }),
+                path,
+                timeout: 10_000,
+            },
+            (res) => {
+                let body = '';
+                res.setEncoding('utf8');
+                res.on('data', (c: string) => (body += c));
+                res.on('end', () => done({ status: res.statusCode ?? 0, body }));
+            },
+        );
+        req.on('timeout', () => req.destroy(new Error('timed out')));
+        req.on('error', fail);
+        req.end();
+    });
+}
+
 function printStatus(s: import('@zenera/server').ServerStatus): void {
     const row = (k: string, v: string) => write(`${dim(k.padEnd(9))} ${v}`);
     row('project', `${s.project.id} ${dim(s.project.dir)}`);
-    row('user', s.user ?? 'any (users/<id>/)');
-    row('auth', `${s.auth}${s.debug ? dim(' · debug routes on') : ''}`);
+    row('user', s.user);
+    row('listen', `${s.listen ?? dim('not yet')}${s.debug ? dim(' · debug routes on') : ''}`);
     row(
         'sandbox',
         s.sandbox.ok

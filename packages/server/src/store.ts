@@ -1,11 +1,11 @@
 // Where a chat's session, run logs and memory live, and the engine opened on one for a turn.
 // The chat code (runs.ts, history.ts, trace.ts, memory.ts) is the same for every kind of chat; a
 // ChatStore says where a thread's things are and who it belongs to.
-//   privateStore - the users' own chats, under the server's state directory:
-//     single user (settings.userId):   <state>/data/{sessions,runs}/<thread id>/, <state>/data/memory/
-//     any user (a shared project pod): <state>/users/<user id>/{sessions,runs}/<thread id>/, .../memory/
-//     A thread id is only ever looked up under its caller's own folder, so another user's thread
-//     is simply not there. The runs folder is outside the session, which the sandbox sees part of.
+//   privateStore - the user's chats, under the server's state directory:
+//     <state>/data/sessions/<thread id>/  - one zen session per chat thread (its workspace inside)
+//     <state>/data/runs/<thread id>/      - its runs' AG-UI events (runLog.ts), outside the session,
+//                                           which the sandbox sees part of
+//     <state>/data/memory/                - the user's memory graph
 //   ChatStore, ChatThread       - the contract (a host may serve other chats with it: the Test tab)
 //   usesMemory                  - whether any agent remembers, so the memory explorer has a graph
 //   openEngineFor               - the project wired to a session, memory and the user the run acts
@@ -27,7 +27,8 @@ import type { Request } from 'express';
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { settings } from './config.ts';
+import { BwrapSandbox, type SandboxFactory } from '@zenera/sandbox';
+import { settings, type ServerSettings } from './config.ts';
 import { HttpError } from './http.ts';
 import { identify, type Identity } from './identity.ts';
 import { applyProjectEnv } from './projectEnv.ts';
@@ -60,16 +61,15 @@ export interface ChatStore {
     ownerBusy: string;
 }
 
-/** Where one user's chats and memory are. */
-export function userDir(userId: string): string {
-    const s = settings();
-    return s.userId ? join(s.stateDir, 'data') : join(s.stateDir, 'users', userId);
+/** Where the user's chats and memory are. */
+export function dataDir(): string {
+    return join(settings().stateDir, 'data');
 }
 
-const privateSessionDir = (t: ChatThread) => join(userDir(t.owner), 'sessions', t.id);
+const privateSessionDir = (t: ChatThread) => join(dataDir(), 'sessions', t.id);
 
-export function userMemoryDir(userId: string): string {
-    return join(userDir(userId), 'memory');
+export function memoryDir(): string {
+    return join(dataDir(), 'memory');
 }
 
 export const privateStore: ChatStore = {
@@ -85,17 +85,17 @@ export const privateStore: ChatStore = {
         const dir = privateSessionDir(t);
         return this.existingSession(t) ?? createSessionAt(dir, join(dir, 'workspace'));
     },
-    runsDir: (t) => join(userDir(t.owner), 'runs', t.id),
-    memoryDir: (t) => userMemoryDir(t.owner),
-    engineMemoryDir: (t) => userMemoryDir(t.owner),
+    runsDir: (t) => join(dataDir(), 'runs', t.id),
+    memoryDir: () => memoryDir(),
+    engineMemoryDir: () => memoryDir(),
     async removeThread(t) {
         await rm(privateSessionDir(t), { recursive: true, force: true });
         await rm(this.runsDir(t), { recursive: true, force: true });
     },
     get maxOwnerRuns() {
-        return settings().maxUserRuns;
+        return settings().maxRuns;
     },
-    ownerBusy: 'your other chats in this project are still answering',
+    ownerBusy: 'your other chats are still answering',
 };
 
 export function usesMemory(): boolean {
@@ -126,6 +126,14 @@ export async function imageReady(setup: SandboxSetup): Promise<void> {
     }
 }
 
+/** The factory a run's engine opens its sandbox with. */
+function sandboxFactory(s: ServerSettings): SandboxFactory {
+    if (s.sandbox !== 'bwrap') return s.sandbox as SandboxFactory;
+    // Read now, not when configured: listening adds the socket's directory.
+    const hidden = [s.stateDir, ...s.hidden];
+    return (opts) => new BwrapSandbox(opts, { hidden });
+}
+
 export async function openEngineFor(
     session: SessionPaths,
     memoryDir: string | undefined,
@@ -148,7 +156,7 @@ export async function openEngineFor(
         disposable: true,
         logger: { warn: (message) => console.warn(`[engine] ${message}`) },
         preflight: imageReady,
-        ...(s.sandbox === 'podman' ? {} : { newSandbox: s.sandbox, sandboxPlugins: false }),
+        ...(s.sandbox === 'podman' ? {} : { newSandbox: sandboxFactory(s), sandboxPlugins: false }),
         ...(plugins.length ? { plugins } : {}),
     });
 }

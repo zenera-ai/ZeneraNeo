@@ -412,10 +412,10 @@ export function runsRouter(store: ChatStore): Router {
             record,
         };
         runs.set(t.id, run);
-        // zenera-app's token for this run's MCP tools (mcp/broker.ts there); read only here, past
-        // requireCaller, so it comes with a request zenera-app signed.
+        // The caller's token for this run's MCP tools (zenera-app's broker, mcp/broker.ts there);
+        // whatever stands in front of the server decides who may send one.
         const mcpToken = req.get('x-zenera-mcp-token') || null;
-        run.done = execute(store, t, run, turn, memory, runUser(req), mcpToken);
+        run.done = execute(store, t, run, turn, memory, runUser(), mcpToken);
         follow(res, run.log);
     });
 

@@ -1,7 +1,6 @@
 import { createSessionAt, runPaths } from '@zenera/engine';
 import { FilePayloadStore, type AgentState, type TrajectoryNode } from '@zenera/neo';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,25 +9,22 @@ import { afterAll as after, test } from 'vitest';
 import express from 'express';
 
 const root = mkdtempSync(join(tmpdir(), 'trace-'));
-const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
     projectId: 'project',
-    auth: { mode: 'jwt', publicKey: publicKey.export({ type: 'spki', format: 'pem' }).toString() },
+    user: { id: '00000000-0000-0000-0000-000000000001' },
     stateDir: root,
 });
-const { requireCaller } = await import('../src/auth.ts');
 const { errorHandler } = await import('../src/http.ts');
 const { traceRouter, MAX_PART_CHARS } = await import('../src/trace.ts');
 const { privateStore } = await import('../src/store.ts');
 const { startRecord, saveRecord } = await import('../src/runRecords.ts');
 
-const user = '00000000-0000-0000-0000-000000000001';
 const thread = '00000000-0000-0000-0000-000000000002';
-const other = '00000000-0000-0000-0000-000000000003';
-const dir = join(root, 'users', user, 'runs', thread);
-const sessionDir = join(root, 'users', user, 'sessions', thread);
+const otherThread = '00000000-0000-0000-0000-000000000003';
+const dir = join(root, 'data', 'runs', thread);
+const sessionDir = join(root, 'data', 'sessions', thread);
 const session = createSessionAt(sessionDir, join(sessionDir, 'workspace'));
 const blobs = new FilePayloadStore({ dir: session.blobs, id: 'file' });
 const put = (text: string) => blobs.put(text);
@@ -157,7 +153,6 @@ recordRun('corrupt', '20261027-120000-dead', 0);
 writeFileSync(runPaths(session, '20261027-120000-dead').state, '{"not":"a state"}');
 
 const app = express();
-app.use(requireCaller('zenera-runtime'));
 app.use('/api/sessions', traceRouter(privateStore));
 app.use(errorHandler);
 const server = app.listen(0, '127.0.0.1');
@@ -173,27 +168,8 @@ after(async () => {
     rmSync(root, { recursive: true, force: true });
 });
 
-function token(target: string, sub = user, thr = thread): string {
-    const now = Math.floor(Date.now() / 1000);
-    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
-    const data = `${encode({ alg: 'EdDSA', typ: 'JWT' })}.${encode({
-        iss: 'zenera-app',
-        aud: 'zenera-runtime',
-        sub,
-        thr,
-        prj: 'project',
-        role: 'editor',
-        req: `GET ${target}`,
-        iat: now,
-        exp: now + 60,
-    })}`;
-    return `${data}.${sign(null, Buffer.from(data), privateKey).toString('base64url')}`;
-}
-
-function get(target: string, sub = user, thr = thread) {
-    const headers = new Headers();
-    headers.set('authorization', `Bearer ${token(target, sub, thr)}`);
-    return fetch(`${origin}${target}`, { headers });
+function get(target: string) {
+    return fetch(`${origin}${target}`);
 }
 
 const path = (run: string, rest = '') => `/api/sessions/${thread}/runs/${run}/trace${rest}`;
@@ -321,11 +297,8 @@ test('invalid input and missing recordings are explicit errors', async () => {
     assert.equal((await get(path('bad%2Fid'))).status, 400);
 });
 
-test('traces enforce the signed caller and per-user isolation', async () => {
-    const target = path('turn-2');
-    assert.equal((await fetch(`${origin}${target}`)).status, 401);
-    assert.equal((await get(target, user, other)).status, 403);
-    // Another user asking for the same thread id finds nothing of this user's.
-    assert.equal((await get(target, other)).status, 404);
-    assert.equal((await get(path('turn-2', '/3'), other)).status, 404);
+test('another thread has none of this thread’s runs', async () => {
+    const other = `/api/sessions/${otherThread}/runs/turn-2/trace`;
+    assert.equal((await get(other)).status, 404);
+    assert.equal((await get('/api/sessions/..%2Fx/runs/turn-2/trace')).status, 400);
 });

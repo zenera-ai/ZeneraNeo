@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,27 +8,28 @@ import { afterAll as after, test } from 'vitest';
 
 const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const otherUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const wrongThreadId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const threadId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const emptyUserId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const testRoot = join(tmpdir(), `zen-memory-runtime-${randomUUID()}`);
 const dataDir = join(testRoot, 'data');
 const projectDir = join(testRoot, 'project');
-const { publicKey, privateKey } = generateKeyPairSync('ed25519');
 
 const { configure, DEFAULTS } = await import('../src/config.ts');
-configure({
-    ...DEFAULTS,
-    projectId: 'memory-test',
-    auth: { mode: 'jwt', publicKey: publicKey.export({ type: 'spki', format: 'pem' }).toString() },
-    stateDir: dataDir,
-    projectDir,
-});
+// One server per user: each request is served as the user it names, from that user's own state.
+const serveAs = (id: string) =>
+    configure({
+        ...DEFAULTS,
+        projectId: 'memory-test',
+        user: { id },
+        stateDir: join(dataDir, 'users', id),
+        projectDir,
+    });
+const memoryOf = (id: string) => join(dataDir, 'users', id, 'data', 'memory');
+serveAs(userId);
 process.env.ZENERA_HOME = join(testRoot, 'zenera-home');
 
 const { MAX_CONTENT_BYTES, MAX_GREP_FILE_BYTES, MemoryStore } = await import('@zenera/neo');
 const express = (await import('express')).default;
-const { requireCaller } = await import('../src/auth.ts');
 const { errorHandler } = await import('../src/http.ts');
 const { memoryRouter, setRecallEmbedderFactory } = await import('../src/memory.ts');
 const { privateStore } = await import('../src/store.ts');
@@ -36,24 +37,7 @@ const { MemoryIndex, embeddingResponse } = await import('@zenera/neo');
 
 after(() => rmSync(testRoot, { recursive: true, force: true }));
 
-type Caller = { userId?: string; threadId?: string };
-
-function jwt(path: string, key: KeyObject = privateKey, caller: Caller = {}): string {
-    const now = Math.floor(Date.now() / 1000);
-    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
-    const input = `${encode({ alg: 'EdDSA', typ: 'JWT' })}.${encode({
-        iss: 'zenera-app',
-        aud: 'zenera-runtime',
-        sub: caller.userId ?? userId,
-        prj: 'memory-test',
-        req: `GET ${path}`,
-        thr: caller.threadId ?? threadId,
-        role: 'owner',
-        iat: now,
-        exp: now + 60,
-    })}`;
-    return `${input}.${sign(null, Buffer.from(input), key).toString('base64url')}`;
-}
+type Caller = { userId?: string };
 
 function snapshot(dir: string): Record<string, string> {
     const result: Record<string, string> = {};
@@ -162,15 +146,14 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
         join(projectDir, 'agents.yaml'),
         'agents:\n  - name: memory-agent\n    memory:\n      access: read\n',
     );
-    const memoryDir = join(dataDir, 'users', userId, 'memory');
+    const memoryDir = memoryOf(userId);
     await seedMemory(memoryDir);
     const before = snapshot(memoryDir);
-    const emptyStore = await MemoryStore.open(join(dataDir, 'users', emptyUserId, 'memory'));
+    const emptyStore = await MemoryStore.open(memoryOf(emptyUserId));
     await emptyStore.commit();
     emptyStore.release();
 
     const app = express();
-    app.use(requireCaller('zenera-runtime'));
     app.use('/api/sessions', memoryRouter(privateStore));
     app.use(errorHandler);
     const server = app.listen(0, '127.0.0.1');
@@ -179,10 +162,9 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
     assert.ok(address && typeof address !== 'string');
     const origin = `http://127.0.0.1:${address.port}`;
 
-    async function get(path: string, caller: Caller = {}, token = true) {
-        const headers = new Headers();
-        if (token) headers.set('authorization', `Bearer ${jwt(path, privateKey, caller)}`);
-        const response = await fetch(`${origin}${path}`, { headers });
+    async function get(path: string, caller: Caller = {}) {
+        serveAs(caller.userId ?? userId);
+        const response = await fetch(`${origin}${path}`);
         return {
             status: response.status,
             body: (await response.json()) as Record<string, any>,
@@ -313,27 +295,18 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
         ]) {
             assert.equal((await get(`/api/sessions/${threadId}/memory${suffix}`)).status, 400);
         }
-        assert.equal((await get(`/api/sessions/${threadId}/memory`, {}, false)).status, 401);
         for (const suffix of ['/nodes', '/nodes/new', '/grep?query=x', '/report']) {
-            assert.equal(
-                (await get(`/api/sessions/${threadId}/memory${suffix}`, {}, false)).status,
-                401,
-            );
             assert.equal(
                 (await get(`/api/sessions/${threadId}/memory${suffix}`, { userId: otherUserId }))
                     .status,
                 suffix === '/nodes/new' || suffix === '/report' ? 404 : 200,
             );
         }
-        assert.equal(
-            (await get(`/api/sessions/${threadId}/memory`, { threadId: wrongThreadId })).status,
-            403,
-        );
 
         const otherUser = await get(`/api/sessions/${threadId}/memory`, { userId: otherUserId });
         assert.equal(otherUser.status, 200);
         assert.equal(otherUser.body.status, 'not-created');
-        assert.equal(existsSync(join(dataDir, 'users', otherUserId, 'memory')), false);
+        assert.equal(existsSync(memoryOf(otherUserId)), false);
         assert.equal(existsSync(join(dataDir, 'users', otherUserId)), false);
 
         const report = await get(`/api/sessions/${threadId}/memory/report`);
@@ -368,7 +341,7 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
         assert.equal(invalidConfig.status, 422);
         assert.match(invalidConfig.body.error, /invalid project configuration/);
 
-        const corruptDir = join(dataDir, 'users', otherUserId, 'memory');
+        const corruptDir = memoryOf(otherUserId);
         mkdirSync(corruptDir, { recursive: true });
         writeFileSync(
             join(projectDir, 'agents.yaml'),
@@ -453,8 +426,8 @@ async function seedVectorMemory(dir: string): Promise<void> {
 test('memory recall ranks, stitches, masks, and stays read-only', async () => {
     mkdirSync(projectDir, { recursive: true });
     writeFileSync(join(projectDir, 'agents.yaml'), MEMORY_AGENTS);
-    const memoryDir = join(dataDir, 'users', recallUserId, 'memory');
-    const vectorDir = join(dataDir, 'users', vectorUserId, 'memory');
+    const memoryDir = memoryOf(recallUserId);
+    const vectorDir = memoryOf(vectorUserId);
     await seedRecallMemory(memoryDir);
     await seedVectorMemory(vectorDir);
     const before = snapshot(memoryDir);
@@ -471,7 +444,6 @@ test('memory recall ranks, stitches, masks, and stays read-only', async () => {
     const usageBefore = await usage();
 
     const app = express();
-    app.use(requireCaller('zenera-runtime'));
     app.use('/api/sessions', memoryRouter(privateStore));
     app.use(errorHandler);
     const server = app.listen(0, '127.0.0.1');
@@ -481,11 +453,9 @@ test('memory recall ranks, stitches, masks, and stays read-only', async () => {
     const origin = `http://127.0.0.1:${address.port}`;
     const base = `/api/sessions/${threadId}/memory/recall`;
 
-    async function recall(qs: string, caller: Caller = { userId: recallUserId }, token = true) {
-        const path = `${base}${qs}`;
-        const headers = new Headers();
-        if (token) headers.set('authorization', `Bearer ${jwt(path, privateKey, caller)}`);
-        const response = await fetch(`${origin}${path}`, { headers });
+    async function recall(qs: string, caller: Caller = { userId: recallUserId }) {
+        serveAs(caller.userId ?? recallUserId);
+        const response = await fetch(`${origin}${base}${qs}`);
         return {
             status: response.status,
             cache: response.headers.get('cache-control'),
@@ -605,11 +575,6 @@ test('memory recall ranks, stitches, masks, and stays read-only', async () => {
         }
         assert.equal((await recall(`?query=${'x'.repeat(500)}`)).status, 200);
 
-        assert.equal((await recall('?query=x', {}, false)).status, 401);
-        assert.equal(
-            (await recall('?query=x', { userId: recallUserId, threadId: wrongThreadId })).status,
-            403,
-        );
         const stranger = await recall('?query=deploy', { userId: otherUserId });
         assert.equal(stranger.status, 200);
         assert.deepEqual(stranger.body, {

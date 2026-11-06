@@ -5,16 +5,14 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** 1: data/{sessions,runs,memory} for one user, users/<id>/… for a shared pod. */
+/** 1: data/{sessions,runs,memory}, one user's. */
 export const STATE_VERSION = 1;
 
 export interface StateInfo {
     version: number;
     createdAt: string;
-    /** single: one user's, in data/; shared: any user's, each in users/<id>/ */
-    mode: 'single' | 'shared';
-    /** whose state it is, when single */
-    userId?: string;
+    /** whose state it is */
+    userId: string;
     projectId: string;
 }
 
@@ -23,25 +21,25 @@ export class StateError extends Error {
 }
 
 /**
- * The state directory's description, checked against who opens it: the same project, the same
- * mode, and for a single-user one the same user. `create: false` only reads (a check must not
- * claim a directory): a missing file is then `undefined`.
+ * The state directory's description, checked against who opens it: the same project and the
+ * same user. `create: false` only reads (a check must not claim a directory): a missing file
+ * is then `undefined`.
  */
 export function openState(
     dir: string,
-    owner: { userId?: string; projectId: string },
+    owner: { userId: string; projectId: string },
     opts: { create?: boolean } = {},
 ): StateInfo | undefined {
     const file = join(dir, 'state.json');
     if (!existsSync(file)) {
         if (opts.create === false) return undefined;
-        mkdirSync(dir, { recursive: true });
+        // The user's chats: nobody else on the machine reads them.
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
         const info: StateInfo = {
             version: STATE_VERSION,
             createdAt: new Date().toISOString(),
-            mode: owner.userId ? 'single' : 'shared',
+            userId: owner.userId,
             projectId: owner.projectId,
-            ...(owner.userId ? { userId: owner.userId } : {}),
         };
         writeFileSync(`${file}.tmp`, `${JSON.stringify(info, null, 2)}\n`);
         renameSync(`${file}.tmp`, file);
@@ -66,15 +64,7 @@ export function openState(
     if (info.projectId !== owner.projectId) {
         throw new StateError(`${dir} belongs to project ${info.projectId}, not ${owner.projectId}`);
     }
-    const mode = owner.userId ? 'single' : 'shared';
-    if (info.mode !== mode) {
-        throw new StateError(
-            info.mode === 'single'
-                ? `${dir} holds one user's state (${info.userId}); a server for any user cannot use it`
-                : `${dir} holds the state of many users; a server for one user cannot use it`,
-        );
-    }
-    if (mode === 'single' && info.userId !== owner.userId) {
+    if (info.userId !== owner.userId) {
         throw new StateError(`${dir} belongs to user ${info.userId}, not ${owner.userId}`);
     }
     return info;

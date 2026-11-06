@@ -12,7 +12,7 @@ const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
     projectId: 'project',
-    auth: { mode: 'token', token: 't' },
+    user: { id: 'u' },
     stateDir: mkdtempSync(join(tmpdir(), 'image-ready-')),
 });
 const { imageReady } = await import('../src/store.ts');

@@ -1,13 +1,12 @@
 // @zenera/server: a project's chats over HTTP — the server in the agent image, and the pieces a
 // host builds its own chat routes from (the ZeneraLite editor's Test tab).
-export { createServer, type AgentServer, type ServerOptions } from './server.ts';
-export { configure, settings, DEFAULTS, type ServerAuth, type ServerSettings } from './config.ts';
-export { requireCaller, verifyCaller, type Audience, type CallerClaims } from './auth.ts';
-export { identify, runUser, type Identity } from './identity.ts';
+export { createServer, type AgentServer, type ListenOn, type ServerOptions } from './server.ts';
+export { configure, settings, DEFAULTS, type ServerSettings, type ServerUser } from './config.ts';
+export { checkUser, identify, runUser, type Identity } from './identity.ts';
 export {
     privateStore,
-    userDir,
-    userMemoryDir,
+    dataDir,
+    memoryDir,
     usesMemory,
     imageReady,
     openEngineFor,
@@ -28,4 +27,4 @@ export { applyProjectEnv, withoutProjectEnv } from './projectEnv.ts';
 export { HttpError, errorHandler, notFound } from './http.ts';
 export { envRunPlugins } from './plugins.ts';
 export { openState, STATE_VERSION, StateError, type StateInfo } from './state.ts';
-export { serverStatus, startupErrors, type ServerStatus } from './status.ts';
+export { owner, serverStatus, startupErrors, type ServerStatus } from './status.ts';

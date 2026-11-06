@@ -15,8 +15,9 @@ export interface ServerStatus {
     zen: { engine?: string; neo?: string; sandbox?: string };
     node: string;
     project: { id: string; dir: string };
-    user?: string;
-    auth: ServerSettings['auth']['mode'];
+    user: string;
+    /** where it listens: unix:<path> or tcp:<host>:<port>; unset before it does */
+    listen?: string;
     debug: boolean;
     sandbox: {
         provider: string;
@@ -51,10 +52,21 @@ function versionOf(pkg: string): string | undefined {
     }
 }
 
+let listening: string | undefined;
+
+/** Where the server listens, for the report. */
+export function setListening(where: string | undefined): void {
+    listening = where;
+}
+
+export function owner(s: ServerSettings): { userId: string; projectId: string } {
+    return { userId: s.user.id, projectId: s.projectId };
+}
+
 export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promise<ServerStatus> {
     const s = settings();
     const sandbox: ServerStatus['sandbox'] = { provider: s.sandboxProvider, ok: true };
-    if (s.sandbox !== 'podman' && s.sandboxProvider.startsWith('bwrap')) {
+    if (s.sandbox === 'bwrap') {
         const probe = await probeBwrap();
         Object.assign(sandbox, {
             ok: probe.ok,
@@ -85,7 +97,7 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
 
     const state: ServerStatus['state'] = { dir: s.stateDir, supported: STATE_VERSION };
     try {
-        state.version = openState(s.stateDir, s, { create: false })?.version;
+        state.version = openState(s.stateDir, owner(s), { create: false })?.version;
     } catch (err) {
         state.error = err instanceof Error ? err.message : String(err);
     }
@@ -99,8 +111,8 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         },
         node: process.versions.node,
         project: { id: s.projectId, dir: s.projectDir },
-        ...(s.userId ? { user: s.userId } : {}),
-        auth: s.auth.mode,
+        user: s.user.id,
+        ...(listening ? { listen: listening } : {}),
         debug: s.debug,
         sandbox,
         image,

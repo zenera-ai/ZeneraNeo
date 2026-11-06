@@ -6,7 +6,7 @@ import { afterAll as after, afterEach, test } from 'vitest';
 
 const projectDir = mkdtempSync(join(tmpdir(), 'zen-project-env-'));
 const { configure, DEFAULTS } = await import('../src/config.ts');
-configure({ ...DEFAULTS, projectId: 'p', auth: { mode: 'token', token: 't' }, projectDir });
+configure({ ...DEFAULTS, projectId: 'p', user: { id: 'u' }, projectDir });
 // Set before the module loads, so it counts as the pod's own.
 process.env.ZEN_POD_ONLY = 'pod';
 const { applyProjectEnv, withoutProjectEnv } = await import('../src/projectEnv.ts');
