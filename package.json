@@ -41,6 +41,11 @@
         "check:node": "node -e \"if (+process.versions.node.split('.')[0] < 24) { console.error('Node >=24 required (running ' + process.version + '). Run: nvm use'); process.exit(1); }\"",
         "demo": "npm run demo --silent -w examples/sdk --"
     },
+    "overrides": {
+        "@evanyu/a2ui-ink": {
+            "ink": "^7.1.1"
+        }
+    },
     "devDependencies": {
         "@types/node": "^24.0.0",
         "@types/react": "^19.2.18",

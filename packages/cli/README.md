@@ -145,6 +145,18 @@ work later. `zen inspect` opens a report; `zen inspect graph` produces a
 Mermaid view of the run, and `zen inspect ask` lets you question a recorded
 model call.
 
+### Agents that answer with an interface
+
+If an agent's final answer is a JSON array of [A2UI](https://a2ui.org) v0.9
+messages (basic catalog), the terminal UI draws it as a live form instead of
+printing the JSON. Tab moves between controls, Enter or Space activates one,
+and Esc closes it. A button press is sent back to the agent as the next turn,
+as `{"a2uiAction": {"name", "context", ...}}`. Bind inputs to the data model
+(`"value": {"path": "/name"}`) and reference those paths in the button's action
+`context` to receive what the user typed. An answer the renderer rejects is
+shown as text, with a note saying why. One-shot and `--json` runs always print
+the raw messages.
+
 ## The self-improving loop
 
 An agent system should get better from the work it actually does. ZeneraNeo

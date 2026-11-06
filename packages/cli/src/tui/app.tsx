@@ -12,6 +12,7 @@ import { Box, Static, Text, useApp, useInput, useStdout } from 'ink';
 import { pathToFileURL } from 'node:url';
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import * as Engine from '../engine.ts';
+import { parseA2ui } from '../a2ui.ts';
 import { History } from '../history.ts';
 import { format } from '../narrate.ts';
 import { CliError } from '../term.ts';
@@ -83,6 +84,12 @@ interface Line {
  * once, exactly like a finished turn: see the note on the frame below.
  */
 type Item = Line | { key: 'banner' };
+
+/** A live A2UI interface: the renderer, loaded on demand, and the surface it draws. */
+interface Interface {
+    View: typeof import('./a2ui.tsx').A2uiView;
+    surface: import('./a2ui.tsx').Surface;
+}
 
 const BANNER: Item = { key: 'banner' };
 
@@ -543,6 +550,12 @@ function App({ engine, options, theme }: Props): React.ReactElement {
     const [history] = useState(() => History.open(engine.project.root));
     const [draft, setDraft] = useState('');
     const [generation, setGeneration] = useState(0);
+    /**
+     * An answer that is a user interface, while it is waiting to be used. It is
+     * live, so it cannot be a `Line`: `Static` prints once and never repaints.
+     */
+    const [ui, setUi] = useState<Interface | undefined>(undefined);
+    const submitRef = useRef<(value: string) => void>(() => undefined);
     /** Where in the history the prompt is; `entries.length` is the live line. */
     const at = useRef(history.entries.length);
     /** What the input holds right now, which nothing else can see. */
@@ -931,6 +944,16 @@ function App({ engine, options, theme }: Props): React.ReactElement {
         [columns, keep, push, settle],
     );
 
+    /** What the user did to an interface becomes the next thing the agent is told. */
+    const answer = useCallback(
+        (action: { name: string }): void => {
+            setUi(undefined);
+            push('note', 'submitted', action.name);
+            submitRef.current(JSON.stringify({ a2uiAction: action }));
+        },
+        [push],
+    );
+
     const submit = useCallback(
         (value: string): void => {
             const text = value.trim();
@@ -984,13 +1007,33 @@ function App({ engine, options, theme }: Props): React.ReactElement {
             void (async () => {
                 try {
                     const outcome = await Engine.run(engine, text, onEvent, controller.signal);
+                    // An answer that is an A2UI interface is drawn live, below
+                    // the transcript, instead of being filed into it as text.
+                    // If the renderer will not take it, it is text after all.
+                    const messages = parseA2ui(outcome.text);
+                    let drawn = false;
+                    if (messages) {
+                        try {
+                            const view = await import('./a2ui.tsx');
+                            const surface = view.openSurface(messages, (action) => answer(action));
+                            setUi({ View: view.A2uiView, surface });
+                            drawn = true;
+                        } catch (err) {
+                            const reason = err instanceof Error ? err.message : String(err);
+                            push(
+                                'note',
+                                'not drawn as an interface',
+                                reason.replace(/\s+/g, ' ').slice(0, 300),
+                            );
+                        }
+                    }
                     // The answer is what the turn ended on, and it is normally
                     // still on screen unboxed — nothing followed it, so nothing
                     // committed it. Boxing it here replaces it in place. It is
                     // only skipped when the last thing the model said was
                     // already filed as prose, which is what an aborted turn
                     // looks like: the text is above the call it was cut off at.
-                    if (outcome.text.trim() && outcome.text.trim() !== told.current) {
+                    if (!drawn && outcome.text.trim() && outcome.text.trim() !== told.current) {
                         push('agent', outcome.text);
                     }
                     // The previous total is the only thing that can say what
@@ -1027,6 +1070,7 @@ function App({ engine, options, theme }: Props): React.ReactElement {
         },
         [busy, engine, exit, history, onEvent, push, reset, stdout],
     );
+    submitRef.current = submit;
 
     // Escape stops the turn; ctrl-c leaves. They are different things, and a
     // run that is asked to stop still writes its state, so the session survives
@@ -1044,6 +1088,14 @@ function App({ engine, options, theme }: Props): React.ReactElement {
             return;
         }
         if (busy) {
+            return;
+        }
+        if (ui) {
+            // The interface owns the keyboard: Tab, Enter and the arrows are
+            // its, and only Escape — put the interface away — is ours.
+            if (keys.escape) {
+                setUi(undefined);
+            }
             return;
         }
         if (keys.upArrow) {
@@ -1113,6 +1165,15 @@ function App({ engine, options, theme }: Props): React.ReactElement {
                         {live ? <Streaming text={live} columns={columns} rows={textRows} /> : null}
                     </Box>
 
+                    {ui ? (
+                        <Box flexDirection="column" marginY={1}>
+                            <ui.View surface={ui.surface} />
+                            <Text color={theme.chrome.color}>
+                                tab moves · enter selects · esc closes
+                            </Text>
+                        </Box>
+                    ) : null}
+
                     <Footer
                         agent={agent}
                         busy={busy}
@@ -1127,7 +1188,7 @@ function App({ engine, options, theme }: Props): React.ReactElement {
                         reasoning={musing && streaming}
                     />
 
-                    {busy ? null : (
+                    {busy || ui ? null : (
                         <Box>
                             <Text color={theme.accent}>› </Text>
                             <TextInput
