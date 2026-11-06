@@ -18,7 +18,6 @@ import { PREFERRED } from '../catalog.ts';
 import type { Command } from '../command.ts';
 import { probeAll } from '../liveness.ts';
 import { ensurePodmanReady } from '../podman.ts';
-import { prepareOnProvider } from '../sandbox.ts';
 import { scaffold } from '../scaffold.ts';
 import {
     bold,
@@ -246,7 +245,7 @@ export const init: Command = {
             note();
         }
 
-        const sandbox = await prepareSandbox(dir, name, ctx.json);
+        const sandbox = await prepareSandbox(dir, ctx.json);
 
         if (ctx.json) {
             json({
@@ -298,7 +297,7 @@ async function adopt(dir: string, values: Flags, quiet: boolean): Promise<void> 
     registry.add(name, dir);
     registry.save();
 
-    const sandbox = await prepareSandbox(dir, name, quiet);
+    const sandbox = await prepareSandbox(dir, quiet);
 
     if (quiet) {
         json({ name, path: dir, adopted: true, listed: listed !== undefined, sandbox });
@@ -335,7 +334,7 @@ async function adopt(dir: string, values: Flags, quiet: boolean): Promise<void> 
  * on it — one whose agent cannot start a shell yet — and refusing to finish
  * `init` over that would throw away everything already written.
  */
-async function prepareSandbox(dir: string, name: string, quiet: boolean): Promise<boolean> {
+async function prepareSandbox(dir: string, quiet: boolean): Promise<boolean> {
     let image: string | undefined;
     try {
         const { root, config } = readProjectConfig(dir);
@@ -343,18 +342,6 @@ async function prepareSandbox(dir: string, name: string, quiet: boolean): Promis
         image = build?.tag ?? config.sandbox?.image;
         if (!build && !image) {
             return false;
-        }
-        // A plugin that runs the sandboxes elsewhere builds there: an image in
-        // this machine's podman is not one its sandboxes would ever run.
-        const elsewhere = await prepareOnProvider({ dir: root, name }, config.sandbox, build, {
-            warn: (message) => !quiet && note(yellow(message)),
-        });
-        if (elsewhere) {
-            if (!quiet) {
-                note(`${green('sandbox ready')} ${dim(`on ${elsewhere}`)}`);
-                note();
-            }
-            return true;
         }
         // Nothing to answer: `init` is not the place to be asked whether to
         // install a package manager's worth of software.

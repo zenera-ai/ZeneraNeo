@@ -376,9 +376,7 @@ Which sandbox a run gets, in order:
 3. Podman on this machine.
 
 `zen run --podman` skips step 2, and `zen check` smoke-tests whichever sandbox
-a run would get. `zen init` and `zen sandbox up|pull` get the image ready the
-same way: with a plugin, its sandbox's `prepare()` builds it where the
-sandboxes run, never in this machine's podman. `ZEN_PLUGINS` and `ZEN_SANDBOX_*` come from the machine's
+a run would get. `ZEN_PLUGINS` and `ZEN_SANDBOX_*` come from the machine's
 environment only: a project's `.env` cannot set them, and `sandbox.env` cannot
 forward them into a sandbox.
 

@@ -14,12 +14,10 @@ import {
     readProjectConfig,
     sandboxLimits,
     type ProjectConfig,
-    type SandboxConfig,
     type SandboxLimits,
 } from '@zenera/neo';
 import { parse } from '../args.ts';
 import type { Command } from '../command.ts';
-import { prepareOn } from '../sandbox.ts';
 import {
     engineDisk,
     ensurePodmanReady,
@@ -163,7 +161,7 @@ export const sandbox: Command = {
             );
             if (remote) {
                 try {
-                    return await elsewhere(what, remote.provider, ctx.json, values, found);
+                    return await elsewhere(what, remote.provider, ctx.json, values);
                 } finally {
                     await Promise.resolve(remote.plugin.close?.()).catch(() => undefined);
                 }
@@ -196,35 +194,16 @@ export const sandbox: Command = {
 };
 
 /**
- * The subcommands, when a plugin runs the sandboxes somewhere else: `status`,
- * `clean`, and getting the image ready (`up`, `pull`) are asked of it, and the
- * rest are about a podman that is not the one in use, so they say that rather
- * than quietly reporting on it.
+ * The subcommands, when a plugin runs the sandboxes somewhere else: the two it
+ * can answer are asked of it, and the rest are about a podman that is not the
+ * one in use, so they say that rather than quietly reporting on it.
  */
 async function elsewhere(
     what: string,
     provider: SandboxProvider,
     asJson: boolean,
     values: Flags,
-    project: ProjectSandbox | undefined,
 ): Promise<void> {
-    if (what === 'up' || what === 'pull') {
-        // The image is built where the sandboxes run, so this is the one
-        // place it can be got ready ahead of a run.
-        if (!project?.build && !project?.config?.image) {
-            throw usageError(
-                'no project here, so there is no image to get ready',
-                'run it in a project, or name one with --project',
-            );
-        }
-        await prepareOn(provider, project.config, project.build, { force: what === 'pull' });
-        if (asJson) {
-            json({ ready: true, provider: provider.describe, image: project.image ?? null });
-            return;
-        }
-        write(`${green('ready')} ${dim(`on ${provider.describe}`)}`);
-        return;
-    }
     if (what === 'status') {
         const report = provider.status ? await provider.status() : undefined;
         if (asJson) {
@@ -261,8 +240,6 @@ interface ProjectSandbox {
     name: string;
     image?: string;
     build?: ResolvedBuild;
-    /** the project's `sandbox:` block, as written */
-    config?: SandboxConfig;
     /** the ceilings one container gets, agent overrides included */
     limits?: SandboxLimits;
 }
@@ -290,7 +267,6 @@ async function projectSandbox(cwd: string, values: Flags): Promise<ProjectSandbo
             name: found.name,
             image: build?.tag ?? config.sandbox?.image,
             build,
-            config: config.sandbox,
             limits: sandboxLimits(config.sandbox),
         };
     } catch {
