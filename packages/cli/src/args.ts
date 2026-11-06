@@ -33,6 +33,19 @@ export interface Parsed<T> {
     positionals: string[];
 }
 
+/**
+ * Node appends advice about `--` to an unknown-option message, and the quote it
+ * opens there is never closed. Every other message passes through untouched.
+ */
+function plainMessage(err: unknown): string {
+    const { code, message } = err as NodeJS.ErrnoException;
+    if (code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+        const marker = message.lastIndexOf("'. To specify");
+        return marker === -1 ? message : message.slice(0, marker + 1);
+    }
+    return message;
+}
+
 export function parse<T>(args: readonly string[], options: Options, usage: string): Parsed<T> {
     try {
         const { values, positionals } = parseArgs({
@@ -43,7 +56,7 @@ export function parse<T>(args: readonly string[], options: Options, usage: strin
         });
         return { values: values as T, positionals };
     } catch (err) {
-        throw usageError((err as Error).message, usage);
+        throw usageError(plainMessage(err), usage);
     }
 }
 
