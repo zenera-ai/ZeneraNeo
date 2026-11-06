@@ -1,6 +1,10 @@
-import { basename, resolve } from 'node:path';
+import { home } from '@zenera/engine';
+import { ZENERA_BWRAP } from '@zenera/sandbox';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { parse } from '../args.ts';
 import { asCliError, ensurePodmanReady } from '../podman.ts';
+import { project as resolveProject } from '../resolve.ts';
 import { preflight } from '../sandbox.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
@@ -40,8 +44,10 @@ export const server: Command = {
         '',
         '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
         '  --host <addr>          Default $ZEN_SERVER_HOST, else 127.0.0.1.',
-        '  --project <dir>        The project; default $PROJECT_DIR, else /project.',
-        '  --state <dir>          Everything it writes; default $ZEN_STATE_DIR, else /state.',
+        '  --project <name|dir>   The project; default $PROJECT_DIR, else the one you are',
+        '                         in, as zen run (in the agent image: /project).',
+        '  --state <dir>          Everything it writes; default $ZEN_STATE_DIR, else',
+        '                         ~/.zenera/neo/servers/<project>/<user> (in the image: /state).',
         '  --user <id>            Whose server it is; default $ZEN_USER_ID ($ZEN_USER_EMAIL,',
         '                         $ZEN_USER_ROLE say more about them).',
         '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
@@ -95,14 +101,59 @@ async function load(): Promise<ServerModule> {
     return import('@zenera/server');
 }
 
-async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = process.env) {
-    const mod = await load();
-    const projectDir = resolve(ctx.cwd, values.project ?? env.PROJECT_DIR ?? '/project');
-    const stateDir = resolve(ctx.cwd, values.state ?? env.ZEN_STATE_DIR ?? '/state');
+/** The agent image: it ships bwrap there, and has its project at /project and its state at /state. */
+const inAgentImage = (): boolean => existsSync(ZENERA_BWRAP);
+
+/**
+ * The project: --project (a name or a directory, as `zen run --project`), else $PROJECT_DIR, else
+ * /project in the agent image, else the one this directory is in — or a registered one to pick.
+ */
+async function whichProject(
+    ctx: Context,
+    values: Flags,
+    env: NodeJS.ProcessEnv,
+): Promise<{ dir: string; name: string }> {
+    const given = values.project ?? env.PROJECT_DIR?.trim();
+    if (!given && inAgentImage()) {
+        return { dir: '/project', name: env.ZEN_PROJECT_ID?.trim() || 'project' };
+    }
+    const found = await resolveProject({ project: given, cwd: ctx.cwd });
+    return { dir: found.dir, name: found.name };
+}
+
+/** The user: --user, else $ZEN_USER_ID. */
+function whichUser(values: Flags, env: NodeJS.ProcessEnv): string {
     const id = values.user ?? env.ZEN_USER_ID?.trim();
     if (!id) {
         throw usageError('whose server is it?', 'name its user: --user or $ZEN_USER_ID');
     }
+    return id;
+}
+
+/**
+ * Where it keeps its state: --state, else $ZEN_STATE_DIR, else /state in the agent image, else
+ * <zen home>/servers/<project>/<user> — out of the project, which is shared, and per user.
+ */
+function whichState(
+    ctx: Context,
+    values: Flags,
+    env: NodeJS.ProcessEnv,
+    project: string,
+    user: string,
+): string {
+    const given = values.state ?? env.ZEN_STATE_DIR?.trim();
+    if (given) return resolve(ctx.cwd, given);
+    if (inAgentImage()) return '/state';
+    return join(home(), 'servers', project, user);
+}
+
+async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = process.env) {
+    const mod = await load();
+    const id = whichUser(values, env);
+    const project = await whichProject(ctx, values, env);
+    const projectDir = project.dir;
+    const projectId = env.ZEN_PROJECT_ID?.trim() || project.name;
+    const stateDir = whichState(ctx, values, env, projectId, id);
     const user = {
         id,
         ...(env.ZEN_USER_EMAIL?.trim() ? { email: env.ZEN_USER_EMAIL.trim() } : {}),
@@ -126,7 +177,7 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
         settings: {
             ...mod.DEFAULTS,
             projectDir,
-            projectId: env.ZEN_PROJECT_ID?.trim() || basename(projectDir),
+            projectId,
             stateDir,
             user,
             token: '',
@@ -235,7 +286,18 @@ async function start(ctx: Context, values: Flags): Promise<void> {
 
 async function status(ctx: Context, values: Flags): Promise<void> {
     const mod = await load();
-    const stateDir = resolve(ctx.cwd, values.state ?? process.env.ZEN_STATE_DIR ?? '/state');
+    const env = process.env;
+    // Its token is in its state, unless the environment has it; that state is per project and user.
+    const stateDir =
+        env.ZEN_SERVER_TOKEN?.trim() || values.state || env.ZEN_STATE_DIR || inAgentImage()
+            ? whichState(ctx, values, env, '', '')
+            : whichState(
+                  ctx,
+                  values,
+                  env,
+                  env.ZEN_PROJECT_ID?.trim() || (await whichProject(ctx, values, env)).name,
+                  whichUser(values, env),
+              );
     const on = listenOn(values);
     const token = mod.serverToken(stateDir);
     const url = `http://${describe(on)}/api/status`;
@@ -297,7 +359,11 @@ function printStatus(s: import('@zenera/server').ServerStatus): void {
         'state',
         s.state.error
             ? red(s.state.error)
-            : `${s.state.dir} ${dim(`layout ${s.state.version} of ${s.state.supported}`)}`,
+            : `${s.state.dir} ${dim(
+                  s.state.version === undefined
+                      ? 'new: written on start'
+                      : `layout ${s.state.version} of ${s.state.supported}`,
+              )}`,
     );
     row('versions', dim(`server ${s.server} · engine ${s.zen.engine} · node ${s.node}`));
 }

@@ -101,6 +101,9 @@ zen server check  (same options)        # bwrap, image identity, /state; exit 5 
 zen server status [--port …] [--host …] [--state …]   # a running server's /api/status
 ```
 
+- Project: `--project` (name or dir), else `$PROJECT_DIR`, else the one you are in, as `zen run`
+  (`/project` in the agent image). State: `--state`, else `$ZEN_STATE_DIR`, else
+  `~/.zenera/neo/servers/<project>/<user>` (`/state` in the image).
 - Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
   `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_PORT`,
   `ZEN_SERVER_HOST`, `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`.

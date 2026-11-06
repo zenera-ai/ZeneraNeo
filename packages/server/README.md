@@ -7,7 +7,7 @@ events as [AG-UI](https://docs.ag-ui.com), and runs the agents' commands in a
 the server's environment or state visible to them.
 
 ```sh
-zen server start --user ann                       # 127.0.0.1:3000
+zen server start --user ann                       # the project you are in, 127.0.0.1:3000
 zen server start --user ann --host 0.0.0.0        # in a container
 zen server check --user ann                       # could it start here?
 zen server status                                 # a running one's report
