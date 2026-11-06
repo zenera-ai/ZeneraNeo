@@ -22,10 +22,11 @@ const serveAs = (id: string) =>
         token: 'x'.repeat(32),
         projectId: 'memory-test',
         user: { id },
-        stateDir: join(dataDir, 'users', id),
+        sessionsDir: join(dataDir, 'users', id, 'sessions'),
+        memoryDir: join(dataDir, 'users', id, 'memory'),
         projectDir,
     });
-const memoryOf = (id: string) => join(dataDir, 'users', id, 'data', 'memory');
+const memoryOf = (id: string) => join(dataDir, 'users', id, 'memory');
 serveAs(userId);
 process.env.ZENERA_HOME = join(testRoot, 'zenera-home');
 

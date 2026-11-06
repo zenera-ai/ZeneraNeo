@@ -18,11 +18,9 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import {
     createServer,
     MIN_TOKEN_LENGTH,
-    openState,
     serverToken,
-    STATE_VERSION,
     stopAllRuns,
-    TOKEN_FILE,
+    tokenFile,
     type AgentServer,
 } from '../src/index.ts';
 
@@ -117,8 +115,10 @@ writeFileSync(
 
 // --- a sandbox that records the commands ----------------------------------------------------
 const commands: string[] = [];
+const roots: string[] = [];
 const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
     let started = false;
+    roots.push(opts.root);
     return {
         name: `fake-${opts.key}`,
         fs: new RootedFs([{ at: opts.workdir ?? '/workspace', dir: opts.root }]),
@@ -159,11 +159,11 @@ let running: { server: AgentServer; http: Server; url: string } | undefined;
 
 async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
     await running?.server.stop(1000);
-    const stateDir = mkdtempSync(join(root, 'state-'));
+    const sessionsDir = mkdtempSync(join(root, 'sessions-'));
     const server = createServer({
         projectId: 'p1',
         projectDir,
-        stateDir,
+        sessionsDir,
         user: { id: 'local' },
         token: TOKEN,
         sandbox: fakeSandbox,
@@ -172,7 +172,7 @@ async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
     });
     const http = await server.listen({ port: 0 });
     running = { server, http, url: `http://127.0.0.1:${(http.address() as AddressInfo).port}` };
-    return { ...running, stateDir };
+    return { ...running, sessionsDir };
 }
 afterEach(async () => {
     await running?.server.stop(1000);
@@ -197,7 +197,7 @@ describe('the server', () => {
     });
 
     it('runs a turn end to end: the model calls run_command, the sandbox runs it', async () => {
-        const { url, stateDir } = await start();
+        const { url, sessionsDir } = await start();
         const thread = randomUUID();
         commands.length = 0;
         const res = await call(`${url}/api/sessions/${thread}/runs`, {
@@ -219,12 +219,11 @@ describe('the server', () => {
         expect(text).toContain('hello');
         expect(commands).toEqual(['echo hello']);
 
-        // A single-user server keeps everything under data/.
-        expect(existsSync(join(stateDir, 'data', 'sessions', thread, '.data', 'state.json'))).toBe(
-            true,
-        );
-        expect(existsSync(join(stateDir, 'data', 'runs', thread))).toBe(true);
-        expect(existsSync(join(stateDir, 'users'))).toBe(false);
+        // A thread is a session, laid out as `zen run` lays one out, with its AG-UI log beside.
+        const session = join(sessionsDir, thread);
+        expect(existsSync(join(session, '.data', 'state.json'))).toBe(true);
+        expect(existsSync(join(session, 'workspace'))).toBe(true);
+        expect(existsSync(join(session, 'agui'))).toBe(true);
 
         // The stream ends with the run's last event; the run lets go of the thread just after.
         for (let i = 0; i < 50; i++) {
@@ -238,6 +237,21 @@ describe('the server', () => {
         const body = (await history.json()) as { events: AGUIEvent[]; running: unknown };
         expect(body.running).toBeNull();
         expect(body.events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
+    });
+
+    it('gives every chat the one workspace it was told to, as zen run --workspace', async () => {
+        const workspace = mkdtempSync(join(root, 'ws-'));
+        const { url, sessionsDir } = await start({ workspace });
+        roots.length = 0;
+        const thread = randomUUID();
+        const res = await call(`${url}/api/sessions/${thread}/runs`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+        });
+        await res.text();
+        expect(roots).toContain(workspace);
+        expect(existsSync(join(sessionsDir, thread, 'workspace'))).toBe(false);
     });
 
     it('keeps the debug routes off unless asked for', async () => {
@@ -257,7 +271,7 @@ describe('the server', () => {
             listen: expect.stringMatching(/^127\.0\.0\.1:\d+$/),
             debug: false,
             sandbox: { provider: 'fake', ok: true },
-            state: { version: STATE_VERSION, supported: STATE_VERSION },
+            sessions: expect.stringContaining('sessions-'),
         });
     });
 });
@@ -269,7 +283,10 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
         process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
         process.env.ZEN_SERVER_TOKEN = TOKEN;
         try {
-            const { url, stateDir } = await start({ sandbox: 'bwrap', sandboxProvider: 'bwrap' });
+            const { url, sessionsDir } = await start({
+                sandbox: 'bwrap',
+                sandboxProvider: 'bwrap',
+            });
             // Not under /tmp, which every command has its own of anyway.
             const visible = join(process.cwd(), `.zen-live-state-${randomUUID().slice(0, 8)}`);
             mkdirSync(visible);
@@ -280,7 +297,7 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
                 'echo hello; env | grep -c ZEN_SERVER_LIVE_SECRET || true; ' +
                 `env | grep -q ${TOKEN} && echo TOKEN-SEEN; ` +
                 `node -e "fetch('http://127.0.0.1:${port}/api/activity').then(r => console.log('server says', r.status))"; ` +
-                `test -e ${visible}/state.json && echo STATE-SEEN; test -e ${stateDir}/state.json && echo OWN-STATE-SEEN; true`;
+                `test -e ${visible}/state.json && echo STATE-SEEN; test -e ${sessionsDir} && echo OWN-STATE-SEEN; true`;
             const res = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
@@ -357,46 +374,30 @@ describe('its token', () => {
     });
 
     it('is refused when short, and so is a user that is not one', () => {
-        const base = { projectId: 'p1', projectDir, stateDir: root, user: { id: 'local' } };
+        const base = { projectId: 'p1', projectDir, sessionsDir: root, user: { id: 'local' } };
         expect(() => createServer({ ...base, token: 'short' })).toThrow(/at least 32/);
         expect(() => createServer({ ...base, token: TOKEN, user: { id: '../x' } })).toThrow(
             /not a user id/,
         );
     });
 
-    it('is made once per state directory, owner-only, unless the environment gives one', () => {
-        const dir = mkdtempSync(join(root, 'token-'));
-        expect(serverToken(dir, { env: {} })).toBeUndefined();
-        const made = serverToken(dir, { create: true, env: {} })!;
+    it('is made once per project and user, owner-only, unless the environment gives one', () => {
+        const file = tokenFile('p/../1', `u-${randomUUID().slice(0, 8)}`);
+        expect(file.startsWith(join(process.env.ZENERA_HOME!, 'servers', 'p_.._1'))).toBe(true);
+        expect(serverToken(file, { env: {} })).toBeUndefined();
+        const made = serverToken(file, { create: true, env: {} })!;
         expect(made.token.length).toBeGreaterThanOrEqual(MIN_TOKEN_LENGTH);
-        expect(made.from).toBe(join(dir, TOKEN_FILE));
+        expect(made.from).toBe(file);
         expect(statSync(made.from).mode & 0o777).toBe(0o600);
-        expect(serverToken(dir, { create: true, env: {} })).toEqual(made);
-        expect(serverToken(dir, { env: { ZEN_SERVER_TOKEN: 'given' } })).toEqual({
+        expect(serverToken(file, { create: true, env: {} })).toEqual(made);
+        expect(serverToken(file, { env: { ZEN_SERVER_TOKEN: 'given' } })).toEqual({
             token: 'given',
             from: 'env',
         });
     });
 });
 
-describe('state.json', () => {
-    it('is written once, and refuses a newer layout, another user or another project', () => {
-        const dir = mkdtempSync(join(root, 'layout-'));
-        const first = openState(dir, { userId: 'a', projectId: 'p' })!;
-        expect(first).toMatchObject({ version: STATE_VERSION, userId: 'a', projectId: 'p' });
-        expect(openState(dir, { userId: 'a', projectId: 'p' })!.createdAt).toBe(first.createdAt);
-        expect(() => openState(dir, { userId: 'b', projectId: 'p' })).toThrow(/belongs to user a/);
-        expect(() => openState(dir, { userId: 'a', projectId: 'q' })).toThrow(/project p/);
-        writeFileSync(join(dir, 'state.json'), JSON.stringify({ version: STATE_VERSION + 1 }));
-        expect(() => openState(dir, { userId: 'a', projectId: 'p' })).toThrow(/newer server/);
-    });
-
-    it('is only read by a check, which claims nothing', () => {
-        const dir = mkdtempSync(join(root, 'unclaimed-'));
-        expect(openState(dir, { userId: 'a', projectId: 'p' }, { create: false })).toBeUndefined();
-        expect(existsSync(join(dir, 'state.json'))).toBe(false);
-    });
-
+describe('stopping', () => {
     it('refuses new runs once the server is stopping, and a new server takes them again', async () => {
         const post = (url: string) =>
             call(`${url}/api/sessions/${randomUUID()}/runs`, {

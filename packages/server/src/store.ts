@@ -1,11 +1,12 @@
 // Where a chat's session, run logs and memory live, and the engine opened on one for a turn.
 // The chat code (runs.ts, history.ts, trace.ts, memory.ts) is the same for every kind of chat; a
 // ChatStore says where a thread's things are and who it belongs to.
-//   privateStore - the user's chats, under the server's state directory:
-//     <state>/data/sessions/<thread id>/  - one zen session per chat thread (its workspace inside)
-//     <state>/data/runs/<thread id>/      - its runs' AG-UI events (runLog.ts), outside the session,
-//                                           which the sandbox sees part of
-//     <state>/data/memory/                - the user's memory graph
+//   privateStore - the user's chats, as `zen run` keeps sessions:
+//     <sessions>/<thread id>/             - one zen session per chat thread: .data/ (state),
+//                                           runs/ (the engine's records), workspace/ (unless the
+//                                           server has one workspace), agui/ (its runs' AG-UI
+//                                           events, runLog.ts — never in the sandbox's view)
+//     memory                              - the project's own graph, or the server's `memoryDir`
 //   ChatStore, ChatThread       - the contract (a host may serve other chats with it: the Test tab)
 //   usesMemory                  - whether any agent remembers, so the memory explorer has a graph
 //   openEngineFor               - the project wired to a session, memory and the user the run acts
@@ -13,6 +14,7 @@
 //   errorMessage, asHttpError   - what an EngineError says, and means to an HTTP caller
 import {
     createSessionAt,
+    home,
     EngineError,
     EXIT,
     openEngine,
@@ -22,7 +24,7 @@ import {
     type SandboxSetup,
     type SessionPaths,
 } from '@zenera/engine';
-import { readProjectConfig } from '@zenera/neo';
+import { memoryDir as projectMemoryDir, readProjectConfig } from '@zenera/neo';
 import type { Request } from 'express';
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -61,15 +63,18 @@ export interface ChatStore {
     ownerBusy: string;
 }
 
-/** Where the user's chats and memory are. */
-export function dataDir(): string {
-    return join(settings().stateDir, 'data');
-}
+const sessionDir = (t: ChatThread) => join(settings().sessionsDir, t.id);
 
-const privateSessionDir = (t: ChatThread) => join(dataDir(), 'sessions', t.id);
-
-export function memoryDir(): string {
-    return join(dataDir(), 'memory');
+/** The graph the runs remember into: the server's, else the project's own, as `zen run`. */
+export function memoryDir(): string | undefined {
+    const s = settings();
+    if (s.memoryDir) return s.memoryDir;
+    try {
+        const { root, config } = readProjectConfig(s.projectDir);
+        return projectMemoryDir(root, config);
+    } catch {
+        return undefined;
+    }
 }
 
 export const privateStore: ChatStore = {
@@ -78,19 +83,22 @@ export const privateStore: ChatStore = {
         return { id: id.threadId, owner: id.userId };
     },
     existingSession(t) {
-        const p = sessionPathsAt(privateSessionDir(t));
+        const p = sessionPathsAt(sessionDir(t));
         return existsSync(p.meta) ? p : null;
     },
     sessionFor(t) {
-        const dir = privateSessionDir(t);
-        return this.existingSession(t) ?? createSessionAt(dir, join(dir, 'workspace'));
+        const dir = sessionDir(t);
+        return (
+            this.existingSession(t) ??
+            createSessionAt(dir, settings().workspace ?? join(dir, 'workspace'))
+        );
     },
-    runsDir: (t) => join(dataDir(), 'runs', t.id),
+    runsDir: (t) => join(sessionDir(t), 'agui'),
     memoryDir: () => memoryDir(),
-    engineMemoryDir: () => memoryDir(),
+    // Unset is the project's own: what `zen run` does with no --memory.
+    engineMemoryDir: () => settings().memoryDir,
     async removeThread(t) {
-        await rm(privateSessionDir(t), { recursive: true, force: true });
-        await rm(this.runsDir(t), { recursive: true, force: true });
+        await rm(sessionDir(t), { recursive: true, force: true });
     },
     get maxOwnerRuns() {
         return settings().maxRuns;
@@ -129,7 +137,10 @@ export async function imageReady(setup: SandboxSetup): Promise<void> {
 /** The factory a run's engine opens its sandbox with. */
 function sandboxFactory(s: ServerSettings): SandboxFactory {
     if (s.sandbox !== 'bwrap') return s.sandbox as SandboxFactory;
-    const hidden = [s.stateDir, ...s.hidden];
+    // Other chats, the graph (the server's to read and write, through its tools) and the zen
+    // home (its keyring) are not the command's; its own workspace and home are bound back in.
+    const memory = memoryDir();
+    const hidden = [s.sessionsDir, ...(memory ? [memory] : []), home(), ...s.hidden];
     return (opts) => new BwrapSandbox(opts, { hidden });
 }
 

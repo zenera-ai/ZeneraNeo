@@ -15,7 +15,7 @@ configure({
     token: 'x'.repeat(32),
     projectId: 'project',
     user: { id: '00000000-0000-0000-0000-000000000001' },
-    stateDir: root,
+    sessionsDir: root,
 });
 const { errorHandler } = await import('../src/http.ts');
 const { traceRouter, MAX_PART_CHARS } = await import('../src/trace.ts');
@@ -24,8 +24,8 @@ const { startRecord, saveRecord } = await import('../src/runRecords.ts');
 
 const thread = '00000000-0000-0000-0000-000000000002';
 const otherThread = '00000000-0000-0000-0000-000000000003';
-const dir = join(root, 'data', 'runs', thread);
-const sessionDir = join(root, 'data', 'sessions', thread);
+const sessionDir = join(root, thread);
+const dir = join(sessionDir, 'agui');
 const session = createSessionAt(sessionDir, join(sessionDir, 'workspace'));
 const blobs = new FilePayloadStore({ dir: session.blobs, id: 'file' });
 const put = (text: string) => blobs.put(text);

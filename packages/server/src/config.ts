@@ -22,8 +22,16 @@ export interface ServerSettings {
     /** the project the agents come from; read-only to the server */
     projectDir: string;
     projectId: string;
-    /** everything the server writes: the chats, their runs, the memory */
-    stateDir: string;
+    /**
+     * Where each chat thread's session lives, `<sessions>/<thread id>/`, as `zen run` keeps its
+     * own: the session's state, its run records, its AG-UI log, and its workspace unless
+     * `workspace` names one. `zen run`'s own default: `<project>/sessions`.
+     */
+    sessionsDir: string;
+    /** the graph every run remembers into; unset, the project's own, as `zen run` has it */
+    memoryDir?: string;
+    /** one directory every chat reads and writes; unset, each session's own, as `zen run` has it */
+    workspace?: string;
     user: ServerUser;
     /** the bearer token every request but /healthz must carry; at least 32 characters */
     token: string;
@@ -42,7 +50,7 @@ export interface ServerSettings {
      * (`imageReady`) — the agent image's, or one built ahead of time.
      */
     preflight?: (setup: SandboxSetup) => Promise<void>;
-    /** more paths bwrap commands never see (the state directory always) */
+    /** more paths bwrap commands never see (the sessions, the memory and the zen home always) */
     hidden: string[];
     /** this run's own plugins (the MCP tools for its user), given the token its caller sent */
     plugins: (run: { mcpToken: string | null }) => Promise<ZenPlugin[]>;
@@ -66,9 +74,8 @@ export const SANDBOX_PROVIDERS = {
 
 const sandbox = defaultSandbox();
 
-export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token'> = {
+export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token' | 'sessionsDir'> = {
     projectDir: '/project',
-    stateDir: '/state',
     debug: false,
     sandbox,
     sandboxProvider: SANDBOX_PROVIDERS[sandbox],

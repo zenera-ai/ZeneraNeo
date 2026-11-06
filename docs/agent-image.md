@@ -12,7 +12,7 @@ prj-<id>/agent:<tag>
 ├ <project's sandbox/Dockerfile environment>        root filesystem, glibc
 ├ /opt/zenera/   node, @zenera/*, server, bwrap      COPY --link from zenera/runtime:<zen>
 ├ /project/      agents.yaml, prompts, assets, skills (release: baked; draft: bind-mounted ro)
-├ /state/        data/ (sessions, runs, memory) + state.json      the only writable mount
+├ /state/        sessions/, memory/                                the only writable mount
 └ CMD /opt/zenera/bin/zen server start   :3000, bwrap for every command
 ```
 
@@ -76,15 +76,19 @@ Docker Desktop 27.5 default (bind) and `systempaths=unconfined` (fresh), Docker 
 `store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory) with its
 tests, made a package for **one user** behind **one token**. See its README.
 
-- `createServer({ projectId, user: { id, email?, role? }, token, projectDir, stateDir, debug,
-sandbox, hidden, plugins, limits… })`; `listen({ port, host = '127.0.0.1' })`.
+- `createServer({ projectId, user: { id, email?, role? }, token, projectDir, sessionsDir,
+memoryDir?, workspace?, debug, sandbox, hidden, plugins, limits… })`;
+  `listen({ port, host = '127.0.0.1' })`.
 - Identity is the host's: the user from settings (`ZEN_USER_*`), the thread from the URL (one safe
   path segment). Nothing of a request says who it is for.
 - Auth is one bearer token (≥ 32 chars) on every route but `/healthz`, compared in constant time.
   It names nobody; login and who-may-use-which-server stay in front (zenera-app, a proxy).
   Sandboxed commands can reach the port but see no token (not in their env, state dir hidden).
-- State: `<state>/data/{sessions,runs,memory}`, `state.json` (layout 1, project, user) refuses a
-  newer layout, another project, another user; `check` only reads it. `<state>` is 0700.
+- Sessions, workspace, memory as `zen run`: a thread is a session at `<sessions>/<tid>/` (its
+  `.data/`, `runs/`, `workspace/`, plus `agui/` for the AG-UI log); `workspace` gives every chat
+  one directory; memory is the project's unless `memoryDir`. No state directory of its own.
+- bwrap hides the sessions dir, the memory dir and the zen home from commands (their own
+  workspace and home are bound back in).
 - Sandbox: `defaultSandbox()` — bwrap inside the agent image (it ships `/opt/zenera/bin/bwrap`),
   podman anywhere else, as `zen run`; or `'bwrap'`/`'podman'`/a factory. Plugins never replace it.
 - `GET /api/status` (includes where it listens); debug routes only with `debug`.
@@ -95,24 +99,26 @@ sandbox, hidden, plugins, limits… })`; `listen({ port, host = '127.0.0.1' })`.
 ### N5. `zen server` — done
 
 ```
-zen server start  [--port 3000] [--host 127.0.0.1] [--project /project] [--state /state]
-                  [--user <id>] [--debug] [--sandbox podman|bwrap]
-zen server check  (same options)        # bwrap, image identity, /state; exit 5 when not ready
-zen server status [--port …] [--host …] [--state …]   # a running server's /api/status
+zen server start  [--port 3000] [--host 127.0.0.1] [--project <name|dir>] [--user <id>]
+                  [--sessions <dir>] [--workspace <dir> | --here] [--memory <dir>]
+                  [--debug] [--sandbox podman|bwrap]
+zen server check  (same options)        # podman/bwrap, image identity; exit 5 when not ready
+zen server status [--port …] [--host …] [--project …] [--user …]   # a running server's report
 ```
 
 - Project: `--project` (name or dir), else `$PROJECT_DIR`, else the one you are in, as `zen run`
-  (`/project` in the agent image). State: `--state`, else `$ZEN_STATE_DIR`, else
-  `~/.zenera/neo/servers/<project>/<user>` (`/state` in the image).
-- Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
+  (`/project` in the agent image). Sessions: `--sessions`/`$ZEN_SESSIONS_DIR`, else
+  `<project>/sessions` (`/state/sessions` in the image). Memory: `--memory`/`$ZEN_MEMORY_DIR`, else
+  the project's (`/state/memory` in the image). Workspace: `--workspace`/`--here`, else per session.
+- Env defaults: `PROJECT_DIR`, `ZEN_SESSIONS_DIR`, `ZEN_MEMORY_DIR`, `ZEN_WORKSPACE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
   `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_PORT`,
   `ZEN_SERVER_HOST`, `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`.
 - Sandbox: `--sandbox`, else `$ZEN_SERVER_SANDBOX`, else bwrap in the agent image and podman
   elsewhere. With podman, `start` readies it as `zen run` does (machine started, no prompt) and a
   turn pulls or builds its image (`zen run`'s preflight); `check` only asks podman.
 - Keys: the keyring (`zen key …`) and the environment, as `zen run`; in the image, the environment.
-- Token: `ZEN_SERVER_TOKEN`, else `<state>/server.token` (made on first start, 0600); `status`
-  reads the same. A non-loopback host starts with a warning. Keys from env; no keyring.
+- Token: `ZEN_SERVER_TOKEN`, else `<zen home>/servers/<project>/<user>.token` (made on first
+  start, 0600); `status` reads the same. A non-loopback host starts with a warning. Keys from env; no keyring.
 - The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]` with
   `ZEN_SERVER_HOST=0.0.0.0`.
 - `@zenera/server` is a dependency of the CLI, imported only by `zen server`.

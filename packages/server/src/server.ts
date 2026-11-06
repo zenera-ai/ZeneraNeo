@@ -4,13 +4,14 @@
 // A sandboxed command shares the container's network but not the server's environment or
 // state, so it can reach the port and is still refused.
 //   GET  /healthz                         - for probes
-//   GET  /api/status                      - versions, sandbox, image identity, state layout
+//   GET  /api/status                      - versions, sandbox, image identity, sessions, memory
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   createServer  - the app, configured; `listen` starts it, `stop` ends runs and closes it
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { configure, DEFAULTS, type ServerSettings } from './config.ts';
 import { historyRouter } from './history.ts';
@@ -18,14 +19,13 @@ import { errorHandler, notFound } from './http.ts';
 import { checkUser } from './identity.ts';
 import { memoryRouter } from './memory.ts';
 import { acceptRuns, activeRuns, runDebugRouter, runsRouter, stopAllRuns } from './runs.ts';
-import { openState } from './state.ts';
-import { owner, serverStatus, setListening } from './status.ts';
+import { serverStatus, setListening } from './status.ts';
 import { privateStore } from './store.ts';
 import { MIN_TOKEN_LENGTH } from './token.ts';
 import { traceRouter } from './trace.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
-    Pick<ServerSettings, 'projectId' | 'user' | 'token'>;
+    Pick<ServerSettings, 'projectId' | 'user' | 'token' | 'sessionsDir'>;
 
 /** TCP; loopback unless a host is named. */
 export interface ListenOn {
@@ -48,7 +48,7 @@ export function createServer(opts: ServerOptions): AgentServer {
         throw new Error(`the server token must be at least ${MIN_TOKEN_LENGTH} characters`);
     }
     configure(settings);
-    openState(settings.stateDir, owner(settings));
+    mkdirSync(settings.sessionsDir, { recursive: true });
     acceptRuns();
 
     const app = express();

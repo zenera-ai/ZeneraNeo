@@ -14,7 +14,7 @@ configure({
     token: 'x'.repeat(32),
     projectId: 'project',
     user: { id: 'u' },
-    stateDir: mkdtempSync(join(tmpdir(), 'image-ready-')),
+    sessionsDir: mkdtempSync(join(tmpdir(), 'image-ready-')),
 });
 const { imageReady } = await import('../src/store.ts');
 

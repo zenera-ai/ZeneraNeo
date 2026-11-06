@@ -1,7 +1,7 @@
 // What the server can say about itself without being asked anything: `/api/status`, and the
 // checks `zen server start` makes before it listens (`zen server check` prints them).
-//   serverStatus  - versions, sandbox, image identity, state layout
-//   startupErrors - the reasons not to start: no isolation, the wrong image, an unknown layout
+//   serverStatus  - versions, sandbox, image identity, where sessions and memory are
+//   startupErrors - the reasons not to start: nowhere to run commands, the wrong image
 import { resolveBuild } from '@zenera/engine';
 import { readProjectConfig } from '@zenera/neo';
 import {
@@ -14,7 +14,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { settings, type ServerSettings } from './config.ts';
-import { openState, STATE_VERSION, type StateInfo } from './state.ts';
+import { memoryDir } from './store.ts';
 
 export interface ServerStatus {
     server: string;
@@ -43,8 +43,12 @@ export interface ServerStatus {
         matches?: boolean;
         error?: string;
     };
-    /** `version` absent and no error: not created yet (the server writes it on start) */
-    state: { dir: string; version?: number; supported: number; error?: string };
+    /** where the chats are kept, as `zen run` keeps its sessions */
+    sessions: string;
+    /** the graph runs remember into, when the project has one */
+    memory?: string;
+    /** one workspace for every chat; absent, each session has its own */
+    workspace?: string;
 }
 
 const require = createRequire(import.meta.url);
@@ -63,10 +67,6 @@ let listening: string | undefined;
 /** Where the server listens, for the report. */
 export function setListening(where: string | undefined): void {
     listening = where;
-}
-
-export function owner(s: ServerSettings): { userId: string; projectId: string } {
-    return { userId: s.user.id, projectId: s.projectId };
 }
 
 /** Whether podman answers: the machine running, on the platforms that have one. */
@@ -124,13 +124,6 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         image.error = err instanceof Error ? err.message : String(err);
     }
 
-    const state: ServerStatus['state'] = { dir: s.stateDir, supported: STATE_VERSION };
-    try {
-        state.version = openState(s.stateDir, owner(s), { create: false })?.version;
-    } catch (err) {
-        state.error = err instanceof Error ? err.message : String(err);
-    }
-
     return {
         server: versionOf('@zenera/server') ?? 'unknown',
         zen: {
@@ -145,7 +138,9 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         debug: s.debug,
         sandbox,
         image,
-        state,
+        sessions: s.sessionsDir,
+        ...(memoryDir() ? { memory: memoryDir() } : {}),
+        ...(s.workspace ? { workspace: s.workspace } : {}),
     };
 }
 
@@ -165,8 +160,5 @@ export function startupErrors(status: ServerStatus): string[] {
                 `the project asks for ${status.image.wants.build ?? status.image.wants.image} (rebuild it: zen image build)`,
         );
     }
-    if (status.state.error) errors.push(status.state.error);
     return errors;
 }
-
-export type { StateInfo };

@@ -1,4 +1,4 @@
-import { home } from '@zenera/engine';
+import { sessionsDir } from '@zenera/engine';
 import { ZENERA_BWRAP } from '@zenera/sandbox';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -16,7 +16,10 @@ interface Flags {
     port?: string;
     host?: string;
     project?: string;
-    state?: string;
+    sessions?: string;
+    memory?: string;
+    workspace?: string;
+    here?: boolean;
     user?: string;
     debug?: boolean;
     sandbox?: string;
@@ -28,7 +31,7 @@ interface Flags {
  * loaded only here, so no other command pays for it.
  *
  * Every request carries the one token it was given ($ZEN_SERVER_TOKEN, else
- * <state>/server.token, made on first start). The token names nobody: who the
+ * <zen home>/servers/<project>/<user>.token, made on first start). It names nobody: who the
  * server is for is --user, and who may use it is decided in front of it.
  */
 export const server: Command = {
@@ -39,15 +42,23 @@ export const server: Command = {
         '  start                  Listen, after the checks below pass.',
         '  check                  Whether it could start here: commands isolated',
         '                         (bwrap), the image built for this project, a',
-        '                         /state that is this user\u2019s.',
+        '                         its sessions and memory where they say.',
         '  status                 A running server\u2019s own report (/api/status).',
         '',
         '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
         '  --host <addr>          Default $ZEN_SERVER_HOST, else 127.0.0.1.',
         '  --project <name|dir>   The project; default $PROJECT_DIR, else the one you are',
         '                         in, as zen run (in the agent image: /project).',
-        '  --state <dir>          Everything it writes; default $ZEN_STATE_DIR, else',
-        '                         ~/.zenera/neo/servers/<project>/<user> (in the image: /state).',
+        '',
+        '  As zen run keeps them: a chat thread is a session, its workspace and memory',
+        '  are the session\u2019s and the project\u2019s unless these say otherwise.',
+        '  --sessions <dir>       Where each thread\u2019s session lives; default $ZEN_SESSIONS_DIR,',
+        '                         else <project>/sessions (in the agent image: /state/sessions).',
+        '  --workspace <dir>      One directory every chat reads and writes. Default: each',
+        '                         session\u2019s own (or $ZEN_WORKSPACE_DIR).',
+        '  --here                 Same as --workspace with the directory you are in.',
+        '  --memory <dir>         Directory the agents remember into; default $ZEN_MEMORY_DIR,',
+        '                         else the project\u2019s (in the agent image: /state/memory).',
         '  --user <id>            Whose server it is; default $ZEN_USER_ID ($ZEN_USER_EMAIL,',
         '                         $ZEN_USER_ROLE say more about them).',
         '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
@@ -57,7 +68,7 @@ export const server: Command = {
         '                         pulls or builds the image it needs).',
         '',
         'Every request but /healthz needs `Authorization: Bearer <token>`: the',
-        'token is $ZEN_SERVER_TOKEN, else <state>/server.token (made on first start,',
+        'token is $ZEN_SERVER_TOKEN, else <zen home>/servers/<project>/<user>.token (made on first start,',
         'owner-only). Sandboxed commands see neither.',
         '',
         'Model keys come from the environment (BIFROST_BASE_URL and BIFROST_API_KEY,',
@@ -70,7 +81,10 @@ export const server: Command = {
                 port: { type: 'string' },
                 host: { type: 'string' },
                 project: { type: 'string' },
-                state: { type: 'string' },
+                sessions: { type: 'string' },
+                memory: { type: 'string' },
+                workspace: { type: 'string' },
+                here: { type: 'boolean' },
                 user: { type: 'string' },
                 debug: { type: 'boolean' },
                 sandbox: { type: 'string' },
@@ -101,7 +115,7 @@ async function load(): Promise<ServerModule> {
     return import('@zenera/server');
 }
 
-/** The agent image: it ships bwrap there, and has its project at /project and its state at /state. */
+/** The agent image: it ships bwrap there, its project is /project, and what it writes is in /state. */
 const inAgentImage = (): boolean => existsSync(ZENERA_BWRAP);
 
 /**
@@ -131,20 +145,31 @@ function whichUser(values: Flags, env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * Where it keeps its state: --state, else $ZEN_STATE_DIR, else /state in the agent image, else
- * <zen home>/servers/<project>/<user> — out of the project, which is shared, and per user.
+ * Where it keeps sessions, memory and workspace — `zen run`'s answers unless told otherwise. In the
+ * agent image the project is read-only, so both the sessions and the memory are under /state.
  */
-function whichState(
+function whereItKeeps(
     ctx: Context,
     values: Flags,
     env: NodeJS.ProcessEnv,
-    project: string,
-    user: string,
-): string {
-    const given = values.state ?? env.ZEN_STATE_DIR?.trim();
-    if (given) return resolve(ctx.cwd, given);
-    if (inAgentImage()) return '/state';
-    return join(home(), 'servers', project, user);
+    projectDir: string,
+): { sessionsDir: string; memoryDir?: string; workspace?: string } {
+    const path = (given: string | undefined) => (given ? resolve(ctx.cwd, given) : undefined);
+    const image = inAgentImage();
+    if (values.here && values.workspace) {
+        throw usageError('--here or --workspace: not both', USAGE);
+    }
+    return {
+        sessionsDir:
+            path(values.sessions ?? env.ZEN_SESSIONS_DIR?.trim()) ??
+            (image ? '/state/sessions' : sessionsDir(projectDir)),
+        memoryDir:
+            path(values.memory ?? env.ZEN_MEMORY_DIR?.trim()) ??
+            (image ? '/state/memory' : undefined),
+        workspace: values.here
+            ? resolve(ctx.cwd)
+            : path(values.workspace ?? env.ZEN_WORKSPACE_DIR?.trim()),
+    };
 }
 
 async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = process.env) {
@@ -153,7 +178,7 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
     const project = await whichProject(ctx, values, env);
     const projectDir = project.dir;
     const projectId = env.ZEN_PROJECT_ID?.trim() || project.name;
-    const stateDir = whichState(ctx, values, env, projectId, id);
+    const kept = whereItKeeps(ctx, values, env, projectDir);
     const user = {
         id,
         ...(env.ZEN_USER_EMAIL?.trim() ? { email: env.ZEN_USER_EMAIL.trim() } : {}),
@@ -173,12 +198,12 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
     return {
         mod,
         listen: listenOn(values),
-        stateDir,
+        tokenFile: mod.tokenFile(projectId, id),
         settings: {
             ...mod.DEFAULTS,
             projectDir,
             projectId,
-            stateDir,
+            ...kept,
             user,
             token: '',
             debug: Boolean(values.debug ?? truthy(env.ZEN_SERVER_DEBUG)),
@@ -238,7 +263,7 @@ async function check(ctx: Context, values: Flags): Promise<void> {
 }
 
 async function start(ctx: Context, values: Flags): Promise<void> {
-    const { mod, settings, listen, stateDir } = await options(ctx, values);
+    const { mod, settings, listen, tokenFile } = await options(ctx, values);
     mod.configure(settings);
     if (settings.sandbox === 'podman') {
         // What `zen run` does first: podman there and its machine running, without asking.
@@ -259,14 +284,14 @@ async function start(ctx: Context, values: Flags): Promise<void> {
             ),
         );
     }
-    const token = mod.serverToken(stateDir, { create: true })!;
+    const token = mod.serverToken(tokenFile, { create: true })!;
     const app = mod.createServer({ ...settings, token: token.token });
     await app.listen(listen);
     note(
         `zen server listening on ${describe(listen)} ` +
             dim(
                 `(project=${settings.projectId}, user=${settings.user.id}, ` +
-                    `state=${settings.stateDir}, sandbox=${settings.sandboxProvider}` +
+                    `sessions=${settings.sessionsDir}, sandbox=${settings.sandboxProvider}` +
                     `${settings.debug ? ', debug' : ''}, ` +
                     `token from ${token.from === 'env' ? '$ZEN_SERVER_TOKEN' : token.from})`,
             ),
@@ -287,19 +312,15 @@ async function start(ctx: Context, values: Flags): Promise<void> {
 async function status(ctx: Context, values: Flags): Promise<void> {
     const mod = await load();
     const env = process.env;
-    // Its token is in its state, unless the environment has it; that state is per project and user.
-    const stateDir =
-        env.ZEN_SERVER_TOKEN?.trim() || values.state || env.ZEN_STATE_DIR || inAgentImage()
-            ? whichState(ctx, values, env, '', '')
-            : whichState(
-                  ctx,
-                  values,
-                  env,
-                  env.ZEN_PROJECT_ID?.trim() || (await whichProject(ctx, values, env)).name,
-                  whichUser(values, env),
-              );
+    // Its token: the environment's, else the file kept for this project and user.
+    const file = env.ZEN_SERVER_TOKEN?.trim()
+        ? ''
+        : mod.tokenFile(
+              env.ZEN_PROJECT_ID?.trim() || (await whichProject(ctx, values, env)).name,
+              whichUser(values, env),
+          );
     const on = listenOn(values);
-    const token = mod.serverToken(stateDir);
+    const token = mod.serverToken(file);
     const url = `http://${describe(on)}/api/status`;
     let res: Response;
     try {
@@ -319,7 +340,7 @@ async function status(ctx: Context, values: Flags): Promise<void> {
             `${describe(on)} answered ${res.status}: ${(await res.text()).slice(0, 200)}`,
             EXIT.failed,
             res.status === 401
-                ? 'its token: $ZEN_SERVER_TOKEN, or --state where its server.token is'
+                ? 'its token: $ZEN_SERVER_TOKEN, or --project and --user to find its file'
                 : undefined,
         );
     }
@@ -355,16 +376,9 @@ function printStatus(s: import('@zenera/server').ServerStatus): void {
                       `${img.build ?? img.base}, project wants ${img.wants.build ?? img.wants.image}`,
                   ),
     );
-    row(
-        'state',
-        s.state.error
-            ? red(s.state.error)
-            : `${s.state.dir} ${dim(
-                  s.state.version === undefined
-                      ? 'new: written on start'
-                      : `layout ${s.state.version} of ${s.state.supported}`,
-              )}`,
-    );
+    row('sessions', s.sessions);
+    row('memory', s.memory ?? dim('none (no agent remembers)'));
+    if (s.workspace) row('workspace', s.workspace);
     row('versions', dim(`server ${s.server} · engine ${s.zen.engine} · node ${s.node}`));
 }
 

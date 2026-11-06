@@ -12,6 +12,7 @@ test('a run acts for the server’s user, as its host named them', () => {
     configure({
         ...DEFAULTS,
         token: 'x'.repeat(32),
+        sessionsDir: '/tmp/none',
         projectId: 'p',
         user: { id: 'ann', role: 'editor', email: 'ann@acme.com' },
     });
@@ -25,7 +26,13 @@ test('a run acts for the server’s user, as its host named them', () => {
 });
 
 test('a thread id is one safe path segment', () => {
-    configure({ ...DEFAULTS, token: 'x'.repeat(32), projectId: 'p', user: { id: 'ann' } });
+    configure({
+        ...DEFAULTS,
+        token: 'x'.repeat(32),
+        sessionsDir: '/tmp/none',
+        projectId: 'p',
+        user: { id: 'ann' },
+    });
     for (const bad of ['', '..', 'a/b', '.hidden', 'x'.repeat(81)]) {
         assert.throws(() => identify(request(bad)), HttpError);
     }
