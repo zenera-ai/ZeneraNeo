@@ -1,0 +1,17 @@
+version: 1
+default: booking
+model: openai/responses:gpt-4.1-mini-2025-04-14
+assets: assets
+sandbox:
+    image: docker.io/library/node:24.22.2-bookworm-slim@sha256:a43f7fc3e52e87d12a905f46eea0275def84ca8f2981a5b53fed44d7fb398ee0
+    keys: false
+    network: bridge
+    timeout: 210
+    cpus: 2
+    memory: 1024
+    persist: false
+    env: [CALENDAR_API_BASE_URL]
+agents:
+    - name: booking
+      system: agents/prompts/booking.md
+      tools: [sandbox:*]
