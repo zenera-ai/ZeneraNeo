@@ -190,6 +190,11 @@ describe('splitting the command line', () => {
         const { rest } = extract(['--', '--json', '--help']);
         expect(rest).toEqual(['--json', '--help']);
     });
+
+    it('does not invent a value for a trailing -C or --directory', () => {
+        expect(extract(['--sessions', '-C']).global).toEqual(['-C']);
+        expect(extract(['--directory']).global).toEqual(['--directory']);
+    });
 });
 
 describe('commands in another package', () => {
