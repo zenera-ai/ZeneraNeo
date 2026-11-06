@@ -6,8 +6,9 @@
 // it may reach the server at all, with the one bearer `token` the host gave it: a secret that
 // names nobody. Logging people in, and deciding who may use which server, stays in front of it
 // (zenera-app, a ZeneraSrv proxy), so that can change without the server.
-import type { ZenPlugin } from '@zenera/engine';
-import type { SandboxFactory } from '@zenera/sandbox';
+import type { SandboxSetup, ZenPlugin } from '@zenera/engine';
+import { ZENERA_BWRAP, type SandboxFactory } from '@zenera/sandbox';
+import { existsSync } from 'node:fs';
 
 /** Who the server is for: what the agent's `current_user` answers, and its commands see as ZEN_USER_*. */
 export interface ServerUser {
@@ -29,12 +30,18 @@ export interface ServerSettings {
     /** the Test tab's routes: recorded runs, traces, the memory graph */
     debug: boolean;
     /**
-     * Where commands run: `'bwrap'` in the agent image, with `hidden` and the state directory
-     * kept from them; `'podman'` is the engine's own default, as `zen run` has it; or a factory.
+     * Where commands run: `'podman'` as `zen run` has it, a container per session on this
+     * machine; `'bwrap'` in the agent image, with `hidden` and the state directory kept from
+     * them; or a factory. `defaultSandbox()` picks between the first two.
      */
     sandbox: 'bwrap' | 'podman' | SandboxFactory;
     /** what to call it, for `/api/status` */
     sandboxProvider: string;
+    /**
+     * Readies a turn's sandbox before it runs. Unset: its image must already be there
+     * (`imageReady`) — the agent image's, or one built ahead of time.
+     */
+    preflight?: (setup: SandboxSetup) => Promise<void>;
     /** more paths bwrap commands never see (the state directory always) */
     hidden: string[];
     /** this run's own plugins (the MCP tools for its user), given the token its caller sent */
@@ -44,12 +51,27 @@ export interface ServerSettings {
     runLogMaxBytes: number;
 }
 
+/**
+ * bwrap inside the agent image, which ships it at /opt/zenera/bin/bwrap; podman anywhere else,
+ * as `zen run`. The image is the container, so podman has nothing to run there.
+ */
+export function defaultSandbox(): 'bwrap' | 'podman' {
+    return existsSync(ZENERA_BWRAP) ? 'bwrap' : 'podman';
+}
+
+export const SANDBOX_PROVIDERS = {
+    bwrap: 'bwrap (this container)',
+    podman: 'podman (this machine)',
+} as const;
+
+const sandbox = defaultSandbox();
+
 export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token'> = {
     projectDir: '/project',
     stateDir: '/state',
     debug: false,
-    sandbox: 'bwrap',
-    sandboxProvider: 'bwrap (this container)',
+    sandbox,
+    sandboxProvider: SANDBOX_PROVIDERS[sandbox],
     hidden: [],
     plugins: async () => [],
     maxRuns: 4,

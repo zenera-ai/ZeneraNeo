@@ -1,6 +1,7 @@
 import { EventType, type AGUIEvent } from '@ag-ui/core';
 import {
     probeBwrap,
+    runProcess,
     RootedFs,
     type Sandbox,
     type SandboxFactory,
@@ -303,6 +304,42 @@ describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
             delete process.env.ZEN_SERVER_TOKEN;
         }
     });
+});
+
+const podman = await runProcess('podman', ['info', '--format', '{{.Host.OS}}'], {
+    timeoutMs: 30_000,
+}).then(
+    (r) => r.code === 0,
+    () => false,
+);
+
+describe.runIf(podman)('with podman (as zen run)', () => {
+    it('runs the model’s command in a podman container, with nothing of the server’s environment', async () => {
+        process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
+        try {
+            const { url } = await start({ sandbox: 'podman', sandboxProvider: 'podman' });
+            script =
+                'echo hello from $(cat /etc/hostname | cut -c1-4); env | grep -c ZEN_SERVER_LIVE_SECRET || true';
+            const res = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ role: 'user', content: 'go' }] }),
+            });
+            const evs = await events(res);
+            const text = evs
+                .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
+                .map((e) => (e as { delta: string }).delta)
+                .join('');
+            expect(
+                text,
+                JSON.stringify(evs.filter((e) => e.type === EventType.RUN_ERROR)),
+            ).toContain('hello from');
+            expect(text).toMatch(/\\n0/);
+        } finally {
+            script = 'echo hello';
+            delete process.env.ZEN_SERVER_LIVE_SECRET;
+        }
+    }, 600_000);
 });
 
 describe('its token', () => {

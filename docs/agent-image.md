@@ -85,7 +85,8 @@ sandbox, hidden, plugins, limits… })`; `listen({ port, host = '127.0.0.1' })`.
   Sandboxed commands can reach the port but see no token (not in their env, state dir hidden).
 - State: `<state>/data/{sessions,runs,memory}`, `state.json` (layout 1, project, user) refuses a
   newer layout, another project, another user; `check` only reads it. `<state>` is 0700.
-- Sandbox: `'bwrap'` (state dir, `/state`, `/run/secrets` hidden), `'podman'`, or a factory.
+- Sandbox: `defaultSandbox()` — bwrap inside the agent image (it ships `/opt/zenera/bin/bwrap`),
+  podman anywhere else, as `zen run`; or `'bwrap'`/`'podman'`/a factory. Plugins never replace it.
 - `GET /api/status` (includes where it listens); debug routes only with `debug`.
 - Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`,
   given the run's `x-zenera-mcp-token`).
@@ -95,7 +96,7 @@ sandbox, hidden, plugins, limits… })`; `listen({ port, host = '127.0.0.1' })`.
 
 ```
 zen server start  [--port 3000] [--host 127.0.0.1] [--project /project] [--state /state]
-                  [--user <id>] [--debug] [--sandbox bwrap|podman]
+                  [--user <id>] [--debug] [--sandbox podman|bwrap]
 zen server check  (same options)        # bwrap, image identity, /state; exit 5 when not ready
 zen server status [--port …] [--host …] [--state …]   # a running server's /api/status
 ```
@@ -103,6 +104,10 @@ zen server status [--port …] [--host …] [--state …]   # a running server's
 - Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
   `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_PORT`,
   `ZEN_SERVER_HOST`, `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`.
+- Sandbox: `--sandbox`, else `$ZEN_SERVER_SANDBOX`, else bwrap in the agent image and podman
+  elsewhere. With podman, `start` readies it as `zen run` does (machine started, no prompt) and a
+  turn pulls or builds its image (`zen run`'s preflight); `check` only asks podman.
+- Keys: the keyring (`zen key …`) and the environment, as `zen run`; in the image, the environment.
 - Token: `ZEN_SERVER_TOKEN`, else `<state>/server.token` (made on first start, 0600); `status`
   reads the same. A non-loopback host starts with a warning. Keys from env; no keyring.
 - The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]` with

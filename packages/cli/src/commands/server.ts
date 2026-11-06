@@ -1,5 +1,7 @@
 import { basename, resolve } from 'node:path';
 import { parse } from '../args.ts';
+import { asCliError, ensurePodmanReady } from '../podman.ts';
+import { preflight } from '../sandbox.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
 
@@ -43,7 +45,10 @@ export const server: Command = {
         '  --user <id>            Whose server it is; default $ZEN_USER_ID ($ZEN_USER_EMAIL,',
         '                         $ZEN_USER_ROLE say more about them).',
         '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
-        '  --sandbox <bwrap|podman>  Where commands run; bwrap unless told.',
+        '  --sandbox <podman|bwrap>  Where commands run; default $ZEN_SERVER_SANDBOX,',
+        '                         else bwrap inside the agent image and podman anywhere',
+        '                         else, as zen run (start readies the machine; a turn',
+        '                         pulls or builds the image it needs).',
         '',
         'Every request but /healthz needs `Authorization: Bearer <token>`: the',
         'token is $ZEN_SERVER_TOKEN, else <state>/server.token (made on first start,',
@@ -110,7 +115,7 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
     } catch (err) {
         throw usageError((err as Error).message, USAGE);
     }
-    const sandboxName = values.sandbox ?? 'bwrap';
+    const sandboxName = values.sandbox ?? (env.ZEN_SERVER_SANDBOX?.trim() || mod.defaultSandbox());
     if (sandboxName !== 'bwrap' && sandboxName !== 'podman') {
         throw usageError(`--sandbox is bwrap or podman, not ${sandboxName}`, USAGE);
     }
@@ -127,8 +132,14 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
             token: '',
             debug: Boolean(values.debug ?? truthy(env.ZEN_SERVER_DEBUG)),
             sandbox: sandboxName,
-            sandboxProvider:
-                sandboxName === 'podman' ? 'podman (this machine)' : 'bwrap (this container)',
+            sandboxProvider: mod.SANDBOX_PROVIDERS[sandboxName],
+            // As `zen run` readies podman: the machine started, the image pulled or built.
+            ...(sandboxName === 'podman'
+                ? {
+                      preflight: (setup: import('@zenera/engine').SandboxSetup) =>
+                          preflight(setup, true),
+                  }
+                : {}),
             hidden: [],
             plugins: mod.envRunPlugins(env),
             maxRuns: positive(env.ZEN_RUNTIME_MAX_RUNS, mod.DEFAULTS.maxRuns),
@@ -178,6 +189,12 @@ async function check(ctx: Context, values: Flags): Promise<void> {
 async function start(ctx: Context, values: Flags): Promise<void> {
     const { mod, settings, listen, stateDir } = await options(ctx, values);
     mod.configure(settings);
+    if (settings.sandbox === 'podman') {
+        // What `zen run` does first: podman there and its machine running, without asking.
+        await ensurePodmanReady({ yes: true }).catch((err: unknown) => {
+            throw asCliError(err);
+        });
+    }
     const errors = mod.startupErrors(await mod.serverStatus());
     if (errors.length) {
         for (const e of errors) note(red(`✗ ${e}`));

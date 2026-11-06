@@ -4,7 +4,13 @@
 //   startupErrors - the reasons not to start: no isolation, the wrong image, an unknown layout
 import { resolveBuild } from '@zenera/engine';
 import { readProjectConfig } from '@zenera/neo';
-import { IMAGE_BASE_ENV, IMAGE_BUILD_ENV, probeBwrap, type ProcMode } from '@zenera/sandbox';
+import {
+    IMAGE_BASE_ENV,
+    IMAGE_BUILD_ENV,
+    probeBwrap,
+    runProcess,
+    type ProcMode,
+} from '@zenera/sandbox';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { settings, type ServerSettings } from './config.ts';
@@ -63,10 +69,33 @@ export function owner(s: ServerSettings): { userId: string; projectId: string } 
     return { userId: s.user.id, projectId: s.projectId };
 }
 
+/** Whether podman answers: the machine running, on the platforms that have one. */
+async function probePodman(): Promise<Pick<ServerStatus['sandbox'], 'ok' | 'error' | 'hint'>> {
+    try {
+        const info = await runProcess('podman', ['info', '--format', '{{.Host.OS}}'], {
+            timeoutMs: 30_000,
+        });
+        if (info.code === 0) return { ok: true };
+        return {
+            ok: false,
+            error: `podman is not responding: ${(info.stderr.trim() || `exit ${info.code}`).split('\n')[0]}`,
+            hint: process.platform === 'linux' ? undefined : 'podman machine start',
+        };
+    } catch (err) {
+        return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+            hint: 'install podman, or run the server in the agent image (bwrap)',
+        };
+    }
+}
+
 export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promise<ServerStatus> {
     const s = settings();
     const sandbox: ServerStatus['sandbox'] = { provider: s.sandboxProvider, ok: true };
-    if (s.sandbox === 'bwrap') {
+    if (s.sandbox === 'podman') {
+        Object.assign(sandbox, await probePodman());
+    } else if (s.sandbox === 'bwrap') {
         const probe = await probeBwrap();
         Object.assign(sandbox, {
             ok: probe.ok,
@@ -125,7 +154,7 @@ export function startupErrors(status: ServerStatus): string[] {
     const errors: string[] = [];
     if (!status.sandbox.ok) {
         errors.push(
-            `commands cannot be isolated: ${status.sandbox.error}` +
+            `commands have nowhere to run: ${status.sandbox.error}` +
                 (status.sandbox.hint ? ` (${status.sandbox.hint})` : ''),
         );
     }

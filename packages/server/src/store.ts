@@ -154,8 +154,10 @@ export async function openEngineFor(
         // Each turn's sandbox goes away; the sandbox HOME is in the session folder and stays.
         disposable: true,
         logger: { warn: (message) => console.warn(`[engine] ${message}`) },
-        preflight: imageReady,
-        ...(s.sandbox === 'podman' ? {} : { newSandbox: sandboxFactory(s), sandboxPlugins: false }),
+        preflight: s.preflight ?? imageReady,
+        // The sandbox is the server's to choose: a plugin in ZEN_PLUGINS does not get to replace it.
+        sandboxPlugins: false,
+        ...(s.sandbox === 'podman' ? {} : { newSandbox: sandboxFactory(s) }),
         ...(plugins.length ? { plugins } : {}),
     });
 }

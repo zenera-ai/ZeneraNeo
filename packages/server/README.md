@@ -76,11 +76,24 @@ MCP plugin (`ZEN_PLUGINS`, `ZEN_MCP_BROKER_URL`).
 
 ## Sandbox
 
-`'bwrap'` by default: the state directory, `/state` and `/run/secrets` are
-never visible to commands. `sandbox: 'podman'` gives the
-engine's own default instead, as `zen run` has it. `zen server start` refuses
-to listen when commands cannot be isolated, when the image was built for
-another project environment (`ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE`), or when the
-state is not this user's.
+Chosen once, at start:
 
-Model keys come from the environment, as for any run.
+- **podman** — anywhere but the agent image, as `zen run`: a container per
+  session on this machine. `zen server start` readies podman as `zen run` does
+  (the machine started, without asking), and a turn pulls or builds the image
+  it needs.
+- **bwrap** — inside the agent image, which ships `/opt/zenera/bin/bwrap` and is
+  itself the container: each command under bubblewrap, with the state
+  directory, `/state` and `/run/secrets` kept from it.
+
+`--sandbox` or `$ZEN_SERVER_SANDBOX` overrides the choice; `createServer` takes
+`sandbox: 'podman' | 'bwrap' | factory` (default: the same choice) and an
+optional `preflight`. A sandbox plugin in `ZEN_PLUGINS` never replaces it.
+
+`zen server start` refuses to listen when commands have nowhere to run (podman
+not answering, bwrap unable to isolate), when the image was built for another
+project environment (`ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE`), or when the state
+is not this user's.
+
+Model keys come from the keyring (`zen key …`) and the environment, as for any
+run; in the agent image, the environment.
