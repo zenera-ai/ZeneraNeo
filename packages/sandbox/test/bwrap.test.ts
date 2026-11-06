@@ -283,8 +283,14 @@ describe('BwrapSandbox', () => {
             );
             await expect(stale.prepare()).rejects.toThrow(/another sandbox Dockerfile/);
 
-            const none = new BwrapSandbox({ root: dir, key: 't', build }, { env: {} });
-            await expect(none.prepare()).rejects.toThrow(/ZEN_IMAGE_BUILD/);
+            const based = new BwrapSandbox(
+                { root: dir, key: 't', build },
+                { image: { base: 'x' } },
+            );
+            await expect(based.prepare()).rejects.toThrow(/ZEN_IMAGE_BUILD/);
+
+            // A container zen image build did not make is not checked.
+            await new BwrapSandbox({ root: dir, key: 't', build }, { env: {} }).prepare();
         });
 
         it('compares an `image:` with the image the container was based on', async () => {
@@ -294,7 +300,10 @@ describe('BwrapSandbox', () => {
                 { image: { base: image } },
             ).prepare();
             await expect(
-                new BwrapSandbox({ root: dir, key: 't', image }, { image: {} }).prepare(),
+                new BwrapSandbox(
+                    { root: dir, key: 't', image },
+                    { image: { base: 'docker.io/library/python:3.14-slim' } },
+                ).prepare(),
             ).rejects.toThrow(/the project asks for/);
         });
     });

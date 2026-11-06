@@ -112,8 +112,8 @@ export interface BwrapHost {
     hidden?: readonly string[];
     /**
      * What this image was built from, which `prepare` checks the spec against;
-     * from `ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE` when unset. `false` skips the
-     * check, for a host that runs commands in whatever it is.
+     * from `ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE` when unset. Neither known, or
+     * `false`: no check — the container is whatever its host made it.
      */
     image?: false | { build?: string; base?: string };
     /** how processes are spawned — the seam tests replace */
@@ -229,6 +229,11 @@ export class BwrapSandbox implements Sandbox {
             build: env[IMAGE_BUILD_ENV]?.trim() || undefined,
             base: env[IMAGE_BASE_ENV]?.trim() || undefined,
         };
+        // A container `zen image build` did not make says nothing about what it holds; that is
+        // the host's call (a development container, a test), not a mismatch.
+        if (!have.build && !have.base) {
+            return;
+        }
         const hint = 'rebuild the image: zen image build';
         if (this.spec.build) {
             const want = buildIdentity(this.spec.build).hash;

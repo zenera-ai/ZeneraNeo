@@ -1,6 +1,6 @@
 # ZeneraNeo: agent image, bwrap sandbox, server
 
-Status: in progress, 2026-11-06 — N1 done. Part of the ZeneraLite plan `doc/agent-image-plan.md`
+Status: in progress, 2026-11-06 — N1, N4, N5 done. Part of the ZeneraLite plan `doc/agent-image-plan.md`
 (ZeneraLite branch `agent_image`).
 
 ## Goal
@@ -70,44 +70,44 @@ Docker Desktop 27.5 default (bind) and `systempaths=unconfined` (fresh), Docker 
 
 ### N3. (dropped — the CLI keeps podman only)
 
-### N4. `@zenera/server` (new package)
+### N4. `@zenera/server` — done
 
-Moved from ZeneraLite `services/zenera-project/src` (runtime side only), made single-user:
+`packages/server`: ZeneraLite's runtime (`services/zenera-project/src`: runtime, auth, identity,
+sessions → `store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory)
+with its tests, made a package. See its README.
 
-| From ZeneraLite                                                                              | In the package                                                                                                                                |
-| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runtime.ts`                                                                                 | `serve.ts`: `createServer(opts)` + `listen`                                                                                                   |
-| `auth.ts`, `identity.ts`                                                                     | `auth.ts`: modes `jwt` (EdDSA public key, audience, `prj`, request binding, `sub == userId`) and `token` (static bearer, for ZeneraSrv/local) |
-| `sessions.ts` (privateStore)                                                                 | `store.ts`: `/state/data/sessions/<tid>/` (workspace inside), `/state/data/runs/<tid>/`, `/state/data/memory/`                                |
-| `runs.ts`, `history.ts`, `agui.ts`, `runLog.ts`, `runRecords.ts`, `projectEnv.ts`, `http.ts` | as is, config passed in instead of module globals                                                                                             |
-| `trace.ts`, `memory.ts`, run debug routes                                                    | `debug.ts`, mounted only with `debug: true` (Test tab)                                                                                        |
-| MCP plugin loading                                                                           | generic: `ZEN_PLUGINS` + per-run plugin factory hook (`pluginsFor(run)`)                                                                      |
-| —                                                                                            | `GET /api/status`: zen version, sandbox provider + probe, image build/base, release, state version                                            |
-| —                                                                                            | `state.json` (layout version) written on first start; refuse a newer layout                                                                   |
+- `createServer({ projectId, auth, projectDir, stateDir, userId?, debug, sandbox, plugins, limits… })`;
+  settings replace the old module-level environment reads.
+- Auth: `jwt` (as before, plus `sub` must be the server's user when it has one) or `token`.
+- State: `<state>/data/{sessions,runs,memory}` for one user; without `userId`,
+  `<state>/users/<id>/…` (today's `/data` layout, so ZeneraLite can adopt it before per-user pods).
+  `state.json` (layout 1, mode `single`+user or `shared`) refuses a newer layout, another
+  project, the other mode, another user; `check` only reads it.
+- Sandbox: `bwrapSandbox` by default (`newSandbox`, plugin sandboxes off); `'podman'` = engine default.
+- `GET /api/status`; debug routes (runs, trace, memory) only with `debug`.
+- Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`).
+- Tests: the moved suites (vitest now) + `server.test.ts`: a real turn over HTTP against a scripted
+  OpenAI-compatible model (run_command → answer), both auth modes, layouts, debug gating, status,
+  `state.json`; with bwrap (Linux) the turn runs under a real bwrap and sees none of the server's env.
 
-- `createServer({ projectDir, stateDir, userId, projectId, auth, debug, sandbox, plugins, limits })`.
-- Same HTTP API as today's runtime (`/api/sessions/...`, `/api/activity`, `/healthz`), so zenera-app
-  only changes the host it calls.
-- Tests moved with the code (`agui`, `auth`, `identity`, `runLog`, `runRecords`, `trace`, `projectEnv`, …).
-- Dependencies: `express`, `jose`, `@ag-ui/core`, `@zenera/engine`, `@zenera/neo`.
-
-### N5. `zen server`
-
-A subcommand group of the CLI, like `zen sandbox`; the HTTP server itself is `@zenera/server`
-(`createServer`), loaded only when `zen server …` runs, so no other command pays for express/jose.
+### N5. `zen server` — done
 
 ```
-zen server start  [--port 3000] [--project /project] [--state /state] [--user <id>]
-                  [--auth jwt|token] [--debug]
-zen server status [--url http://localhost:3000]           # a running server's /api/status
-zen server check  [--project /project] [--state /state]   # bwrap probe, image identity, /state version
+zen server start  [--port 3000] [--host 0.0.0.0] [--project /project] [--state /state] [--user <id>]
+                  [--auth jwt|token] [--debug] [--sandbox bwrap|podman]
+zen server check  (same options)        # bwrap, image identity, /state layout; exit 5 when not ready
+zen server status [--url …] [--token …] # a running server's /api/status
 ```
 
-- `start` defaults from env (`ZEN_USER_ID`, `ZEN_PROJECT_ID`, `ZEN_IDENTITY_PUBLIC_KEY`,
-  `ZEN_SERVER_TOKEN`, `ZEN_SERVER_DEBUG`); keys from env (`BIFROST_*` or provider keys) — no keyring.
-  Refuses to start when bwrap cannot isolate, the image does not match the project, or `/state` is newer.
-- SIGTERM: stop runs, save sessions (today's 20 s), exit.
-- The agent image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]`.
+- Env defaults: `PROJECT_DIR`, `ZEN_STATE_DIR`, `ZEN_USER_ID`, `ZEN_PROJECT_ID` (else the project
+  dir's name), `ZEN_IDENTITY_PUBLIC_KEY` (→ jwt), `ZEN_SERVER_TOKEN` (→ token, needs a user),
+  `ZEN_SERVER_DEBUG`, `ZEN_SERVER_PORT`, `ZEN_RUNTIME_MAX_*` limits. Keys from env; no keyring.
+- `start` refuses what `check` reports; SIGTERM/SIGINT: the listener closes, new runs get 503,
+  running ones end as interrupted within 20 s, exit 0.
+- The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]`.
+- `@zenera/server` is a dependency of the CLI, imported only by `zen server`.
+- `BwrapSandbox.prepare()` checks the image identity only when the container states one, as
+  `/api/status` does; `zen image build` always will.
 
 ### N6. `zenera/runtime` image (published per zen release, per arch)
 
@@ -174,7 +174,7 @@ Out of scope until N1–N8 are released.
 | ------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | spike   | static bwrap + `probeBwrap` in a test image under rootless podman, Docker Desktop, kind, GKE Sandbox | which flags each host needs is known                                                    |
 | 1.2.0   | N1 ✓                                                                                                 | `BwrapSandbox` passes `describeSandbox` + isolation tests in Linux CI; podman unchanged |
-| 1.2.x   | N4, N5                                                                                               | ZeneraLite runtime imports `@zenera/server`; same API, tests green                      |
+| 1.2.x   | N4 ✓, N5 ✓                                                                                           | ZeneraLite runtime imports `@zenera/server`; same API, tests green                      |
 | 1.3.0   | N6, N7, N8                                                                                           | `zen image build --release` + `zen image run` serve a chat locally with bwrap           |
 | later   | N9, BuildKit builder, musl runtime                                                                   | —                                                                                       |
 

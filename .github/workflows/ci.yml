@@ -20,8 +20,9 @@ jobs:
             - run: npm run typecheck
             - run: npx vitest run --exclude '**/live-*'
 
-    # BwrapSandbox against a real bubblewrap. Ubuntu 24.04 closes unprivileged
-    # user namespaces through AppArmor; containers (the agent image) do not.
+    # BwrapSandbox, and the server running a turn through it, against a real
+    # bubblewrap. Ubuntu 24.04 closes unprivileged user namespaces through
+    # AppArmor; containers (the agent image) do not.
     bwrap:
         runs-on: ubuntu-latest
         steps:
@@ -33,4 +34,5 @@ jobs:
             - run: npm ci
             - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
             - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-            - run: npx vitest run packages/sandbox/test/live-bwrap.test.ts
+            - run: npx tsc -b tsconfig.build.json
+            - run: npx vitest run packages/sandbox/test/live-bwrap.test.ts packages/server/test/server.test.ts

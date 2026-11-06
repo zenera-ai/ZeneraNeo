@@ -58,7 +58,8 @@ by name, across copies of this package).
   mounted, else the container's bound read-only (`probeBwrap()` says which, or
   why bwrap cannot isolate anything; nothing falls back to running unisolated).
   `prepare()` builds nothing: it checks that the container was built from the
-  project's Dockerfile (`ZEN_IMAGE_BUILD`) or image (`ZEN_IMAGE_BASE`).
+  project's Dockerfile (`ZEN_IMAGE_BUILD`) or image (`ZEN_IMAGE_BASE`), when
+  it says what it was built from.
   `cpus`, `memory` and `persist` belong to the container and are ignored;
   commands get `oom_score_adj` 1000, so they go before the server.
 - A sandbox that keeps its files with the container (a sandbox service) serves
