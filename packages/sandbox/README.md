@@ -48,6 +48,19 @@ by name, across copies of this package).
 - **`PodmanSandbox`** / `podmanSandbox` - a podman container on this machine,
   binding host directories, with `fs` a `RootedFs` over them under the names
   they are bound at. `ensurePodmanImage` is its image step on its own.
+- **`BwrapSandbox`** / `bwrapSandbox` - for a host that is itself the
+  container, such as the agent image: each command runs under bubblewrap
+  (`/opt/zenera/bin/bwrap`, else `bwrap` on PATH) in its own user, pid, ipc and
+  uts namespaces, on a read-only view of the image, with the session's
+  directories bound in and the server's own paths (`/state`, `/run/secrets`)
+  hidden. bwrap is started with exactly the command's environment, never this
+  process's. `/proc` is the command's own where the container lets one be
+  mounted, else the container's bound read-only (`probeBwrap()` says which, or
+  why bwrap cannot isolate anything; nothing falls back to running unisolated).
+  `prepare()` builds nothing: it checks that the container was built from the
+  project's Dockerfile (`ZEN_IMAGE_BUILD`) or image (`ZEN_IMAGE_BASE`).
+  `cpus`, `memory` and `persist` belong to the container and are ignored;
+  commands get `oom_score_adj` 1000, so they go before the server.
 - A sandbox that keeps its files with the container (a sandbox service) serves
   `fs` itself, under the same names.
 
