@@ -13,7 +13,7 @@ prj-<id>/agent:<tag>
 ├ /opt/zenera/   node, @zenera/*, server, bwrap      COPY --link from zenera/runtime:<zen>
 ├ /project/      agents.yaml, prompts, assets, skills (release: baked; draft: bind-mounted ro)
 ├ /state/        data/ (sessions, runs, memory) + state.json      the only writable mount
-└ CMD /opt/zenera/bin/zen serve   :3000, bwrap for every command
+└ CMD /opt/zenera/bin/zen server start   :3000, bwrap for every command
 ```
 
 Unchanged: `zen run` / `zen check` / every CLI command — podman only (desktop, editor/vscode); the
@@ -91,12 +91,23 @@ Moved from ZeneraLite `services/zenera-project/src` (runtime side only), made si
 - Tests moved with the code (`agui`, `auth`, `identity`, `runLog`, `runRecords`, `trace`, `projectEnv`, …).
 - Dependencies: `express`, `jose`, `@ag-ui/core`, `@zenera/engine`, `@zenera/neo`.
 
-### N5. `zen serve`
+### N5. `zen server`
 
-- `zen serve [--port 3000] [--state /state] [--user <id>] [--auth jwt|token] [--debug]`, defaults from
-  env (`ZEN_USER_ID`, `ZEN_PROJECT_ID`, `ZEN_IDENTITY_PUBLIC_KEY`, `ZEN_SERVER_TOKEN`, `ZEN_SERVER_DEBUG`).
-- Runs in `/project`; keys from env (`BIFROST_*` or provider keys) — no keyring needed.
+A subcommand group of the CLI, like `zen sandbox`; the HTTP server itself is `@zenera/server`
+(`createServer`), loaded only when `zen server …` runs, so no other command pays for express/jose.
+
+```
+zen server start  [--port 3000] [--project /project] [--state /state] [--user <id>]
+                  [--auth jwt|token] [--debug]
+zen server status [--url http://localhost:3000]           # a running server's /api/status
+zen server check  [--project /project] [--state /state]   # bwrap probe, image identity, /state version
+```
+
+- `start` defaults from env (`ZEN_USER_ID`, `ZEN_PROJECT_ID`, `ZEN_IDENTITY_PUBLIC_KEY`,
+  `ZEN_SERVER_TOKEN`, `ZEN_SERVER_DEBUG`); keys from env (`BIFROST_*` or provider keys) — no keyring.
+  Refuses to start when bwrap cannot isolate, the image does not match the project, or `/state` is newer.
 - SIGTERM: stop runs, save sessions (today's 20 s), exit.
+- The agent image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]`.
 
 ### N6. `zenera/runtime` image (published per zen release, per arch)
 
@@ -137,7 +148,7 @@ zen image build [--draft | --release <tag>] [--platform linux/amd64] [--push <re
     COPY --link project/ /project/            # filtered context, see below
     ENV ZEN_IMAGE_BUILD=<hash> ZEN_IMAGE_BASE=<ref> ZEN_RELEASE=<tag>   # PATH left as the base's
     LABEL zenera.build=<hash> zenera.release=<tag> zenera.zen=<version>
-    CMD ["/opt/zenera/bin/zen", "serve"]
+    CMD ["/opt/zenera/bin/zen", "server", "start"]
     ```
 3. Release context: the project minus `.env*`, `sessions/`, `.tmp/`, `.data/`, `.git/`, memory dirs,
    plus `.dockerignore`; large assets split into buckets (one `COPY --link` each).
@@ -170,7 +181,7 @@ Out of scope until N1–N8 are released.
 ## Decisions
 
 - `/state` layout: flat per user (`/state/data/{sessions,runs,memory}`).
-- `zen-serve` is a bin of `@zenera/server`.
+- The server is started by `zen server start` (CLI subcommand over `@zenera/server`).
 - Background jobs end with the server; a restarted server has none.
 - Hidden paths: `/state`, `/run/secrets` by default, extended by the host (`BwrapHost.hidden`).
 
