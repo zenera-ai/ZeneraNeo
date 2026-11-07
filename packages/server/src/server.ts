@@ -5,6 +5,7 @@
 // Secure mode verifies a host signature bound to that request; insecure mode only decodes it.
 // A sandboxed command can reach the port but cannot mint a valid JWT in secure mode.
 //   GET  /healthz                         - for probes
+//   GET  /chat                            - bundled test page, insecure mode only
 //   GET  /api/status                      - versions, auth, sandbox, image identity, root, seed
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)
 //   GET  /api/sessions                    - the caller's sessions, newest activity first
@@ -28,7 +29,10 @@ import { sessionsRouter } from './sessions.ts';
 import { traceRouter } from './trace.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
-    Pick<ServerSettings, 'projectId' | 'auth' | 'root'>;
+    Pick<ServerSettings, 'projectId' | 'auth' | 'root'> & {
+        /** Absolute path to the CLI's compiled page; served publicly only in insecure mode. */
+        chatPage?: string;
+    };
 
 /** TCP; loopback unless a host is named. */
 export interface ListenOn {
@@ -45,7 +49,8 @@ export interface AgentServer {
 }
 
 export function createServer(opts: ServerOptions): AgentServer {
-    const settings: ServerSettings = { ...DEFAULTS, ...opts, hidden: [...(opts.hidden ?? [])] };
+    const { chatPage, ...runtime } = opts;
+    const settings: ServerSettings = { ...DEFAULTS, ...runtime, hidden: [...(opts.hidden ?? [])] };
     if (settings.auth.mode === 'jwt' && !settings.auth.publicKey.trim()) {
         throw new Error('a jwt server needs the public key its tokens are signed for');
     }
@@ -56,6 +61,14 @@ export function createServer(opts: ServerOptions): AgentServer {
     const app = express();
     app.disable('x-powered-by');
     app.use(localFileCors);
+    if (settings.auth.mode === 'insecure' && chatPage) {
+        app.get('/chat', (_req, res, next) => {
+            res.set('Cache-Control', 'no-store');
+            res.sendFile(chatPage, (err) => {
+                if (err) next(err);
+            });
+        });
+    }
     app.use(requireCaller());
     app.use(express.json({ limit: '1mb' }));
     app.get('/healthz', (_req, res) => {

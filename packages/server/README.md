@@ -15,14 +15,18 @@ zen server check                                       # could it start here?
 zen server status                                      # a running one's report
 ```
 
-With `--insecure`, startup prints a ready-to-open `file://` link to a bundled
-React chat page. It includes the server address and an unsigned JWT in the
+With `--insecure`, startup prints a ready-to-open HTTP link to the bundled
+React chat page served at `/chat`. It includes the server address and an unsigned JWT in the
 fragment (not a query parameter); the page removes the fragment and keeps the
 token only in memory. The default browser user is `local`; use `--user ann` to
 test another user's sessions. The same works with `--container`: the outer CLI
-prints the host's file path and published port, not paths inside the container.
+prints the host's published address and port. HTTP links preserve the fragment
+when opened from a terminal on macOS, unlike file-document links.
 The fragment ends with `&open=1` so terminal link detection preserves the unsigned
 JWT's trailing dot.
+The page route is public only in insecure mode; API requests still require a JWT.
+Secure mode does not expose the page. It remains a single compiled HTML asset,
+with no frontend dependencies or separate UI server needed at runtime.
 
 Startup uses an aligned, colored summary for the project, HTTP address, auth,
 sandbox, state directory, image and browser user. Container builds show one
@@ -235,6 +239,8 @@ The source and build live in ZeneraLite's `services/zenera-app`. Run there:
 npm run build:chat -- --output /path/to/ZeneraNeo/packages/cli/assets/chat.html
 ```
 
-Without `--output`, the result is `dist/chat.html`, which can be copied to
-ZeneraNeo. The CLI package includes the compiled asset; ZeneraNeo needs no
-frontend build dependencies.
+Without `--output`, the result is `dist/chat.html`. If a sibling `../ZeneraNeo`
+checkout exists next to ZeneraLite, the build also copies the result into its
+`packages/cli/assets/chat.html` automatically, including when `--output` is used.
+Without that sibling, only the requested output is written. The CLI package includes
+the compiled asset; ZeneraNeo needs no frontend build dependencies.

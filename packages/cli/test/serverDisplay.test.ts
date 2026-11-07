@@ -68,7 +68,7 @@ describe('server startup display', () => {
         sandbox: 'bwrap',
         image: { tag: 'localhost/agent:abc', base: 'localhost/base:def', built: true },
         runtimeUser: 'UID/GID 10001:10001 (non-root)',
-        page: 'file:///chat.html#server=http%3A%2F%2F127.0.0.1%3A3000&jwt=dev.jwt.',
+        page: 'http://127.0.0.1:3000/chat#server=http%3A%2F%2F127.0.0.1%3A3000&jwt=dev.jwt.&open=1',
         chatUser: 'andrey',
     };
 

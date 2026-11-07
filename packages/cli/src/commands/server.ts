@@ -10,7 +10,7 @@ import { home } from '@zenera/engine';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from '../args.ts';
-import { chatUrl } from '../chat.ts';
+import { chatPage, chatUrl } from '../chat.ts';
 import { AGENT_GID, AGENT_UID, buildAgentImage, runContainer } from '../container.ts';
 import { stageContainerCredentials } from '../containerCredentials.ts';
 import { asCliError, ensurePodmanReady } from '../podman.ts';
@@ -348,7 +348,10 @@ async function start(ctx: Context, values: Flags): Promise<void> {
         : null;
     if (onHost) settings.memorySeed = seed?.dir ?? null;
     try {
-        const app = mod.createServer(settings);
+        const app = mod.createServer({
+            ...settings,
+            ...(settings.auth.mode === 'insecure' ? { chatPage: chatPage() } : {}),
+        });
         await app.listen(listen);
         if (managed) {
             note(`  ${green('✓ HTTP listener ready')}`);

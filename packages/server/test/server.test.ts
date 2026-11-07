@@ -3,7 +3,7 @@
  * start creates test servers; signed/call create per-request JWT requests, and
  * events/turn consume AG-UI runs against a scripted local model and fake sandbox.
  * The server suite checks authentication, private state, sessions, run lifecycle,
- * local-file CORS and optional live bwrap execution.
+ * insecure HTTP chat serving, local-file CORS and optional live bwrap execution.
  */
 import { EventType, type AGUIEvent } from '@ag-ui/core';
 import {
@@ -529,6 +529,34 @@ describe('jwt', () => {
 });
 
 describe('insecure', () => {
+    const chatPage = join(root, 'chat.html');
+    const chatHtml = '<!doctype html><title>Test chat fixture</title>';
+    writeFileSync(chatPage, chatHtml);
+
+    it('serves only the configured chat file without a token; APIs still require one', async () => {
+        const { url } = await start({ auth: { mode: 'insecure' }, chatPage });
+        const response = await fetch(`${url}/chat`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('text/html');
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(await response.text()).toBe(chatHtml);
+        expect((await fetch(`${url}/api/sessions`)).status).toBe(401);
+        expect((await fetch(`${url}/chat.html`)).status).toBe(401);
+        expect((await call(`${url}/chat/other-file`, { as: 'alice' })).status).toBe(404);
+    });
+
+    it('does not expose the chat page in secure mode, even when configured', async () => {
+        const { url } = await start({ chatPage });
+        expect((await fetch(`${url}/chat`)).status).toBe(401);
+        expect((await call(`${url}/chat`, { as: 'alice' })).status).toBe(404);
+    });
+
+    it('does not expose a chat route without a configured page', async () => {
+        const { url } = await start({ auth: { mode: 'insecure' } });
+        expect((await fetch(`${url}/chat`)).status).toBe(401);
+        expect((await call(`${url}/chat`, { as: 'alice' })).status).toBe(404);
+    });
+
     it('reads a token without checking it, and still wants a user', async () => {
         const { url } = await start({ auth: { mode: 'insecure' } });
         const target = `${url}/api/sessions/${randomUUID()}`;
