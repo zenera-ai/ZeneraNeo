@@ -135,7 +135,18 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
   Only insecure servers allow local-file (`Origin: null`) CORS preflights. `GET /api/sessions`
   lists the caller's sessions from engine metadata; history, streaming and cancellation use
   the existing AG-UI routes.
-- **`--container`** (`cli/src/container.ts`), optional — plain `start` is unchanged:
+- **Startup memory** (`cli/src/seed.ts`): the host CLI takes a consistent snapshot of the
+  configured/project seed before serving, including committed SQLite WAL data and attached
+  files. It uses rollback-journal mode so the snapshot needs no WAL/SHM writes on read-only
+  mounts. New users copy that fixed initial memory; existing private memories are untouched.
+  An uninitialized or disabled startup seed stays empty until the next server start.
+- **`--container`** (`cli/src/container.ts`), optional — plain `start` still uses podman sandboxes:
+  Startup presentation (`cli/src/serverDisplay.ts`) groups the runtime settings and chat link.
+  Base/agent builds use a single updating line with a spinner and elapsed build time by default,
+  including during quiet steps, with warnings/errors retained;
+  `--verbose` keeps every build line, grouped and colored. Piped output has no cursor controls
+  and retains the final progress line. Managed images report HTTP readiness without duplicating
+  the host summary or insecure warning.
     1. ready the project's sandbox image as `zen run` does; read its `Env`;
     2. `npm pack` this zen's `@zenera/{sandbox,neo,view,engine,server,cli}` from where they are
        installed (no npm release needed), `npm install` them in a `node:24-trixie-slim` stage into
@@ -144,14 +155,19 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
     4. final stage `FROM` the sandbox image: `/opt/zenera`, bwrap, `runtime/`, `etc/image-env.json`,
        `ZEN_IMAGE_BUILD`/`BASE`, entrypoint `zen server start`; tag `localhost/zenera-agent:<hash>`
        (rebuilt only when an input changes, or `--rebuild`);
-    5. `podman run --rm -d`: `/project:ro`, the root at `/state`, the port on `--host`, auth flags and
-       model keys passed by name (credential files are not: bwrap cannot re-bind them under SELinux),
+    5. snapshot the seed on the host, then `podman run --rm -d`: `/project:ro`, the root at `/state`,
+       the prepared snapshot at `/seed:ro` (or `--no-memory-seed`), the port on `--host`, auth flags and
+       model keys and provider context passed by environment name; credential files
+       mounted as private Podman secrets and staged into the container's private home
+       so bwrap can bind container-owned copies when keys are allowed,
        logs followed, Ctrl-C → `podman stop`.
        The server runs as numeric UID/GID 10001 with `HOME=/home/zenera`; the image deliberately
        overrides the base's `USER`. Rootless podman maps the host user to it with
        `--userns keep-id:uid=10001,gid=10001`, preserving host-owned state. With rootful podman the
        host must provide state writable by 10001. All capabilities are dropped and privilege
        escalation is disabled.
+       The temporary seed lives under the private server root and is removed after the container
+       stops, including failed startup. The source project remains read-only in the container.
 
     Verified on macOS (podman machine): a `python:3.12-slim` project whose Dockerfile installs
     `pyfiglet` and sets `PYTHONPATH`; a command under bwrap imports both and `zenera` (user `alice`),

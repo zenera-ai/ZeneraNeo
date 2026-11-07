@@ -1,7 +1,8 @@
 /**
  * Server command entry point used by the CLI dispatcher.
  * server dispatches start/check/status/token; start and startContainer launch the
- * runtime, while token prints an unsigned dev JWT. On insecure startup, --user only
+ * runtime with a fixed startup memory seed, while token prints an unsigned dev JWT.
+ * On insecure startup, --user only
  * chooses the sub claim for the printed browser link (default local); every API
  * request still selects its user through its own JWT, not a server-wide user setting.
  */
@@ -10,10 +11,13 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from '../args.ts';
 import { chatUrl } from '../chat.ts';
-import { buildAgentImage, runContainer } from '../container.ts';
+import { AGENT_GID, AGENT_UID, buildAgentImage, runContainer } from '../container.ts';
+import { stageContainerCredentials } from '../containerCredentials.ts';
 import { asCliError, ensurePodmanReady } from '../podman.ts';
 import { project as resolveProject } from '../resolve.ts';
 import { preflight } from '../sandbox.ts';
+import { prepareMemorySeed } from '../seed.ts';
+import { hostManagedOutput, printServerStarted } from '../serverDisplay.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
 
@@ -35,6 +39,7 @@ interface Flags {
     sandbox?: string;
     container?: boolean;
     rebuild?: boolean;
+    verbose?: boolean;
     token?: string;
     user?: string;
     email?: string;
@@ -89,6 +94,8 @@ export const server: Command = {
         '                         sandbox/Dockerfile and this zen: commands under bwrap,',
         '                         with what that Dockerfile installed. --rebuild to build',
         '                         it again.',
+        '  --verbose              With --container: all image build lines, grouped and',
+        '                         colored. Default: one updating line; warnings stay visible.',
         '  --debug                The Test tab\u2019s routes: runs, traces, memory.',
         '  --sandbox <podman|bwrap>  Where commands run; default $ZEN_SERVER_SANDBOX,',
         '                         else bwrap inside the agent image and podman anywhere',
@@ -116,6 +123,7 @@ export const server: Command = {
                 sandbox: { type: 'string' },
                 container: { type: 'boolean' },
                 rebuild: { type: 'boolean' },
+                verbose: { type: 'boolean' },
                 token: { type: 'string' },
                 user: { type: 'string' },
                 email: { type: 'string' },
@@ -234,6 +242,7 @@ function whichSeed(ctx: Context, values: Flags): string | null | undefined {
 
 async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = process.env) {
     const mod = await load();
+    if (mod.inAgentImage()) await stageContainerCredentials();
     const project = await whichProject(ctx, values, env, mod);
     const projectId = env.ZEN_PROJECT_ID?.trim() || project.name;
     const sandboxName = values.sandbox ?? (env.ZEN_SERVER_SANDBOX?.trim() || mod.defaultSandbox());
@@ -328,33 +337,55 @@ async function start(ctx: Context, values: Flags): Promise<void> {
         for (const e of errors) note(red(`✗ ${e}`));
         throw new CliError('the server cannot start here', EXIT.sandbox, 'zen server check');
     }
-    if (settings.auth.mode === 'insecure') {
-        note(yellow('⚠ insecure: tokens are read, not checked — anyone here can be anyone'));
-    }
+    const managed = hostManagedOutput(mod.inAgentImage());
     const page =
         settings.auth.mode === 'insecure' && !mod.inAgentImage()
             ? chatUrl(listen, mod.unsignedToken({ sub: values.user ?? 'local' }))
             : undefined;
-    const app = mod.createServer(settings);
-    await app.listen(listen);
-    note(
-        `zen server listening on ${describe(listen)} ` +
-            dim(
-                `(project=${settings.projectId}, root=${settings.root}, auth=${settings.auth.mode}, ` +
-                    `sandbox=${settings.sandboxProvider}${settings.debug ? ', debug' : ''})`,
-            ),
-    );
-    if (page) write(`Test chat: ${page}`);
-    // A stopping container: runs end as interrupted and save their sessions within the grace
-    // period, then the process ends — whatever a run's tools left open must not keep it alive.
-    await new Promise<void>((done) => {
-        const stop = (signal: string) => {
-            note(`${signal}: stopping, ${mod.activeRuns()} run(s) going`);
-            void app.stop(20_000).finally(done);
-        };
-        process.once('SIGTERM', () => stop('SIGTERM'));
-        process.once('SIGINT', () => stop('SIGINT'));
-    });
+    const onHost = !mod.inAgentImage();
+    const seed = onHost
+        ? await prepareMemorySeed(settings.projectDir, settings.root, settings.memorySeed)
+        : null;
+    if (onHost) settings.memorySeed = seed?.dir ?? null;
+    try {
+        const app = mod.createServer(settings);
+        await app.listen(listen);
+        if (managed) {
+            note(`  ${green('✓ HTTP listener ready')}`);
+        } else {
+            printServerStarted({
+                project: settings.projectId,
+                url: `http://${describe(listen)}`,
+                root: settings.root,
+                auth: settings.auth.mode,
+                sandbox: `${settings.sandboxProvider}${settings.debug ? ' · debug routes enabled' : ''}`,
+                page,
+                chatUser: values.user,
+            });
+        }
+        // A stopping container: runs end as interrupted and save their sessions within the grace
+        // period, then the process ends — whatever a run's tools left open must not keep it alive.
+        await new Promise<void>((done, fail) => {
+            let stopping = false;
+            const stop = (signal: string) => {
+                if (stopping) return;
+                stopping = true;
+                note();
+                note(
+                    `  ${yellow('Stopping server')} ${dim(`(${signal} · ${mod.activeRuns()} active runs)`)}`,
+                );
+                void app.stop(20_000).then(done, fail);
+            };
+            process.once('SIGTERM', () => stop('SIGTERM'));
+            process.once('SIGINT', () => stop('SIGINT'));
+        });
+    } finally {
+        await seed?.cleanup();
+    }
+    if (!managed) {
+        note(`  ${green('✓ Server stopped')}`);
+        note();
+    }
     process.exit(0);
 }
 
@@ -379,15 +410,11 @@ async function startContainer(ctx: Context, values: Flags): Promise<void> {
         auth.mode === 'insecure'
             ? chatUrl(listen, mod.unsignedToken({ sub: values.user ?? 'local' }))
             : undefined;
-    const image = await buildAgentImage(project.dir, { rebuild: values.rebuild });
-    note(
-        `zen server in ${image.tag} ${dim(`(on ${image.base}${image.built ? ', just built' : ''})`)}`,
-    );
-    if (auth.mode === 'insecure') {
-        note(yellow('⚠ insecure: tokens are read, not checked — anyone here can be anyone'));
-    }
+    const image = await buildAgentImage(project.dir, {
+        rebuild: values.rebuild,
+        verbose: values.verbose,
+    });
     const root = whichRoot(ctx, values, env, mod, projectId);
-    note(dim(`listening on ${describe(listen)}, root ${root}`));
     await runContainer({
         image: image.tag,
         project: { dir: project.dir, id: projectId },
@@ -396,7 +423,18 @@ async function startContainer(ctx: Context, values: Flags): Promise<void> {
         listen,
         debug: Boolean(values.debug),
         auth,
-        onStarted: page ? () => write(`Test chat: ${page}`) : undefined,
+        onStarted: () =>
+            printServerStarted({
+                project: projectId,
+                url: `http://${describe(listen)}`,
+                root,
+                auth: auth.mode,
+                sandbox: `bwrap (agent container)${values.debug ? ' · debug routes enabled' : ''}`,
+                image,
+                runtimeUser: `UID/GID ${AGENT_UID}:${AGENT_GID} (non-root)`,
+                page,
+                chatUser: values.user,
+            }),
     });
     process.exit(0);
 }

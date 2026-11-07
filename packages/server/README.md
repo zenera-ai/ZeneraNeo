@@ -21,6 +21,19 @@ fragment (not a query parameter); the page removes the fragment and keeps the
 token only in memory. The default browser user is `local`; use `--user ann` to
 test another user's sessions. The same works with `--container`: the outer CLI
 prints the host's file path and published port, not paths inside the container.
+The fragment ends with `&open=1` so terminal link detection preserves the unsigned
+JWT's trailing dot.
+
+Startup uses an aligned, colored summary for the project, HTTP address, auth,
+sandbox, state directory, image and browser user. Container builds show one
+updating, width-limited line with a spinner and elapsed build time by default,
+even during quiet steps; piped logs retain only the final
+progress line. Warnings and errors remain visible in both cases.
+Use `zen server start --container --verbose` for every build line, grouped by
+stage and colored by severity. This applies to both the sandbox base image and
+the agent image. Colors honor `NO_COLOR` and normal terminal detection.
+The image reports listener readiness without repeating the host's summary or
+insecure warning; container startup and HTTP readiness are distinct messages.
 
 The HTML contains its JavaScript, React components and CSS; it needs no frontend
 server or CDN. It reuses ZeneraLite's chat messages, composer, tool cards and
@@ -100,6 +113,17 @@ publishing the port on loopback only).
   seed — the project's own (`memory:` in agents.yaml), `--memory-seed <dir>`, or
   none (`--no-memory-seed`, everyone starts empty). From then on it is theirs:
   their chats share it, other users never see it, and the seed is not read again.
+  The host CLI captures the initial seed at startup, including committed SQLite
+  WAL data and attached files. Later seed changes only affect the next server
+  start; existing user memories are never replaced.
+  With `--container`, this snapshot is mounted at `/seed:ro` in rollback-journal
+  mode, so SQLite can read it without creating WAL/SHM files on the read-only
+  project mount. The temporary snapshot is removed after the server stops
+  (also on failed startup); private user memories remain in the server root.
+  Snapshot file permissions allow image UID 10001 to read it even with rootful
+  podman; the private server root still controls host access.
+  If the container cannot be stopped, the CLI reports that error and retains
+  its snapshot rather than removing memory that the container may still need.
 
 ## Routes
 
@@ -169,7 +193,8 @@ this machine, with podman:
    with `--rebuild`.
 3. `podman run`: the project read-only at `/project`, the root at `/state`, the
    port published on `--host` (loopback by default), the auth flags and model
-   keys passed through (by name; credential files are not), logs followed;
+   keys and provider settings passed through by environment name, credential files
+   mounted as private Podman secrets, logs followed;
    Ctrl-C stops it.
 
 The server runs as numeric UID/GID **10001**, with `HOME=/home/zenera`, not
@@ -189,7 +214,18 @@ security policy must allow bwrap's unprivileged user namespaces; startup
 reports a failed probe rather than running commands without isolation.
 
 Model keys come from the keyring (`zen key …`) and the environment, as for any
-run; in the agent image, the environment.
+run, including the project's `.env`; in the agent image, the environment.
+Vertex project, location and quota project, and the Bifrost endpoint, are forwarded
+alongside keys. Explicit `GOOGLE_APPLICATION_CREDENTIALS` takes precedence over
+ambient gcloud application-default credentials.
+
+File credentials use ephemeral Podman secrets readable only by UID 10001. The
+server stages them in its private container home before opening engines, allowing
+bwrap to bind container-owned files when the project's keys policy permits it.
+They are not embedded in the image, argv, workspaces or persistent user state.
+Secrets are removed after confirmed shutdown or failed startup; a failed stop
+retains them and the memory seed until the container can be stopped. Failed secret
+cleanup is reported with a manual removal command.
 
 ## Rebuilding the standalone page
 

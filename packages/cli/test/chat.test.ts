@@ -1,6 +1,6 @@
 /**
  * Vitest coverage for chatUrl, the insecure server CLI's standalone-chat launcher.
- * Parameterized tests check IPv4/IPv6 file URLs and fragment parameters, then read
+ * Parameterized tests check IPv4/IPv6 file URLs, intact JWTs and terminal-safe endings, then read
  * the packaged HTML to verify that no external scripts or stylesheets are required.
  * Run by the CLI test suite without starting a server or browser.
  */
@@ -18,6 +18,8 @@ describe('standalone chat launch URL', () => {
             expect(link.search).toBe('');
             const parameters = new URLSearchParams(link.hash.slice(1));
             expect(parameters.get('jwt')).toBe('dev.jwt.');
+            expect(parameters.get('open')).toBe('1');
+            expect(link.href).toMatch(/&open=1$/);
             expect(parameters.get('server')).toBe(`http://${host === '::1' ? '[::1]' : host}:3931`);
             link.hash = '';
             const page = readFileSync(link, 'utf8');

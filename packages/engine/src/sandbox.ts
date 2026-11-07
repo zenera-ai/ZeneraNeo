@@ -1,6 +1,11 @@
+/**
+ * Engine sandbox setup and credential forwarding used by zen run and server turns.
+ * forwarded collects credential mounts, secret names and MODEL_CONTEXT_ENV settings;
+ * the setup helpers build the sandbox specification and map per-run environment.
+ * File credentials reach commands only when the project's keys policy allows them.
+ */
 import {
     DEFAULT_SANDBOX_IMAGE,
-    GATEWAY_URL_ENV,
     SANDBOX_GROUP,
     WORKSPACE_MOUNT,
     identityEnv,
@@ -30,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { stderrLogger, type Logger } from './errors.ts';
 import { home as zenHome } from './home.ts';
 import { resolveBuild, type ResolvedBuild } from './image.ts';
-import { credentials } from './keys.ts';
+import { credentials, MODEL_CONTEXT_ENV } from './keys.ts';
 import type { SessionPaths } from './session.ts';
 
 // ---------------------------------------------------------------------------
@@ -93,7 +98,7 @@ function forwarded(): { secrets: string[]; env: Record<string, string>; mounts: 
     // Not secrets, and useless without one: a service account says which
     // project it belongs to but never which region to call, and a gateway key
     // says nothing of where the gateway is.
-    for (const name of ['GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION', GATEWAY_URL_ENV]) {
+    for (const name of MODEL_CONTEXT_ENV) {
         const value = process.env[name];
         if (value) {
             env[name] = value;

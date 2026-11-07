@@ -2,10 +2,20 @@
  * Host-side image build and container lifecycle for zen server start --container.
  * buildAgentImage packs the installed runtime onto the project's sandbox image;
  * agentDockerfile defines its non-root Node/bwrap environment, and runContainer
- * mounts project/state, publishes the port, follows logs and forwards shutdown.
+ * mounts project/state and a startup seed snapshot, publishes the port, follows logs
+ * and forwards shutdown before cleaning up the snapshot.
  * Used by commands/server.ts; onStarted lets that command print a host-side chat link.
  */
-import { home, KeyStore, credentials, resolveBuild, writeRuntime } from '@zenera/engine';
+import {
+    home,
+    KeyStore,
+    credentials,
+    gcloudAdc,
+    loadProjectEnv,
+    MODEL_CONTEXT_ENV,
+    resolveBuild,
+    writeRuntime,
+} from '@zenera/engine';
 import { DEFAULT_SANDBOX_IMAGE, readProjectConfig } from '@zenera/neo';
 import { runProcess } from '@zenera/sandbox';
 import { spawn } from 'node:child_process';
@@ -15,7 +25,9 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asCliError, ensureImage, ensurePodmanReady } from './podman.ts';
-import { CliError, dim, EXIT, note } from './term.ts';
+import { prepareMemorySeed } from './seed.ts';
+import { buildProgress, HOST_MANAGED_ENV, streamAgentBuild } from './serverDisplay.ts';
+import { bold, CliError, cyan, dim, EXIT, green, note, table, yellow } from './term.ts';
 
 // ---------------------------------------------------------------------------
 // The agent image, built here and run in podman: `zen server start --container`.
@@ -35,8 +47,8 @@ const PACKAGES = ['sandbox', 'neo', 'view', 'engine', 'server', 'cli'] as const;
 
 const BWRAP_VERSION = '0.13.1';
 const IMAGE_REPO = 'localhost/zenera-agent';
-const AGENT_UID = 10001;
-const AGENT_GID = 10001;
+export const AGENT_UID = 10001;
+export const AGENT_GID = 10001;
 
 export interface AgentImage {
     /** the agent image */
@@ -49,7 +61,7 @@ export interface AgentImage {
 /** The agent image for a project, built unless this machine has it already. */
 export async function buildAgentImage(
     projectDir: string,
-    opts: { rebuild?: boolean } = {},
+    opts: { rebuild?: boolean; verbose?: boolean } = {},
 ): Promise<AgentImage> {
     await ensurePodmanReady({ yes: true }).catch((err: unknown) => {
         throw asCliError(err);
@@ -59,10 +71,18 @@ export async function buildAgentImage(
     const { root, config } = readProjectConfig(projectDir);
     const build = resolveBuild(root, config.sandbox);
     const base = build?.tag ?? config.sandbox?.image ?? DEFAULT_SANDBOX_IMAGE;
-    await ensureImage(
-        { image: base, build: build && { dockerfile: build.dockerfile, context: build.context } },
-        { force: opts.rebuild },
-    );
+    const baseOutput = buildProgress(opts.verbose);
+    try {
+        await ensureImage(
+            {
+                image: base,
+                build: build && { dockerfile: build.dockerfile, context: build.context },
+            },
+            { force: opts.rebuild, progress: { onProgress: baseOutput.line } },
+        );
+    } finally {
+        baseOutput.done();
+    }
     const inspected = await podman(['image', 'inspect', '--format', '{{json .}}', base]);
     const image = JSON.parse(inspected) as { Id: string; Config?: { Env?: string[] } };
 
@@ -90,8 +110,19 @@ export async function buildAgentImage(
         if (present.code === 0 && !opts.rebuild) {
             return { tag, base, built: false };
         }
-        note(dim(`building the agent image ${tag} on ${base}`));
-        await streamed('podman', ['build', '-t', tag, '-f', join(ctx, 'Dockerfile'), ctx]);
+        note();
+        note(`  ${bold(cyan('Building agent image'))}`);
+        for (const line of table([
+            ['Image', tag],
+            ['Base', base],
+        ]))
+            note(`  ${dim(line)}`);
+        await streamAgentBuild(
+            'podman',
+            ['build', '-t', tag, '-f', join(ctx, 'Dockerfile'), ctx],
+            opts.verbose,
+        );
+        note(`  ${green('✓ Agent image built')}`);
         return { tag, base, built: true };
     } finally {
         rmSync(ctx, { recursive: true, force: true });
@@ -126,98 +157,204 @@ export async function runContainer(run: ContainerRun): Promise<void> {
             EXIT.sandbox,
         );
     }
-    const name = `zen-server-${run.project.id.replace(/[^\w.-]/g, '_')}-${run.listen.port}`;
-    const env: NodeJS.ProcessEnv = { ...process.env, ZEN_PROJECT_ID: run.project.id };
-    const args = [
-        'run',
-        '--rm',
-        '--detach',
-        '--name',
-        name,
-        '--label',
-        'zenera.server=1',
-        '--user',
-        `${AGENT_UID}:${AGENT_GID}`,
-        '--cap-drop',
-        'ALL',
-        '--security-opt',
-        'no-new-privileges',
-        ...(rootless === 'true' ? ['--userns', `keep-id:uid=${AGENT_UID},gid=${AGENT_GID}`] : []),
-        '--publish',
-        `${run.listen.host}:${run.listen.port}:3000`,
-        '--volume',
-        `${run.project.dir}:/project:ro`,
-        '--volume',
-        `${run.root}:/state`,
-        // Values by name only: podman reads them from its own environment, so no key is on a
-        // command line.
-        '--env',
-        'ZEN_PROJECT_ID',
-    ];
-    const inner = ['server', 'start', '--host', '0.0.0.0', '--port', '3000', '--root', '/state'];
-    if (run.memorySeed === null) {
-        inner.push('--no-memory-seed');
-    } else if (run.memorySeed) {
-        args.push('--volume', `${run.memorySeed}:/seed:ro`);
-        inner.push('--memory-seed', '/seed');
-    }
-    if (run.debug) inner.push('--debug');
-    if (run.auth.mode === 'insecure') {
-        env.ZEN_SERVER_INSECURE_LOCAL = '1';
-        args.push('--env', 'ZEN_SERVER_INSECURE_LOCAL');
-        inner.push('--insecure');
-    } else {
-        env.ZEN_SERVER_JWT_PUBLIC_KEY = run.auth.publicKey;
-        args.push('--env', 'ZEN_SERVER_JWT_PUBLIC_KEY');
-        inner.push('--jwt-issuer', run.auth.issuer, '--jwt-audience', run.auth.audience);
-    }
-    const skipped: string[] = [];
-    for (const forwarded of await modelKeys()) {
-        if (forwarded.holds === 'secret') {
-            env[forwarded.env] = forwarded.value;
-            args.push('--env', forwarded.env);
+    const seed = await prepareMemorySeed(run.project.dir, run.root, run.memorySeed);
+    let containerId: string | undefined;
+    let stopResult: ReturnType<typeof runProcess> | undefined;
+    const secretNames: string[] = [];
+    try {
+        const name = `zen-server-${run.project.id.replace(/[^\w.-]/g, '_')}-${run.listen.port}`;
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            ZEN_PROJECT_ID: run.project.id,
+            [HOST_MANAGED_ENV]: '1',
+        };
+        const args = [
+            'run',
+            '--rm',
+            '--detach',
+            '--name',
+            name,
+            '--label',
+            'zenera.server=1',
+            '--user',
+            `${AGENT_UID}:${AGENT_GID}`,
+            '--cap-drop',
+            'ALL',
+            '--security-opt',
+            'no-new-privileges',
+            ...(rootless === 'true'
+                ? ['--userns', `keep-id:uid=${AGENT_UID},gid=${AGENT_GID}`]
+                : []),
+            '--publish',
+            `${run.listen.host}:${run.listen.port}:3000`,
+            '--volume',
+            `${run.project.dir}:/project:ro`,
+            '--volume',
+            `${run.root}:/state`,
+            // Values by name only: podman reads them from its own environment, so no key is on a
+            // command line.
+            '--env',
+            'ZEN_PROJECT_ID',
+            '--env',
+            HOST_MANAGED_ENV,
+        ];
+        const inner = [
+            'server',
+            'start',
+            '--host',
+            '0.0.0.0',
+            '--port',
+            '3000',
+            '--root',
+            '/state',
+        ];
+        if (seed) {
+            args.push('--volume', `${seed.dir}:/seed:ro`);
+            inner.push('--memory-seed', '/seed');
         } else {
-            // A credential file (gcloud's ADC) would be bound into the container and again into
-            // each command, which SELinux refuses for a file podman mounted: values only, for now.
-            skipped.push(forwarded.env);
+            inner.push('--no-memory-seed');
+        }
+        if (run.debug) inner.push('--debug');
+        if (run.auth.mode === 'insecure') {
+            env.ZEN_SERVER_INSECURE_LOCAL = '1';
+            args.push('--env', 'ZEN_SERVER_INSECURE_LOCAL');
+            inner.push('--insecure');
+        } else {
+            env.ZEN_SERVER_JWT_PUBLIC_KEY = run.auth.publicKey;
+            args.push('--env', 'ZEN_SERVER_JWT_PUBLIC_KEY');
+            inner.push('--jwt-issuer', run.auth.issuer, '--jwt-audience', run.auth.audience);
+        }
+        const modelCredentials = await modelKeys(run.project.dir);
+        for (const name of MODEL_CONTEXT_ENV) {
+            const value = process.env[name];
+            if (value) {
+                env[name] = value;
+                args.push('--env', name);
+            }
+        }
+        for (const forwarded of modelCredentials) {
+            if (forwarded.holds === 'secret') {
+                env[forwarded.env] = forwarded.value;
+                args.push('--env', forwarded.env);
+            } else {
+                const name = `zen-server-${randomBytes(8).toString('hex')}-${forwarded.env.toLowerCase()}`;
+                const made = await runProcess(
+                    'podman',
+                    ['secret', 'create', name, forwarded.value],
+                    {
+                        timeoutMs: 30_000,
+                    },
+                );
+                if (made.code !== 0) {
+                    throw new CliError(
+                        `could not prepare ${forwarded.env}: ${made.stderr.trim() || made.stdout.trim()}`,
+                        EXIT.credentials,
+                        'the host must be able to read the credential file',
+                    );
+                }
+                secretNames.push(name);
+                env[forwarded.env] = `/run/secrets/${name}`;
+                args.push(
+                    '--secret',
+                    `${name},type=mount,uid=${AGENT_UID},gid=${AGENT_GID},mode=0400`,
+                    '--env',
+                    forwarded.env,
+                );
+            }
+        }
+        args.push(run.image, ...inner);
+
+        const started = await runProcess('podman', args, { timeoutMs: 120_000, env });
+        if (started.code !== 0) {
+            throw new CliError(
+                `could not start the agent container: ${(started.stderr.trim() || started.stdout.trim()).split('\n')[0]}`,
+                EXIT.sandbox,
+            );
+        }
+        const id = started.stdout.trim();
+        containerId = id;
+        const logs = spawn('podman', ['logs', '--follow', name], {
+            stdio: ['ignore', 'inherit', 'inherit'],
+        });
+        run.onStarted?.();
+        let stopping = false;
+        const stop = async (signal: string) => {
+            if (stopping) return;
+            stopping = true;
+            note();
+            note(`  ${yellow('Stopping agent container')} ${dim(`(${signal})`)}`);
+            stopResult = runProcess('podman', ['stop', '--ignore', '--time', '25', id], {
+                timeoutMs: 60_000,
+            });
+            const stopped = await stopResult;
+            if (stopped.code !== 0) {
+                note(
+                    `could not stop the agent container: ${stopped.stderr.trim() || stopped.stdout.trim()}`,
+                );
+            }
+        };
+        const interrupt = () => void stop('SIGINT');
+        const terminate = () => void stop('SIGTERM');
+        process.once('SIGINT', interrupt);
+        process.once('SIGTERM', terminate);
+        await new Promise<void>((done, reject) => {
+            logs.once('close', () => done());
+            logs.once('error', reject);
+        }).finally(() => {
+            process.removeListener('SIGINT', interrupt);
+            process.removeListener('SIGTERM', terminate);
+        });
+        if (!stopping) {
+            throw new CliError('the agent container stopped', EXIT.failed, `podman logs ${name}`);
+        }
+    } finally {
+        if (containerId) {
+            const stopped = await (stopResult ??
+                runProcess('podman', ['stop', '--ignore', '--time', '25', containerId], {
+                    timeoutMs: 60_000,
+                }));
+            if (stopped.code !== 0) {
+                throw new CliError(
+                    `could not stop the agent container: ${stopped.stderr.trim() || stopped.stdout.trim()}`,
+                    EXIT.failed,
+                    'the startup memory snapshot and runtime credentials were retained until the container can be stopped',
+                );
+            }
+        }
+        try {
+            const failures: string[] = [];
+            for (const name of secretNames) {
+                const removed = await runProcess('podman', ['secret', 'rm', name], {
+                    timeoutMs: 30_000,
+                });
+                if (removed.code !== 0) {
+                    failures.push(`${name}: ${removed.stderr.trim() || removed.stdout.trim()}`);
+                }
+            }
+            if (failures.length) {
+                throw new CliError(
+                    `could not remove runtime credentials: ${failures.join('; ')}`,
+                    EXIT.failed,
+                    'remove the reported secrets after the container stops: podman secret rm <name>',
+                );
+            }
+        } finally {
+            await seed?.cleanup();
         }
     }
-    if (skipped.length) {
-        note(dim(`not passed into the container (credential files): ${skipped.join(', ')}`));
-    }
-    args.push(run.image, ...inner);
-
-    const started = await runProcess('podman', args, { timeoutMs: 120_000, env });
-    if (started.code !== 0) {
-        throw new CliError(
-            `could not start the agent container: ${(started.stderr.trim() || started.stdout.trim()).split('\n')[0]}`,
-            EXIT.sandbox,
-        );
-    }
-    const logs = spawn('podman', ['logs', '--follow', name], {
-        stdio: ['ignore', 'inherit', 'inherit'],
-    });
-    run.onStarted?.();
-    let stopping = false;
-    const stop = async (signal: string) => {
-        if (stopping) return;
-        stopping = true;
-        note(`${signal}: stopping the agent container`);
-        await runProcess('podman', ['stop', '--time', '25', name], { timeoutMs: 60_000 });
-    };
-    process.once('SIGINT', () => void stop('SIGINT'));
-    process.once('SIGTERM', () => void stop('SIGTERM'));
-    await new Promise<void>((done) => logs.once('close', () => done()));
-    if (!stopping) {
-        throw new CliError('the agent container stopped', EXIT.failed, `podman logs ${name}`);
-    }
+    note(`  ${green('✓ Server stopped')}`);
+    note();
 }
 
 /** The model keys this machine has, from the keyring and the environment, as a run reads them. */
-async function modelKeys(): Promise<ReturnType<typeof credentials>> {
+async function modelKeys(projectDir: string): Promise<ReturnType<typeof credentials>> {
+    loadProjectEnv(projectDir);
     const keys = await KeyStore.open();
     keys.materialize();
-    return credentials();
+    const found = credentials();
+    const adc = !process.env.GOOGLE_APPLICATION_CREDENTIALS ? gcloudAdc() : undefined;
+    if (adc) found.push({ env: 'GOOGLE_APPLICATION_CREDENTIALS', holds: 'file', value: adc });
+    return found;
 }
 
 const require = createRequire(import.meta.url);
@@ -345,34 +482,4 @@ async function podman(args: readonly string[]): Promise<string> {
         );
     }
     return res.stdout;
-}
-
-/** A long podman step whose own output is the progress: dimmed, on stderr. */
-function streamed(bin: string, args: readonly string[]): Promise<void> {
-    return new Promise((done, fail) => {
-        const child = spawn(bin, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-        const tail: string[] = [];
-        const show = (chunk: Buffer) => {
-            for (const line of chunk.toString().split('\n')) {
-                if (!line.trim()) continue;
-                tail.push(line);
-                if (tail.length > 20) tail.shift();
-                note(dim(`  ${line}`));
-            }
-        };
-        child.stdout.on('data', show);
-        child.stderr.on('data', show);
-        child.once('error', fail);
-        child.once('close', (code) =>
-            code === 0
-                ? done()
-                : fail(
-                      new CliError(
-                          `the agent image did not build (exit ${code})`,
-                          EXIT.sandbox,
-                          tail.slice(-3).join('\n'),
-                      ),
-                  ),
-        );
-    });
 }
