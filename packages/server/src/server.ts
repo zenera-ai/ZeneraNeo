@@ -1,31 +1,29 @@
-// The agent server: one user's chats with one project, over HTTP. Every request but /healthz
-// carries the one bearer token its host gave it; the token names nobody — who the server is
-// for is the host's to say, and who may use it is decided in front of it (zenera-app, a proxy).
-// A sandboxed command shares the container's network but not the server's environment or
-// state, so it can reach the port and is still refused.
+// The agent server: a project's chats over HTTP, for every user its host vouches for. Every request
+// but /healthz carries a JWT the host signed for that request (auth.ts), whose `sub` is the user;
+// each user's things are in a folder of their own (store.ts). A sandboxed command shares the
+// container's network, so it can reach the port, and is refused: it can make no token.
 //   GET  /healthz                         - for probes
-//   GET  /api/status                      - versions, sandbox, image identity, sessions, memory
+//   GET  /api/status                      - versions, auth, sandbox, image identity, root, seed
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   createServer  - the app, configured; `listen` starts it, `stop` ends runs and closes it
-import express, { type Express, type NextFunction, type Request, type Response } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import express, { type Express } from 'express';
 import type { Server } from 'node:http';
 import { configure, DEFAULTS, type ServerSettings } from './config.ts';
 import { historyRouter } from './history.ts';
 import { errorHandler, notFound } from './http.ts';
-import { checkUser } from './identity.ts';
+import { requireCaller } from './auth.ts';
+import { inAgentImage } from './config.ts';
+import { openLayout } from './layout.ts';
 import { memoryRouter } from './memory.ts';
 import { acceptRuns, activeRuns, runDebugRouter, runsRouter, stopAllRuns } from './runs.ts';
 import { serverStatus, setListening } from './status.ts';
 import { privateStore } from './store.ts';
-import { MIN_TOKEN_LENGTH } from './token.ts';
 import { traceRouter } from './trace.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
-    Pick<ServerSettings, 'projectId' | 'user' | 'token' | 'sessionsDir'>;
+    Pick<ServerSettings, 'projectId' | 'auth' | 'root'>;
 
 /** TCP; loopback unless a host is named. */
 export interface ListenOn {
@@ -43,17 +41,16 @@ export interface AgentServer {
 
 export function createServer(opts: ServerOptions): AgentServer {
     const settings: ServerSettings = { ...DEFAULTS, ...opts, hidden: [...(opts.hidden ?? [])] };
-    checkUser(settings.user);
-    if ((settings.token ?? '').length < MIN_TOKEN_LENGTH) {
-        throw new Error(`the server token must be at least ${MIN_TOKEN_LENGTH} characters`);
+    if (settings.auth.mode === 'jwt' && !settings.auth.publicKey.trim()) {
+        throw new Error('a jwt server needs the public key its tokens are signed for');
     }
     configure(settings);
-    mkdirSync(settings.sessionsDir, { recursive: true });
+    openLayout(settings.root, settings.projectId);
     acceptRuns();
 
     const app = express();
     app.disable('x-powered-by');
-    app.use(requireToken(settings.token));
+    app.use(requireCaller());
     app.use(express.json({ limit: '1mb' }));
     app.get('/healthz', (_req, res) => {
         res.type('text/plain').send('ok');
@@ -80,6 +77,10 @@ export function createServer(opts: ServerOptions): AgentServer {
         settings,
         listen: ({ port, host = '127.0.0.1' }) =>
             new Promise((resolve, reject) => {
+                if (settings.auth.mode === 'insecure' && !LOOPBACK.has(host) && !insecureHere()) {
+                    reject(new Error(`an insecure server listens on loopback only, not ${host}`));
+                    return;
+                }
                 setListening(`${host}:${port}`);
                 // Express 5 hands a listen error (EADDRINUSE) to this callback instead of throwing it.
                 server = app.listen(port, host, (err?: Error) =>
@@ -100,20 +101,15 @@ export function createServer(opts: ServerOptions): AgentServer {
     };
 }
 
-/** Every route but /healthz: `Authorization: Bearer <token>`, compared in constant time. */
-function requireToken(token: string) {
-    const expected = digest(token);
-    return (req: Request, res: Response, next: NextFunction) => {
-        if (req.path === '/healthz') return next();
-        const given = /^Bearer (.+)$/.exec(req.get('authorization') ?? '')?.[1] ?? '';
-        if (!timingSafeEqual(digest(given), expected)) {
-            res.status(401).json({ error: 'this server wants its token' });
-            return;
-        }
-        next();
-    };
-}
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 
-function digest(text: string): Buffer {
-    return createHash('sha256').update(text).digest();
+/** The env `zen server start --container` sets on the container it runs, port on loopback. */
+export const INSECURE_LOCAL_ENV = 'ZEN_SERVER_INSECURE_LOCAL';
+
+/**
+ * Inside the agent image an insecure server listens on 0.0.0.0 for the port to be published; only
+ * the host that runs it on this machine, its port on loopback, says that is all right.
+ */
+export function insecureHere(env: NodeJS.ProcessEnv = process.env): boolean {
+    return inAgentImage() && env[INSECURE_LOCAL_ENV] === '1';
 }

@@ -15,19 +15,20 @@ const dataDir = join(testRoot, 'data');
 const projectDir = join(testRoot, 'project');
 
 const { configure, DEFAULTS } = await import('../src/config.ts');
-// One server per user: each request is served as the user it names, from that user's own state.
-const serveAs = (id: string) =>
-    configure({
-        ...DEFAULTS,
-        token: 'x'.repeat(32),
-        projectId: 'memory-test',
-        user: { id },
-        sessionsDir: join(dataDir, 'users', id, 'sessions'),
-        memoryDir: join(dataDir, 'users', id, 'memory'),
-        projectDir,
-    });
+configure({
+    ...DEFAULTS,
+    projectId: 'memory-test',
+    auth: { mode: 'insecure' as const },
+    root: dataDir,
+    projectDir,
+});
 const memoryOf = (id: string) => join(dataDir, 'users', id, 'memory');
-serveAs(userId);
+// Each request is served as the user it names: as requireCaller leaves a verified caller.
+let caller = userId;
+const asCaller = (_req: unknown, res: { locals: Record<string, unknown> }, next: () => void) => {
+    res.locals.caller = { sub: caller };
+    next();
+};
 process.env.ZENERA_HOME = join(testRoot, 'zenera-home');
 
 const { MAX_CONTENT_BYTES, MAX_GREP_FILE_BYTES, MemoryStore } = await import('@zenera/neo');
@@ -156,6 +157,7 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
     emptyStore.release();
 
     const app = express();
+    app.use(asCaller as never);
     app.use('/api/sessions', memoryRouter(privateStore));
     app.use(errorHandler);
     const server = app.listen(0, '127.0.0.1');
@@ -164,8 +166,8 @@ test('memory inspection is signed, isolated, bounded, and read-only', async () =
     assert.ok(address && typeof address !== 'string');
     const origin = `http://127.0.0.1:${address.port}`;
 
-    async function get(path: string, caller: Caller = {}) {
-        serveAs(caller.userId ?? userId);
+    async function get(path: string, as: Caller = {}) {
+        caller = as.userId ?? userId;
         const response = await fetch(`${origin}${path}`);
         return {
             status: response.status,
@@ -446,6 +448,7 @@ test('memory recall ranks, stitches, masks, and stays read-only', async () => {
     const usageBefore = await usage();
 
     const app = express();
+    app.use(asCaller as never);
     app.use('/api/sessions', memoryRouter(privateStore));
     app.use(errorHandler);
     const server = app.listen(0, '127.0.0.1');
@@ -455,8 +458,8 @@ test('memory recall ranks, stitches, masks, and stays read-only', async () => {
     const origin = `http://127.0.0.1:${address.port}`;
     const base = `/api/sessions/${threadId}/memory/recall`;
 
-    async function recall(qs: string, caller: Caller = { userId: recallUserId }) {
-        serveAs(caller.userId ?? recallUserId);
+    async function recall(qs: string, as: Caller = { userId: recallUserId }) {
+        caller = as.userId ?? recallUserId;
         const response = await fetch(`${origin}${base}${qs}`);
         return {
             status: response.status,

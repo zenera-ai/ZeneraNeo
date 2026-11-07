@@ -15,10 +15,20 @@ import {
     type Mount,
     type SandboxSpec,
 } from '@zenera/neo';
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
-import { basename, join, relative } from 'node:path';
+import { createHash } from 'node:crypto';
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+} from 'node:fs';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stderrLogger, type Logger } from './errors.ts';
+import { home as zenHome } from './home.ts';
 import { resolveBuild, type ResolvedBuild } from './image.ts';
 import { credentials } from './keys.ts';
 import type { SessionPaths } from './session.ts';
@@ -162,6 +172,7 @@ export function buildSandbox(opts: SandboxInputs): SandboxSetup {
 
     const mounts: Mount[] = [
         { host: home, at: HOME, source: { kind: 'home' } },
+        { host: runtimeDir(), at: RUNTIME_DIR, readOnly: true, source: { kind: 'runtime' } },
         ...(opts.mounts ?? []),
     ];
     const keys = base.keys === false ? undefined : forwarded();
@@ -278,16 +289,9 @@ export function usesSandbox(project: AgentProject): boolean {
  */
 export type Preflight = (setup: SandboxSetup, yes?: boolean) => Promise<void>;
 
-/**
- * Where the container's `$HOME` lives must exist before podman mounts it — and
- * the `zenera` libraries go into it, written fresh on every open so they match
- * the engine that set the variables they read. Done for every sandbox: it is a
- * small copy into the session folder, and a sandbox that does not bind it
- * supplies its own `$HOME` (`source: home`) with the same libraries.
- */
+/** Where the container's `$HOME` lives must exist before podman mounts it. */
 export function prepareHome(setup: SandboxSetup): void {
     mkdirSync(setup.home, { recursive: true });
-    installRuntime(setup.home);
 }
 
 // ---------------------------------------------------------------------------
@@ -296,37 +300,76 @@ export function prepareHome(setup: SandboxSetup): void {
 // What generated code calls to ask who it is running for. Python and Node,
 // because those are what agents write; anything else reads `ZEN_USER_*`.
 //
-// They live in the home the container already mounts, not in a mount of their
-// own: a new mount would rename every container that already exists, and a
-// persisted one would lose what it had installed. Each language is put where
-// its interpreter looks without being told — `require` searches
-// `$HOME/.node_modules` on its own — except Python, which has no such place
-// that does not depend on the version, so its directory is put in front of
-// `PYTHONPATH` on every command, ahead of whatever the image set.
+// One read-only copy for every session, at the same path in every sandbox:
+// /opt/zenera/runtime/{python,node}/zenera. podman binds this machine's copy
+// there (written once per content, in the zen home); the agent image has it
+// there already. Every command gets both directories in front of PYTHONPATH and
+// NODE_PATH, ahead of whatever the image set, so `import zenera` and
+// `require('zenera')` work as they are (an ES `import` ignores NODE_PATH).
 // ---------------------------------------------------------------------------
 
 /**
  * The packaged sources, beside `src/` and `dist/` alike — also `@zenera/engine/runtime/*`,
- * for a sandbox that puts them in its image rather than in a bound `$HOME`.
+ * for an image build that puts them in the image.
  */
 export const RUNTIME_SOURCE = fileURLToPath(new URL('../runtime/', import.meta.url));
 
-/** Where each one lands, inside the container. */
-export const RUNTIME_PYTHON = `${HOME}/.zenera/python`;
-export const RUNTIME_NODE = `${HOME}/.node_modules/zenera`;
+/** Where the libraries are, inside every sandbox. */
+export const RUNTIME_DIR = '/opt/zenera/runtime';
+export const RUNTIME_PYTHON = `${RUNTIME_DIR}/python`;
+export const RUNTIME_NODE = `${RUNTIME_DIR}/node`;
 
-const RUNTIME_PATHS = { PYTHONPATH: [RUNTIME_PYTHON] };
+const RUNTIME_PATHS = { PYTHONPATH: [RUNTIME_PYTHON], NODE_PATH: [RUNTIME_NODE] };
 
-function installRuntime(home: string): void {
-    const inside = (path: string): string => join(home, relative(HOME, path));
-    for (const [from, to] of [
-        ['python', RUNTIME_PYTHON],
-        ['node', RUNTIME_NODE],
-    ] as const) {
-        const target = inside(to);
-        rmSync(target, { recursive: true, force: true });
-        cpSync(join(RUNTIME_SOURCE, from), target, { recursive: true });
+/** Lays the libraries out as a sandbox sees them: `python/zenera/`, `node/zenera/`. */
+export function writeRuntime(dir: string): void {
+    mkdirSync(join(dir, 'node'), { recursive: true });
+    cpSync(join(RUNTIME_SOURCE, 'python'), join(dir, 'python'), { recursive: true });
+    cpSync(join(RUNTIME_SOURCE, 'node'), join(dir, 'node', 'zenera'), { recursive: true });
+}
+
+/**
+ * This machine's copy of the libraries: the agent image's own when it is one, else one in the
+ * zen home per content — written once, by whichever process gets there first.
+ */
+export function runtimeDir(): string {
+    if (existsSync(join(RUNTIME_PYTHON, 'zenera', '__init__.py'))) {
+        return RUNTIME_DIR;
     }
+    const dir = join(zenHome(), 'runtime', runtimeHash());
+    if (!existsSync(dir)) {
+        const tmp = `${dir}.tmp-${process.pid}-${Date.now()}`;
+        writeRuntime(tmp);
+        try {
+            renameSync(tmp, dir);
+        } catch {
+            // Another process wrote the same content first.
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    }
+    return dir;
+}
+
+let hashed: string | undefined;
+
+function runtimeHash(): string {
+    if (hashed) return hashed;
+    const hash = createHash('sha256');
+    const walk = (rel: string): void => {
+        for (const entry of readdirSync(join(RUNTIME_SOURCE, rel), { withFileTypes: true }).sort(
+            (a, b) => a.name.localeCompare(b.name),
+        )) {
+            const path = join(rel, entry.name);
+            if (entry.isDirectory()) {
+                walk(path);
+            } else {
+                hash.update(`\0${path}\0`).update(readFileSync(join(RUNTIME_SOURCE, path)));
+            }
+        }
+    };
+    walk('');
+    hashed = hash.digest('hex').slice(0, 12);
+    return hashed;
 }
 
 /**

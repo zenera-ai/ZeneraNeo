@@ -7,9 +7,18 @@ import {
     type SandboxFactory,
     type SandboxOptions,
 } from '@zenera/sandbox';
-import { randomUUID } from 'node:crypto';
+import { MemoryStore, isMemory } from '@zenera/neo';
+import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -17,16 +26,21 @@ import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import {
     createServer,
-    MIN_TOKEN_LENGTH,
-    serverToken,
+    LAYOUT_VERSION,
+    openLayout,
+    SEED_FILE,
     stopAllRuns,
-    tokenFile,
+    unsignedToken,
+    userFolder,
+    userMemory,
     type AgentServer,
+    type ServerOptions,
 } from '../src/index.ts';
 
 // The server end to end: a project whose one agent runs a command, a model that is a local
 // OpenAI-compatible endpoint scripted to call `run_command` once and then answer, and a sandbox
-// that records what it was asked. Over real HTTP, as zenera-app or ZeneraSrv would call it.
+// that records what it was asked. Over real HTTP, with tokens signed per request as zenera-app
+// signs them, for more than one user.
 
 const root = mkdtempSync(join(tmpdir(), 'zen-server-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -146,33 +160,69 @@ const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
 };
 
 // --- servers ---------------------------------------------------------------------------------
-const TOKEN = 'test-token-0123456789-abcdefghijklmnop';
+// One signing key, as zenera-app has; the server is given only its public half.
+const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+const PUBLIC_PEM = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const PROJECT = 'p1';
+const ANN = 'ann';
+const BOB = '00000000-0000-4000-8000-0000000000b0';
 
-/** fetch, with the server's token. */
-const call = (url: string, init: RequestInit = {}) =>
-    fetch(url, {
-        ...init,
-        headers: { authorization: `Bearer ${TOKEN}`, ...(init.headers as Record<string, string>) },
+function signed(claims: Record<string, unknown>, key: KeyObject = privateKey): string {
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    const head = b64({ alg: 'EdDSA', typ: 'JWT' });
+    const body = b64({
+        iss: 'zenera-app',
+        aud: 'zenera-runtime',
+        iat: now,
+        exp: now + 60,
+        prj: PROJECT,
+        ...claims,
     });
+    return `${head}.${body}.${sign(null, Buffer.from(`${head}.${body}`), key).toString('base64url')}`;
+}
 
-let running: { server: AgentServer; http: Server; url: string } | undefined;
+let running: { server: AgentServer; http: Server; url: string; insecure: boolean } | undefined;
 
-async function start(opts: Partial<Parameters<typeof createServer>[0]> = {}) {
+/** fetch, as `user`, with a token for exactly this request: signed, or not for --insecure. */
+function call(url: string, init: RequestInit & { as?: string; claims?: object } = {}) {
+    const { as = ANN, claims = {}, ...rest } = init;
+    const target = new URL(url);
+    const req = `${rest.method ?? 'GET'} ${target.pathname}${target.search}`;
+    const token = running?.insecure
+        ? unsignedToken({ sub: as, ...claims })
+        : signed({ sub: as, req, ...claims });
+    return fetch(url, {
+        ...rest,
+        headers: { authorization: `Bearer ${token}`, ...(rest.headers as Record<string, string>) },
+    });
+}
+
+async function start(opts: Partial<ServerOptions> = {}) {
     await running?.server.stop(1000);
-    const sessionsDir = mkdtempSync(join(root, 'sessions-'));
+    const serverRoot = mkdtempSync(join(root, 'root-'));
     const server = createServer({
-        projectId: 'p1',
+        projectId: PROJECT,
         projectDir,
-        sessionsDir,
-        user: { id: 'local' },
-        token: TOKEN,
+        root: serverRoot,
+        auth: {
+            mode: 'jwt',
+            publicKey: PUBLIC_PEM,
+            issuer: 'zenera-app',
+            audience: 'zenera-runtime',
+        },
         sandbox: fakeSandbox,
         sandboxProvider: 'fake',
         ...opts,
     });
     const http = await server.listen({ port: 0 });
-    running = { server, http, url: `http://127.0.0.1:${(http.address() as AddressInfo).port}` };
-    return { ...running, sessionsDir };
+    running = {
+        server,
+        http,
+        url: `http://127.0.0.1:${(http.address() as AddressInfo).port}`,
+        insecure: server.settings.auth.mode === 'insecure',
+    };
+    return { ...running, serverRoot };
 }
 afterEach(async () => {
     await running?.server.stop(1000);
@@ -188,70 +238,80 @@ async function events(res: Response): Promise<AGUIEvent[]> {
         .map((l) => JSON.parse(l.slice(6)) as AGUIEvent);
 }
 
-describe('the server', () => {
-    it('answers on loopback TCP when asked', async () => {
-        const { url, http } = await start();
-        expect((http.address() as AddressInfo).address).toBe('127.0.0.1');
-        expect((await fetch(`${url}/healthz`)).status).toBe(200);
-        expect(await (await call(`${url}/api/activity`)).json()).toEqual({ busy: false, runs: 0 });
-    });
+const textOf = (evs: AGUIEvent[]) =>
+    evs
+        .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
+        .map((e) => (e as { delta: string }).delta)
+        .join('');
 
-    it('runs a turn end to end: the model calls run_command, the sandbox runs it', async () => {
-        const { url, sessionsDir } = await start();
+async function turn(url: string, thread: string, as = ANN, content = 'say hello') {
+    const res = await call(`${url}/api/sessions/${thread}/runs`, {
+        method: 'POST',
+        as,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content }] }),
+    });
+    const evs = await events(res);
+    // The stream ends with the run's last event; the run lets go of the thread just after.
+    for (let i = 0; i < 50 && running && (await activity(url)); i++) {
+        await new Promise((r) => setTimeout(r, 20));
+    }
+    return { status: res.status, evs };
+}
+
+async function activity(url: string): Promise<boolean> {
+    const a = (await (await call(`${url}/api/activity`)).json()) as { busy: boolean };
+    return a.busy;
+}
+
+describe('a turn', () => {
+    it('runs end to end: the model calls run_command, the sandbox runs it', async () => {
+        const { url, serverRoot } = await start();
         const thread = randomUUID();
         commands.length = 0;
-        const res = await call(`${url}/api/sessions/${thread}/runs`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'say hello' }] }),
-        });
-        if (res.status !== 200) throw new Error(await res.text());
-        const evs = await events(res);
+        const { status, evs } = await turn(url, thread);
+        expect(status).toBe(200);
         const types = evs.map((e) => e.type);
         expect(types[0]).toBe(EventType.RUN_STARTED);
         expect(types).toContain(EventType.TOOL_CALL_START);
         expect(types.at(-1)).toBe(EventType.RUN_FINISHED);
-        const text = evs
-            .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
-            .map((e) => (e as { delta: string }).delta)
-            .join('');
-        expect(text).toContain('done:');
-        expect(text).toContain('hello');
+        expect(textOf(evs)).toContain('done:');
         expect(commands).toEqual(['echo hello']);
 
-        // A thread is a session, laid out as `zen run` lays one out, with its AG-UI log beside.
-        const session = join(sessionsDir, thread);
+        // Under the user's own folder, a session laid out as `zen run` lays one out.
+        const session = join(serverRoot, 'users', ANN, 'sessions', thread);
         expect(existsSync(join(session, '.data', 'state.json'))).toBe(true);
         expect(existsSync(join(session, 'workspace'))).toBe(true);
         expect(existsSync(join(session, 'agui'))).toBe(true);
+        expect(JSON.parse(readFileSync(join(serverRoot, 'server.json'), 'utf8'))).toMatchObject({
+            version: LAYOUT_VERSION,
+            projectId: PROJECT,
+        });
 
-        // The stream ends with the run's last event; the run lets go of the thread just after.
-        for (let i = 0; i < 50; i++) {
-            const a = (await (await call(`${url}/api/activity`)).json()) as {
-                busy: boolean;
-            };
-            if (!a.busy) break;
-            await new Promise((r) => setTimeout(r, 20));
-        }
         const history = await call(`${url}/api/sessions/${thread}`);
         const body = (await history.json()) as { events: AGUIEvent[]; running: unknown };
         expect(body.running).toBeNull();
         expect(body.events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
     });
 
-    it('gives every chat the one workspace it was told to, as zen run --workspace', async () => {
-        const workspace = mkdtempSync(join(root, 'ws-'));
-        const { url, sessionsDir } = await start({ workspace });
-        roots.length = 0;
+    it('keeps each user’s chats in their own folder: another user finds nothing', async () => {
+        const { url, serverRoot } = await start();
         const thread = randomUUID();
-        const res = await call(`${url}/api/sessions/${thread}/runs`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
-        });
-        await res.text();
-        expect(roots).toContain(workspace);
-        expect(existsSync(join(sessionsDir, thread, 'workspace'))).toBe(false);
+        await turn(url, thread, ANN);
+        const theirs = (await (
+            await call(`${url}/api/sessions/${thread}`, { as: BOB })
+        ).json()) as {
+            events: unknown[];
+        };
+        expect(theirs.events).toEqual([]);
+        await turn(url, thread, BOB);
+        expect(existsSync(join(serverRoot, 'users', ANN, 'sessions', thread))).toBe(true);
+        expect(existsSync(join(serverRoot, 'users', BOB, 'sessions', thread))).toBe(true);
+        // Deleting Bob's thread leaves Ann's.
+        expect(
+            (await call(`${url}/api/sessions/${thread}`, { method: 'DELETE', as: BOB })).status,
+        ).toBe(204);
+        expect(existsSync(join(serverRoot, 'users', ANN, 'sessions', thread))).toBe(true);
     });
 
     it('keeps the debug routes off unless asked for', async () => {
@@ -263,62 +323,209 @@ describe('the server', () => {
     });
 
     it('reports itself', async () => {
-        const { url } = await start();
+        const { url, serverRoot } = await start();
         const status = (await (await call(`${url}/api/status`)).json()) as Record<string, unknown>;
         expect(status).toMatchObject({
-            project: { id: 'p1', dir: projectDir },
-            user: 'local',
+            project: { id: PROJECT, dir: projectDir },
+            auth: 'jwt',
             listen: expect.stringMatching(/^127\.0\.0\.1:\d+$/),
             debug: false,
             sandbox: { provider: 'fake', ok: true },
-            sessions: expect.stringContaining('sessions-'),
+            root: { dir: serverRoot, version: LAYOUT_VERSION, supported: LAYOUT_VERSION },
         });
+    });
+});
+
+describe('jwt', () => {
+    const get = async (url: string, token?: string) =>
+        (await fetch(url, token ? { headers: { authorization: `Bearer ${token}` } } : {})).status;
+
+    it('takes a token signed for this project and this very request, and nothing else', async () => {
+        const { url } = await start();
+        const target = `/api/sessions/${randomUUID()}`;
+        const req = `GET ${target}`;
+        expect(await get(`${url}/healthz`)).toBe(200);
+        expect(await get(`${url}${target}`)).toBe(401);
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req }))).toBe(200);
+        // Another key, project, request, issuer or audience; too old; no user; not signed.
+        const other = generateKeyPairSync('ed25519').privateKey;
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req }, other))).toBe(401);
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req, prj: 'p2' }))).toBe(403);
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req: 'GET /api/status' }))).toBe(
+            401,
+        );
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req, iss: 'evil' }))).toBe(401);
+        expect(await get(`${url}${target}`, signed({ sub: ANN, req, aud: 'other' }))).toBe(401);
+        const old = Math.floor(Date.now() / 1000) - 600;
+        expect(
+            await get(`${url}${target}`, signed({ sub: ANN, req, iat: old, exp: old + 60 })),
+        ).toBe(401);
+        expect(await get(`${url}${target}`, signed({ req }))).toBe(401);
+        expect(await get(`${url}${target}`, unsignedToken({ sub: ANN, req, prj: PROJECT }))).toBe(
+            401,
+        );
+    });
+
+    it('holds a token to its thread when it names one', async () => {
+        const { url } = await start();
+        const thread = randomUUID();
+        expect(
+            (await call(`${url}/api/sessions/${thread}`, { claims: { thr: thread } })).status,
+        ).toBe(200);
+        expect(
+            (await call(`${url}/api/sessions/${thread}`, { claims: { thr: randomUUID() } })).status,
+        ).toBe(403);
+    });
+
+    it('turns any user id into one safe folder', () => {
+        expect(userFolder('ann')).toBe('ann');
+        expect(userFolder(BOB.toUpperCase())).toBe(BOB);
+        for (const id of ['../x', 'a/b', '.hidden', 'x'.repeat(200), 'ann smith']) {
+            expect(userFolder(id)).toMatch(/^u-[0-9a-f]{32}$/);
+        }
+    });
+
+    it('refuses to start without the key its tokens are signed for', () => {
+        expect(() =>
+            createServer({
+                projectId: PROJECT,
+                projectDir,
+                root: mkdtempSync(join(root, 'nokey-')),
+                auth: { mode: 'jwt', publicKey: '', issuer: 'i', audience: 'a' },
+            }),
+        ).toThrow(/public key/);
+    });
+});
+
+describe('insecure', () => {
+    it('reads a token without checking it, and still wants a user', async () => {
+        const { url } = await start({ auth: { mode: 'insecure' } });
+        const target = `${url}/api/sessions/${randomUUID()}`;
+        const as = (token: string) =>
+            fetch(target, { headers: { authorization: `Bearer ${token}` } }).then((r) => r.status);
+        expect(await as(unsignedToken({ sub: 'carol' }))).toBe(200);
+        // Any signature, any key, any age, any request: only read.
+        const other = generateKeyPairSync('ed25519').privateKey;
+        expect(await as(signed({ sub: 'carol', req: 'GET /nowhere', exp: 1, iat: 0 }, other))).toBe(
+            200,
+        );
+        expect(await as(unsignedToken({ role: 'owner' }))).toBe(401);
+        expect(await as('not-a-token')).toBe(401);
+    });
+
+    it('listens on loopback only', async () => {
+        const server = createServer({
+            projectId: PROJECT,
+            projectDir,
+            root: mkdtempSync(join(root, 'insecure-')),
+            auth: { mode: 'insecure' },
+        });
+        await expect(server.listen({ port: 0, host: '0.0.0.0' })).rejects.toThrow(/loopback/);
+    });
+});
+
+describe('memory', () => {
+    const seedDir = join(root, 'seed');
+
+    async function seed(): Promise<void> {
+        const store = await MemoryStore.open(seedDir);
+        await store.commit();
+        store.release();
+        writeFileSync(join(seedDir, 'marker'), 'seed');
+    }
+
+    it('copies the seed once per user, the first time they need it, and never touches it', async () => {
+        await seed();
+        const { serverRoot } = await start({ memorySeed: seedDir });
+        // SQLite's write-ahead files appear on any open, a read-only one included.
+        const listing = () =>
+            readdirSync(seedDir)
+                .filter((n) => !/-(wal|shm)$/.test(n))
+                .sort();
+        const before = listing();
+        const [a1, a2] = await Promise.all([userMemory('ann'), userMemory('ann')]);
+        expect(a1).toBe(join(serverRoot, 'users', 'ann', 'memory'));
+        expect(a2).toBe(a1);
+        expect(isMemory(a1)).toBe(true);
+        expect(JSON.parse(readFileSync(join(a1, SEED_FILE), 'utf8'))).toMatchObject({
+            seed: seedDir,
+        });
+        const bob = await userMemory('bob');
+        expect(bob).not.toBe(a1);
+        expect(isMemory(bob)).toBe(true);
+        // Ann's graph is hers: a change to it is not Bob's, nor the seed's.
+        writeFileSync(join(a1, 'mine'), 'ann');
+        expect(existsSync(join(bob, 'mine'))).toBe(false);
+        expect(listing()).toEqual(before);
+        expect(readFileSync(join(seedDir, 'marker'), 'utf8')).toBe('seed');
+        expect(
+            readdirSync(join(serverRoot, 'users', 'ann')).filter((n) => n.includes('.copy-')),
+        ).toEqual([]);
+    });
+
+    it('leaves a user with nothing when there is no seed', async () => {
+        const { serverRoot } = await start({ memorySeed: null });
+        const dir = await userMemory('dan');
+        expect(dir).toBe(join(serverRoot, 'users', 'dan', 'memory'));
+        expect(existsSync(dir)).toBe(false);
+    });
+
+    it('refuses a seed in the old layout', async () => {
+        const old = mkdtempSync(join(root, 'old-seed-'));
+        writeFileSync(join(old, 'graph.json'), '{}');
+        await start({ memorySeed: old });
+        await expect(userMemory('eve')).rejects.toThrow(/version 1/);
+    });
+});
+
+describe('the root', () => {
+    it('is this project’s: another one, or a newer layout, is refused', () => {
+        const dir = mkdtempSync(join(root, 'layout-'));
+        expect(openLayout(dir, 'p', { create: false })).toBeUndefined();
+        expect(existsSync(join(dir, 'server.json'))).toBe(false);
+        const first = openLayout(dir, 'p')!;
+        expect(openLayout(dir, 'p')!.createdAt).toBe(first.createdAt);
+        expect(() => openLayout(dir, 'q')).toThrow(/project p/);
+        writeFileSync(
+            join(dir, 'server.json'),
+            JSON.stringify({ version: LAYOUT_VERSION + 1, projectId: 'p' }),
+        );
+        expect(() => openLayout(dir, 'p')).toThrow(/newer server/);
     });
 });
 
 const bwrap = await probeBwrap();
 
 describe.runIf(bwrap.ok)('with bwrap (Linux)', () => {
-    it('runs the model’s command under bwrap, with nothing of the server’s environment', async () => {
+    it('runs the model’s command under bwrap, seeing no one’s chats and no token', async () => {
         process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
-        process.env.ZEN_SERVER_TOKEN = TOKEN;
         try {
-            const { url, sessionsDir } = await start({
-                sandbox: 'bwrap',
-                sandboxProvider: 'bwrap',
-            });
+            const { url, serverRoot } = await start({ sandbox: 'bwrap', sandboxProvider: 'bwrap' });
             // Not under /tmp, which every command has its own of anyway.
             const visible = join(process.cwd(), `.zen-live-state-${randomUUID().slice(0, 8)}`);
             mkdirSync(visible);
-            writeFileSync(join(visible, 'state.json'), '{}');
+            writeFileSync(join(visible, 'server.json'), '{}');
             running!.server.settings.hidden.push(visible);
             const port = new URL(url).port;
             script =
                 'echo hello; env | grep -c ZEN_SERVER_LIVE_SECRET || true; ' +
-                `env | grep -q ${TOKEN} && echo TOKEN-SEEN; ` +
+                `test -e ${visible}/server.json && echo ROOT-SEEN; test -e ${serverRoot}/server.json && echo OWN-ROOT-SEEN; ` +
                 `node -e "fetch('http://127.0.0.1:${port}/api/activity').then(r => console.log('server says', r.status))"; ` +
-                `test -e ${visible}/state.json && echo STATE-SEEN; test -e ${sessionsDir} && echo OWN-STATE-SEEN; true`;
-            const res = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ messages: [{ role: 'user', content: 'go' }] }),
-            });
-            const text = (await events(res))
-                .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
-                .map((e) => (e as { delta: string }).delta)
-                .join('');
+                'python3 -c "import zenera; print(\'lib\', zenera.identity().id)" 2>&1 || true; ' +
+                "node -e \"console.log('nodelib', require('zenera').identity().id)\" 2>&1 || true";
+            const { evs } = await turn(url, randomUUID());
+            const text = textOf(evs);
             expect(text).toContain('hello');
-            expect(text).not.toContain('leaked');
             expect(text).toMatch(/hello\\n0/);
-            expect(text).not.toContain('STATE-SEEN');
-            expect(text).not.toContain('TOKEN-SEEN');
-            // The command reaches the port, and is refused: it has no token.
+            expect(text).not.toContain('ROOT-SEEN');
+            // The command reaches the port, and is refused: it can make no token.
             expect(text).toContain('server says 401');
+            // The one shared library, from /opt/zenera/runtime, answers for the caller.
+            expect(text).toContain(`nodelib ${ANN}`);
             rmSync(visible, { recursive: true, force: true });
         } finally {
             script = 'echo hello';
             delete process.env.ZEN_SERVER_LIVE_SECRET;
-            delete process.env.ZEN_SERVER_TOKEN;
         }
     });
 });
@@ -331,27 +538,21 @@ const podman = await runProcess('podman', ['info', '--format', '{{.Host.OS}}'], 
 );
 
 describe.runIf(podman)('with podman (as zen run)', () => {
-    it('runs the model’s command in a podman container, with nothing of the server’s environment', async () => {
+    it('runs the model’s command in a container, with the shared library and nothing of the server’s', async () => {
         process.env.ZEN_SERVER_LIVE_SECRET = 'leaked';
         try {
             const { url } = await start({ sandbox: 'podman', sandboxProvider: 'podman' });
             script =
-                'echo hello from $(cat /etc/hostname | cut -c1-4); env | grep -c ZEN_SERVER_LIVE_SECRET || true';
-            const res = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ messages: [{ role: 'user', content: 'go' }] }),
-            });
-            const evs = await events(res);
-            const text = evs
-                .filter((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)
-                .map((e) => (e as { delta: string }).delta)
-                .join('');
+                'echo hello from podman; env | grep -c ZEN_SERVER_LIVE_SECRET || true; ' +
+                'python3 -c "import zenera; print(\'lib\', zenera.identity().id)"';
+            const { evs } = await turn(url, randomUUID());
+            const text = textOf(evs);
             expect(
                 text,
                 JSON.stringify(evs.filter((e) => e.type === EventType.RUN_ERROR)),
-            ).toContain('hello from');
-            expect(text).toMatch(/\\n0/);
+            ).toContain('hello from podman');
+            expect(text).toMatch(/podman\\n0/);
+            expect(text).toContain(`lib ${ANN}`);
         } finally {
             script = 'echo hello';
             delete process.env.ZEN_SERVER_LIVE_SECRET;
@@ -359,59 +560,12 @@ describe.runIf(podman)('with podman (as zen run)', () => {
     }, 600_000);
 });
 
-describe('its token', () => {
-    it('is wanted on every route but /healthz, and only that one', async () => {
-        const { url } = await start();
-        expect((await fetch(`${url}/healthz`)).status).toBe(200);
-        for (const path of ['/api/status', '/api/activity', `/api/sessions/${randomUUID()}`]) {
-            expect((await fetch(`${url}${path}`)).status).toBe(401);
-            const wrong = await fetch(`${url}${path}`, {
-                headers: { authorization: `Bearer ${TOKEN}x` },
-            });
-            expect(wrong.status).toBe(401);
-            expect((await call(`${url}${path}`)).status).toBe(200);
-        }
-    });
-
-    it('is refused when short, and so is a user that is not one', () => {
-        const base = { projectId: 'p1', projectDir, sessionsDir: root, user: { id: 'local' } };
-        expect(() => createServer({ ...base, token: 'short' })).toThrow(/at least 32/);
-        expect(() => createServer({ ...base, token: TOKEN, user: { id: '../x' } })).toThrow(
-            /not a user id/,
-        );
-    });
-
-    it('is made once per project and user, owner-only, unless the environment gives one', () => {
-        const file = tokenFile('p/../1', `u-${randomUUID().slice(0, 8)}`);
-        expect(file.startsWith(join(process.env.ZENERA_HOME!, 'servers', 'p_.._1'))).toBe(true);
-        expect(serverToken(file, { env: {} })).toBeUndefined();
-        const made = serverToken(file, { create: true, env: {} })!;
-        expect(made.token.length).toBeGreaterThanOrEqual(MIN_TOKEN_LENGTH);
-        expect(made.from).toBe(file);
-        expect(statSync(made.from).mode & 0o777).toBe(0o600);
-        expect(serverToken(file, { create: true, env: {} })).toEqual(made);
-        expect(serverToken(file, { env: { ZEN_SERVER_TOKEN: 'given' } })).toEqual({
-            token: 'given',
-            from: 'env',
-        });
-    });
-});
-
 describe('stopping', () => {
     it('refuses new runs once the server is stopping, and a new server takes them again', async () => {
-        const post = (url: string) =>
-            call(`${url}/api/sessions/${randomUUID()}/runs`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
-            });
         const first = await start();
         await stopAllRuns(10); // what stop() does before the listener is gone
-        const refused = await post(first.url);
-        expect(refused.status).toBe(503);
+        expect((await turn(first.url, randomUUID())).status).toBe(503);
         const again = await start();
-        const res = await post(again.url);
-        expect(res.status).toBe(200);
-        await res.text();
+        expect((await turn(again.url, randomUUID())).status).toBe(200);
     });
 });

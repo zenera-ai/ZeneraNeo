@@ -54,7 +54,9 @@ by name, across copies of this package).
   uts namespaces, on a read-only view of the image, with the session's
   directories bound in and the server's own paths (`/state`, `/run/secrets`)
   hidden. bwrap is started with exactly the command's environment, never this
-  process's. `/proc` is the command's own where the container lets one be
+  process's: the image's `ENV` (`/opt/zenera/etc/image-env.json`, written when
+  the agent image is built; else `PATH`, `LANG`, `LC_*`, `TZ`) plus the run's.
+  `/proc` is the command's own where the container lets one be
   mounted, else the container's bound read-only (`probeBwrap()` says which, or
   why bwrap cannot isolate anything; nothing falls back to running unisolated).
   `prepare()` builds nothing: it checks that the container was built from the

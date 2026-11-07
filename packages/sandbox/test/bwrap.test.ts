@@ -204,6 +204,37 @@ describe('BwrapSandbox', () => {
         await box.close();
     });
 
+    it('starts a command from the image’s own environment, not this process’s', async () => {
+        const { calls, run } = recorder();
+        const box = new BwrapSandbox(
+            {
+                root: dir,
+                key: 't',
+                env: { HOME: '/home/agent' },
+                execPaths: { PYTHONPATH: ['/opt/zenera/runtime/python'] },
+            },
+            {
+                bwrap: fakeBwrap(),
+                exec: run,
+                image: false,
+                env: { PATH: '/host/bin', SERVER_SECRET: 'no', JAVA_HOME: '/host/java' },
+                imageEnv: {
+                    PATH: '/opt/venv/bin:/usr/bin',
+                    PYTHONPATH: '/opt/lib',
+                    JAVA_HOME: '/opt/java',
+                },
+            },
+        );
+        await box.exec('true');
+        expect(calls.at(-1)!.opts?.env).toEqual({
+            PATH: '/opt/venv/bin:/usr/bin',
+            JAVA_HOME: '/opt/java',
+            HOME: '/home/agent',
+            PYTHONPATH: '/opt/zenera/runtime/python:/opt/lib',
+        });
+        await box.close();
+    });
+
     it('hides /state and /run/secrets whatever else a host hides, and covers /dev/shm', async () => {
         const { calls, run } = recorder();
         const box = new BwrapSandbox(

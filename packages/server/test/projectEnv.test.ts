@@ -8,11 +8,10 @@ const projectDir = mkdtempSync(join(tmpdir(), 'zen-project-env-'));
 const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
-    token: 'x'.repeat(32),
     projectId: 'p',
-    user: { id: 'u' },
+    auth: { mode: 'insecure' as const },
     projectDir,
-    sessionsDir: projectDir,
+    root: projectDir,
 });
 // Set before the module loads, so it counts as the pod's own.
 process.env.ZEN_POD_ONLY = 'pod';

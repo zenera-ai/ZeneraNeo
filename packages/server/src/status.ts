@@ -1,7 +1,8 @@
 // What the server can say about itself without being asked anything: `/api/status`, and the
 // checks `zen server start` makes before it listens (`zen server check` prints them).
-//   serverStatus  - versions, sandbox, image identity, where sessions and memory are
-//   startupErrors - the reasons not to start: nowhere to run commands, the wrong image
+//   serverStatus  - versions, auth, sandbox, image identity, where users' things and the seed are
+//   startupErrors - the reasons not to start: nowhere to run commands, the wrong image, a root
+//                   that is not this server's
 import { resolveBuild } from '@zenera/engine';
 import { readProjectConfig } from '@zenera/neo';
 import {
@@ -14,14 +15,16 @@ import {
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { settings, type ServerSettings } from './config.ts';
-import { memoryDir } from './store.ts';
+import { LAYOUT_VERSION, openLayout } from './layout.ts';
+import { memorySeed } from './store.ts';
 
 export interface ServerStatus {
     server: string;
     zen: { engine?: string; neo?: string; sandbox?: string };
     node: string;
     project: { id: string; dir: string };
-    user: string;
+    /** jwt: the host's signed tokens; insecure: read, not checked */
+    auth: ServerSettings['auth']['mode'];
     /** where it listens, host:port; unset before it does */
     listen?: string;
     debug: boolean;
@@ -43,12 +46,10 @@ export interface ServerStatus {
         matches?: boolean;
         error?: string;
     };
-    /** where the chats are kept, as `zen run` keeps its sessions */
-    sessions: string;
-    /** the graph runs remember into, when the project has one */
-    memory?: string;
-    /** one workspace for every chat; absent, each session has its own */
-    workspace?: string;
+    /** where every user's things are: users/<user>/{sessions,memory} */
+    root: { dir: string; version?: number; supported: number; error?: string };
+    /** what each user's memory starts as, when there is anything */
+    memorySeed?: string;
 }
 
 const require = createRequire(import.meta.url);
@@ -124,6 +125,13 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         image.error = err instanceof Error ? err.message : String(err);
     }
 
+    const root: ServerStatus['root'] = { dir: s.root, supported: LAYOUT_VERSION };
+    try {
+        root.version = openLayout(s.root, s.projectId, { create: false })?.version;
+    } catch (err) {
+        root.error = err instanceof Error ? err.message : String(err);
+    }
+
     return {
         server: versionOf('@zenera/server') ?? 'unknown',
         zen: {
@@ -133,14 +141,13 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         },
         node: process.versions.node,
         project: { id: s.projectId, dir: s.projectDir },
-        user: s.user.id,
+        auth: s.auth.mode,
         ...(listening ? { listen: listening } : {}),
         debug: s.debug,
         sandbox,
         image,
-        sessions: s.sessionsDir,
-        ...(memoryDir() ? { memory: memoryDir() } : {}),
-        ...(s.workspace ? { workspace: s.workspace } : {}),
+        root,
+        ...(memorySeed() ? { memorySeed: memorySeed() } : {}),
     };
 }
 
@@ -154,6 +161,7 @@ export function startupErrors(status: ServerStatus): string[] {
         );
     }
     if (status.image.error) errors.push(`the project cannot be read: ${status.image.error}`);
+    if (status.root.error) errors.push(status.root.error);
     if (status.image.matches === false) {
         errors.push(
             `the image was built for another project environment: ${status.image.build ?? status.image.base}, ` +

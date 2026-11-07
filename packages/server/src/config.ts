@@ -2,44 +2,39 @@
 // One server per process — the agent image's — so they are module state rather than
 // threaded through every router; `configure` replaces them whole.
 //
-// Who the server is for is its host's to say (`user`), never a request's. A request only proves
-// it may reach the server at all, with the one bearer `token` the host gave it: a secret that
-// names nobody. Logging people in, and deciding who may use which server, stays in front of it
-// (zenera-app, a ZeneraSrv proxy), so that can change without the server.
+// The server serves every user its host vouches for, each in a folder of their own:
+//   <root>/users/<user>/sessions/<thread>/   one zen session per chat thread
+//   <root>/users/<user>/memory/              the user's graph, copied from the seed on first use
+// Who a request is for is the `sub` of a JWT the host signs for that one request (auth.ts); the
+// server holds only the public key. `insecure` reads the token without checking its signature,
+// for trying a server on this machine.
 import type { SandboxSetup, ZenPlugin } from '@zenera/engine';
 import { ZENERA_BWRAP, type SandboxFactory } from '@zenera/sandbox';
 import { existsSync } from 'node:fs';
 
-/** Who the server is for: what the agent's `current_user` answers, and its commands see as ZEN_USER_*. */
-export interface ServerUser {
-    /** a path segment: letters, digits, `.`, `_`, `@`, `-` */
-    id: string;
-    email?: string;
-    role?: 'owner' | 'editor' | 'viewer' | 'admin';
-}
+export type ServerAuth =
+    /** EdDSA tokens signed per request by the host (zenera-app), checked with its public key */
+    | { mode: 'jwt'; publicKey: string; issuer: string; audience: string }
+    /** the same tokens, their signature, issuer, audience, age and binding not checked */
+    | { mode: 'insecure' };
 
 export interface ServerSettings {
     /** the project the agents come from; read-only to the server */
     projectDir: string;
     projectId: string;
+    /** everything the server writes: `<root>/users/<user>/{sessions,memory}`, `<root>/server.json` */
+    root: string;
     /**
-     * Where each chat thread's session lives, `<sessions>/<thread id>/`, as `zen run` keeps its
-     * own: the session's state, its run records, its AG-UI log, and its workspace unless
-     * `workspace` names one. `zen run`'s own default: `<project>/sessions`.
+     * The graph each user's memory starts as, copied the first time they need one. Unset: the
+     * project's own (`memory:` in agents.yaml); `null`: none, every user starts empty.
      */
-    sessionsDir: string;
-    /** the graph every run remembers into; unset, the project's own, as `zen run` has it */
-    memoryDir?: string;
-    /** one directory every chat reads and writes; unset, each session's own, as `zen run` has it */
-    workspace?: string;
-    user: ServerUser;
-    /** the bearer token every request but /healthz must carry; at least 32 characters */
-    token: string;
+    memorySeed?: string | null;
+    auth: ServerAuth;
     /** the Test tab's routes: recorded runs, traces, the memory graph */
     debug: boolean;
     /**
      * Where commands run: `'podman'` as `zen run` has it, a container per session on this
-     * machine; `'bwrap'` in the agent image, with `hidden` and the state directory kept from
+     * machine; `'bwrap'` in the agent image, with `hidden`, the root and the seed kept from
      * them; or a factory. `defaultSandbox()` picks between the first two.
      */
     sandbox: 'bwrap' | 'podman' | SandboxFactory;
@@ -50,11 +45,13 @@ export interface ServerSettings {
      * (`imageReady`) — the agent image's, or one built ahead of time.
      */
     preflight?: (setup: SandboxSetup) => Promise<void>;
-    /** more paths bwrap commands never see (the sessions, the memory and the zen home always) */
+    /** more paths bwrap commands never see (the root, the seed, the zen home and the project always) */
     hidden: string[];
     /** this run's own plugins (the MCP tools for its user), given the token its caller sent */
     plugins: (run: { mcpToken: string | null }) => Promise<ZenPlugin[]>;
     maxRuns: number;
+    /** how many runs one user may have going at once */
+    maxUserRuns: number;
     maxRunMinutes: number;
     runLogMaxBytes: number;
 }
@@ -67,14 +64,23 @@ export function defaultSandbox(): 'bwrap' | 'podman' {
     return existsSync(ZENERA_BWRAP) ? 'bwrap' : 'podman';
 }
 
+/** Inside the agent image: where `--insecure` is refused unless the host that runs it says so. */
+export function inAgentImage(): boolean {
+    return existsSync(ZENERA_BWRAP);
+}
+
 export const SANDBOX_PROVIDERS = {
     bwrap: 'bwrap (this container)',
     podman: 'podman (this machine)',
 } as const;
 
+/** What zenera-app's tokens say today. */
+export const DEFAULT_ISSUER = 'zenera-app';
+export const DEFAULT_AUDIENCE = 'zenera-runtime';
+
 const sandbox = defaultSandbox();
 
-export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token' | 'sessionsDir'> = {
+export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'auth' | 'root'> = {
     projectDir: '/project',
     debug: false,
     sandbox,
@@ -82,6 +88,7 @@ export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'user' | 'token' | 'se
     hidden: [],
     plugins: async () => [],
     maxRuns: 4,
+    maxUserRuns: 2,
     maxRunMinutes: 120,
     runLogMaxBytes: 50 * 1024 * 1024,
 };

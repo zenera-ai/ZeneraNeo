@@ -286,7 +286,7 @@ async function execute(
     try {
         engine = await openEngineFor(
             store.sessionFor(t),
-            memory ? store.engineMemoryDir(t) : undefined,
+            memory ? await store.engineMemoryDir(t) : undefined,
             user,
             mcpToken,
         );
@@ -415,7 +415,7 @@ export function runsRouter(store: ChatStore): Router {
         // The caller's token for this run's MCP tools (zenera-app's broker, mcp/broker.ts there);
         // whatever stands in front of the server decides who may send one.
         const mcpToken = req.get('x-zenera-mcp-token') || null;
-        run.done = execute(store, t, run, turn, memory, runUser(), mcpToken);
+        run.done = execute(store, t, run, turn, memory, runUser(req), mcpToken);
         follow(res, run.log);
     });
 

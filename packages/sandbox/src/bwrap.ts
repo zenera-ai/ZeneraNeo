@@ -58,6 +58,12 @@ import {
 /** Where the agent image keeps its bwrap: a static build, so any base runs it. */
 export const ZENERA_BWRAP = '/opt/zenera/bin/bwrap';
 
+/**
+ * The project image's own environment (its Dockerfile's `ENV` lines), written by the agent
+ * image's build as a JSON object: what a command gets to start from, as it would in that image.
+ */
+export const IMAGE_ENV_FILE = '/opt/zenera/etc/image-env.json';
+
 /** Set by `zen image build`: what the image was built from. */
 export const IMAGE_BUILD_ENV = 'ZEN_IMAGE_BUILD';
 export const IMAGE_BASE_ENV = 'ZEN_IMAGE_BASE';
@@ -116,6 +122,11 @@ export interface BwrapHost {
      * `false`: no check — the container is whatever its host made it.
      */
     image?: false | { build?: string; base?: string };
+    /**
+     * What a command's environment starts from: the image's own `ENV` (IMAGE_ENV_FILE, when the
+     * container has it), else PATH, LANG, LC_* and TZ of this process. Never the rest of it.
+     */
+    imageEnv?: Record<string, string>;
     /** how processes are spawned — the seam tests replace */
     exec?: Runner;
     /** the host's filesystem as the root is built from it — the seam tests replace */
@@ -480,11 +491,16 @@ export class BwrapSandbox implements Sandbox {
      */
     #env(): NodeJS.ProcessEnv {
         const host = this.#host.env ?? process.env;
+        const image = this.#host.imageEnv ?? imageEnv();
         const env: Record<string, string> = {};
-        for (const name of BASE_ENV) {
-            const value = host[name];
-            if (value !== undefined) {
-                env[name] = value;
+        if (image) {
+            Object.assign(env, image);
+        } else {
+            for (const name of BASE_ENV) {
+                const value = host[name];
+                if (value !== undefined) {
+                    env[name] = value;
+                }
             }
         }
         env.PATH ??= DEFAULT_PATH;
@@ -704,7 +720,18 @@ export function probeBwrap(bwrap?: string, run: Runner = runProcess): Promise<Bw
 }
 
 async function probeOnce(bwrap: string, run: Runner): Promise<BwrapProbe> {
-    const base = ['--ro-bind', '/', '/', '--dev-bind', '/dev', '/dev', '--unshare-pid'];
+    // `--unshare-user` as every command has it: without it bwrap run by root (a container's root)
+    // takes itself for privileged and fails where an unprivileged namespace would do.
+    const base = [
+        '--unshare-user',
+        '--ro-bind',
+        '/',
+        '/',
+        '--dev-bind',
+        '/dev',
+        '/dev',
+        '--unshare-pid',
+    ];
     const attempt = async (proc: string[]): Promise<ProcResult | Error> => {
         try {
             return await run(bwrap, [...base, ...proc, '--', '/bin/sh', '-c', 'exit 0'], {
@@ -792,6 +819,30 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 
 function exitOfSignal(signal: NodeJS.Signals | null): number {
     return signal ? 128 + (constants.signals[signal] ?? 0) : 1;
+}
+
+let imageEnvRead: { env?: Record<string, string> } | undefined;
+
+/** The image's own environment, from IMAGE_ENV_FILE; read once. Only string values count. */
+function imageEnv(): Record<string, string> | undefined {
+    if (!imageEnvRead) {
+        imageEnvRead = {};
+        try {
+            const parsed = JSON.parse(readFileSync(IMAGE_ENV_FILE, 'utf8')) as Record<
+                string,
+                unknown
+            >;
+            imageEnvRead.env = Object.fromEntries(
+                Object.entries(parsed).filter(
+                    (e): e is [string, string] =>
+                        typeof e[1] === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(e[0]),
+                ),
+            );
+        } catch {
+            // not the agent image
+        }
+    }
+    return imageEnvRead.env;
 }
 
 function cgroupNumber(file: string): number | undefined {

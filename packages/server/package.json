@@ -1,7 +1,7 @@
 {
     "name": "@zenera/server",
     "version": "1.1.59",
-    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. One bearer token guards it; who may use it is decided in front of it.",
+    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. Every user its host vouches for with a signed JWT, each in a folder of their own.",
     "keywords": [
         "agents",
         "ai-agents",
@@ -48,7 +48,8 @@
         "@zenera/engine": "^1.1.59",
         "@zenera/neo": "^1.1.59",
         "@zenera/sandbox": "^1.1.59",
-        "express": "^5.3.0"
+        "express": "^5.3.0",
+        "jose": "^6.2.13"
     },
     "devDependencies": {
         "@types/express": "^5.0.6"

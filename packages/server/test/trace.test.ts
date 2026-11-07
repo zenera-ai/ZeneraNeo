@@ -10,12 +10,12 @@ import express from 'express';
 
 const root = mkdtempSync(join(tmpdir(), 'trace-'));
 const { configure, DEFAULTS } = await import('../src/config.ts');
+const user = '00000000-0000-0000-0000-000000000001';
 configure({
     ...DEFAULTS,
-    token: 'x'.repeat(32),
     projectId: 'project',
-    user: { id: '00000000-0000-0000-0000-000000000001' },
-    sessionsDir: root,
+    auth: { mode: 'insecure' as const },
+    root,
 });
 const { errorHandler } = await import('../src/http.ts');
 const { traceRouter, MAX_PART_CHARS } = await import('../src/trace.ts');
@@ -24,7 +24,7 @@ const { startRecord, saveRecord } = await import('../src/runRecords.ts');
 
 const thread = '00000000-0000-0000-0000-000000000002';
 const otherThread = '00000000-0000-0000-0000-000000000003';
-const sessionDir = join(root, thread);
+const sessionDir = join(root, 'users', user, 'sessions', thread);
 const dir = join(sessionDir, 'agui');
 const session = createSessionAt(sessionDir, join(sessionDir, 'workspace'));
 const blobs = new FilePayloadStore({ dir: session.blobs, id: 'file' });
@@ -154,6 +154,11 @@ recordRun('corrupt', '20261027-120000-dead', 0);
 writeFileSync(runPaths(session, '20261027-120000-dead').state, '{"not":"a state"}');
 
 const app = express();
+// As requireCaller leaves a verified caller: the user these traces are for.
+app.use((_req, res, next) => {
+    res.locals.caller = { sub: user };
+    next();
+});
 app.use('/api/sessions', traceRouter(privateStore));
 app.use(errorHandler);
 const server = app.listen(0, '127.0.0.1');

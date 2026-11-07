@@ -1,27 +1,27 @@
 # ZeneraNeo: agent image, bwrap sandbox, server
 
-Status: in progress, 2026-11-06 — N1, N4, N5 done. Part of the ZeneraLite plan `doc/agent-image-plan.md`
-(ZeneraLite branch `agent_image`).
+Status: in progress, 2026-11-07 — N1, N2, N4, N5 done; `zen server start --container` is a local
+N7 + N8. Part of the ZeneraLite plan `doc/agent-image-plan.md` (ZeneraLite branch `agent_image`).
 
 ## Goal
 
-One image per project that serves one user's chats and runs agents' commands under bwrap:
+One image per project that serves **every user's** chats with it, each user in a folder of their own,
+and runs agents' commands under bwrap:
 
 ```
 prj-<id>/agent:<tag>
-├ <project's sandbox/Dockerfile environment>        root filesystem, glibc
-├ /opt/zenera/   node, @zenera/*, server, bwrap      COPY --link from zenera/runtime:<zen>
+├ <project's sandbox/Dockerfile environment>        root filesystem, glibc, its ENV
+├ /opt/zenera/   node, @zenera/*, bwrap, runtime/    the zenera library under runtime/
 ├ /project/      agents.yaml, prompts, assets, skills (release: baked; draft: bind-mounted ro)
-├ /state/        sessions/, memory/                                the only writable mount
-└ CMD /opt/zenera/bin/zen server start   :3000, bwrap for every command
+├ /state/        server.json, users/<user>/{sessions,memory}     the only writable mount
+└ zen server start   :3000, a JWT per request, bwrap for every command
 ```
 
-Unchanged: `zen run` / `zen check` / every CLI command — podman only (desktop, editor/vscode); the
-`Sandbox` contract, `describeSandbox` / `describeFsDriver`, session layout, the plugin seam.
+Unchanged: `zen run` / `zen check` / every other CLI command — podman only (desktop, editor/vscode);
+the `Sandbox` contract, `describeSandbox` / `describeFsDriver`, the session layout, the plugin seam.
 
-bwrap is used only by the server inside the agent image: `@zenera/server` passes
-`openEngine({ newSandbox: bwrapSandbox })`, a seam that already exists. No environment variable,
-CLI flag or provider order changes; there is no "no isolation" mode.
+bwrap is used only by the server, and only inside the agent image (it ships `/opt/zenera/bin/bwrap`);
+`zen server` anywhere else uses podman as `zen run`. There is no "no isolation" mode.
 
 ## Work items
 
@@ -33,8 +33,8 @@ CLI flag or provider order changes; there is no "no isolation" mode.
 - Every command: `/bin/sh -c '<oom_score_adj 1000>; exec bwrap …' -- /bin/sh -s` (script on stdin);
   a job: the same, detached in its own process group, `/bin/sh <script>` bound read-only into its `/tmp`,
   output to a log outside the command's view. Jobs end with the sandbox (and with the server).
-- bwrap is started with exactly the command's environment: base (`PATH`, `LANG`, `LC_*`, `TZ`) +
-  `env` + named `secrets` + `execEnv` + `execPaths`. Never `--clearenv`: bwrap's own process is
+- bwrap is started with exactly the command's environment: base (the image's `ENV`, else `PATH`, `LANG`,
+  `LC_*`, `TZ`) + `env` + named `secrets` + `execEnv` + `execPaths`. Never `--clearenv`: bwrap's own process is
   `/proc/1` in the sandbox and its environment is readable there.
 - Namespaces: `--unshare-user --unshare-pid --unshare-ipc --unshare-uts`, `--die-with-parent --new-session`;
   `network: none` → `--unshare-net`; `strict` → `--cap-drop ALL`, 64 MiB `/tmp`; numeric `user` → `--uid/--gid`.
@@ -61,75 +61,98 @@ Verified (27/27): podman 6.1 rootless with SELinux (bind), podman `unmask=ALL`+`
 Docker Desktop 27.5 default (bind) and `systempaths=unconfined` (fresh), Docker Desktop Kubernetes
 1.31 default pod (bind); with Debian's bwrap and with the static recipe's. Not yet: GKE Sandbox (gVisor).
 
-### N2. Engine: nothing to select
+### N2. Engine: one shared `zenera` library — done
 
-- No `ZEN_SANDBOX`, no `--sandbox` flag: the server passes `newSandbox: bwrapSandbox` and
-  `provider: 'bwrap (this container)'` to `openEngine`; podman stays the default for everything else.
-- `prepareHome` / `installRuntime` unchanged (HOME per session, `zenera` libs inside it).
-- The CLI's podman preflight is never reached by the server (it passes its own `preflight`).
+- The `zenera` library (Python and Node: `identity()`, `require_identity()`) is one read-only
+  directory mounted at `/opt/zenera/runtime` (`python/zenera`, `node/zenera`; `PYTHONPATH`,
+  `NODE_PATH`) in every sandbox, instead of a copy in each session's home.
+- `runtimeDir()`: `/opt/zenera/runtime` in the agent image, else `<zen home>/runtime/<content hash>`,
+  written once (tmp + rename). Its mount (`source.kind: 'runtime'`) is part of the podman container's
+  name hash, so containers are made again when it changes.
+- `prepareHome` only makes the home; the user comes from `ZEN_USER_*` in the command's env.
+- No `ZEN_SANDBOX`, no engine flag: the server passes its sandbox to `openEngine`.
+
+`BwrapSandbox` also starts each command from the image's `ENV` (`/opt/zenera/etc/image-env.json`,
+written at build from the sandbox image), so `PYTHONPATH`, `PATH`, `VIRTUAL_ENV`… set by the project's
+Dockerfile hold under bwrap; without the file, `PATH`/`LANG`/`LC_*`/`TZ` as before. Its probe passes
+`--unshare-user`, so bwrap started as the container's root still makes a user namespace.
 
 ### N3. (dropped — the CLI keeps podman only)
 
-### N4. `@zenera/server` — done
+### N4. `@zenera/server` — done (multi-user)
 
-`packages/server`: ZeneraLite's runtime (`services/zenera-project/src`: runtime, sessions →
-`store.ts`, runs, history, agui, runLog, runRecords, projectEnv, http, trace, memory) with its
-tests, made a package for **one user** behind **one token**. See its README.
+`packages/server`: ZeneraLite's runtime (`services/zenera-project/src`) made a package. See its README.
 
-- `createServer({ projectId, user: { id, email?, role? }, token, projectDir, sessionsDir,
-memoryDir?, workspace?, debug, sandbox, hidden, plugins, limits… })`;
-  `listen({ port, host = '127.0.0.1' })`.
-- Identity is the host's: the user from settings (`ZEN_USER_*`), the thread from the URL (one safe
-  path segment). Nothing of a request says who it is for.
-- Auth is one bearer token (≥ 32 chars) on every route but `/healthz`, compared in constant time.
-  It names nobody; login and who-may-use-which-server stay in front (zenera-app, a proxy).
-  Sandboxed commands can reach the port but see no token (not in their env, state dir hidden).
-- Sessions, workspace, memory as `zen run`: a thread is a session at `<sessions>/<tid>/` (its
-  `.data/`, `runs/`, `workspace/`, plus `agui/` for the AG-UI log); `workspace` gives every chat
-  one directory; memory is the project's unless `memoryDir`. No state directory of its own.
-- bwrap hides the sessions dir, the memory dir and the zen home from commands (their own
-  workspace and home are bound back in).
-- Sandbox: `defaultSandbox()` — bwrap inside the agent image (it ships `/opt/zenera/bin/bwrap`),
-  podman anywhere else, as `zen run`; or `'bwrap'`/`'podman'`/a factory. Plugins never replace it.
-- `GET /api/status` (includes where it listens); debug routes only with `debug`.
-- Per-run plugins: `envRunPlugins()` (the MCP plugin in `ZEN_PLUGINS` + `ZEN_MCP_BROKER_URL`,
-  given the run's `x-zenera-mcp-token`).
+- `createServer({ projectId, projectDir, root, auth, memorySeed?, debug, sandbox, hidden, plugins,
+limits… })`; `listen({ port, host = '127.0.0.1' })`.
+- **Auth** (`auth.ts`): `Authorization: Bearer <jwt>` on every route but `/healthz`, signed per request
+  by zenera-app (EdDSA). The server has only the public key. Checked: `iss` (`zenera-app`), `aud`
+  (`zenera-runtime`), age ≤ 2 min (30 s skew), `prj` = this project, `req` = `"<METHOD> <url>"` of
+  this request; `sub` names the user, `thr` (if any) must be the URL's thread, `role`/`email`/`name`
+  go to the run. `insecure` mode reads the token without checking it (`sub` still required),
+  loopback only, refused in the image unless `ZEN_SERVER_INSECURE_LOCAL=1`.
+- **Root** (`layout.ts`, `store.ts`): `<root>/server.json` `{version: 1, projectId}` (another
+  project's root or a newer layout is refused); `<root>/users/<user>/sessions/<thread>/` is a
+  `zen run` session (`.data/`, `runs/`, `workspace/`, plus `agui/`); `<user>` is `sub` when a safe
+  segment, else `u-<sha256>`.
+- **Memory**: `<root>/users/<user>/memory/`, copied from the seed (the project's memory,
+  `memorySeed`, or none) the first time the user needs one — single-flight, tmp + rename, `seed.json`
+  recorded — then shared by that user's chats only.
+- bwrap hides the root, the seed, the zen home, the project and (in the image) `/opt/zenera/app` from
+  commands; their workspace and home are bound back in.
+- Limits: `maxRuns` overall, `maxUserRuns` per user.
+- Sandbox: `defaultSandbox()` — bwrap inside the agent image, podman anywhere else; or a factory.
+- `GET /api/status`: versions, auth mode, sandbox, image identity, root (`dir`, `version`, error),
+  memory seed. Debug routes only with `debug`.
+- Per-run plugins: `envRunPlugins()` (the MCP plugin, given the run's `x-zenera-mcp-token`).
 - Shutdown: the listener closes, new runs get 503, running ones end as interrupted (they save).
 
 ### N5. `zen server` — done
 
 ```
-zen server start  [--port 3000] [--host 127.0.0.1] [--project <name|dir>] [--user <id>]
-                  [--sessions <dir>] [--workspace <dir> | --here] [--memory <dir>]
-                  [--debug] [--sandbox podman|bwrap]
-zen server check  (same options)        # podman/bwrap, image identity; exit 5 when not ready
-zen server status [--port …] [--host …] [--project …] [--user …]   # a running server's report
+zen server start  [--port 3000] [--host 127.0.0.1] [--project <name|dir>] [--root <dir>]
+                  [--memory-seed <dir> | --no-memory-seed]
+                  [--jwt-public-key <file>] [--jwt-issuer …] [--jwt-audience …] | [--insecure]
+                  [--container [--rebuild]] [--debug] [--sandbox podman|bwrap]
+zen server check  (same options)        # sandbox, image identity, root; exit 5 when not ready
+zen server status [--port …] [--host …] [--token <jwt>]   # a running server's report
+zen server token  --user <id> [--email …] [--role …] [--name …] [--thread …]   # for --insecure
 ```
 
-- Project: `--project` (name or dir), else `$PROJECT_DIR`, else the one you are in, as `zen run`
-  (`/project` in the agent image). Sessions: `--sessions`/`$ZEN_SESSIONS_DIR`, else
-  `<project>/sessions` (`/state/sessions` in the image). Memory: `--memory`/`$ZEN_MEMORY_DIR`, else
-  the project's (`/state/memory` in the image). Workspace: `--workspace`/`--here`, else per session.
-- Env defaults: `PROJECT_DIR`, `ZEN_SESSIONS_DIR`, `ZEN_MEMORY_DIR`, `ZEN_WORKSPACE_DIR`, `ZEN_USER_ID` (required), `ZEN_USER_EMAIL`,
-  `ZEN_USER_ROLE`, `ZEN_PROJECT_ID` (else the project dir's name), `ZEN_SERVER_PORT`,
-  `ZEN_SERVER_HOST`, `ZEN_SERVER_DEBUG`, `ZEN_RUNTIME_MAX_*`.
-- Sandbox: `--sandbox`, else `$ZEN_SERVER_SANDBOX`, else bwrap in the agent image and podman
-  elsewhere. With podman, `start` readies it as `zen run` does (machine started, no prompt) and a
-  turn pulls or builds its image (`zen run`'s preflight); `check` only asks podman.
-- Keys: the keyring (`zen key …`) and the environment, as `zen run`; in the image, the environment.
-- Token: `ZEN_SERVER_TOKEN`, else `<zen home>/servers/<project>/<user>.token` (made on first
-  start, 0600); `status` reads the same. A non-loopback host starts with a warning. Keys from env; no keyring.
-- The image's entrypoint: `CMD ["/opt/zenera/bin/zen", "server", "start"]` with
-  `ZEN_SERVER_HOST=0.0.0.0`.
-- `@zenera/server` is a dependency of the CLI, imported only by `zen server`.
-- `BwrapSandbox.prepare()` checks the image identity only when the container states one.
+- Project: `--project`, else `$PROJECT_DIR`, else the one you are in, as `zen run` (`/project` in
+  the image). Root: `--root`/`$ZEN_SERVER_ROOT`, else `~/.zenera/neo/servers/<project>` (`/state`
+  in the image).
+- Auth: `--jwt-public-key <file>` or `$ZEN_SERVER_JWT_PUBLIC_KEY` (the PEM), else it refuses to start
+  and suggests `--insecure`. `status` sends an unsigned token unless `--token`.
+- Env: `PROJECT_DIR`, `ZEN_PROJECT_ID`, `ZEN_SERVER_{PORT,HOST,ROOT,DEBUG,SANDBOX}`,
+  `ZEN_SERVER_JWT_{PUBLIC_KEY,ISSUER,AUDIENCE}`, `ZEN_RUNTIME_MAX_{RUNS,USER_RUNS,RUN_MINUTES}`.
+- Sandbox: bwrap in the agent image, podman elsewhere (readied as `zen run` does).
+- Keys: the keyring and the environment, as `zen run`; in the image, the environment.
+- **`--container`** (`cli/src/container.ts`), optional — plain `start` is unchanged:
+    1. ready the project's sandbox image as `zen run` does; read its `Env`;
+    2. `npm pack` this zen's `@zenera/{sandbox,neo,view,engine,server,cli}` from where they are
+       installed (no npm release needed), `npm install` them in a `node:24-trixie-slim` stage into
+       `/opt/zenera/app` (`overrides` point at the tarballs), copy its `node` to `/opt/zenera/bin`;
+    3. a static bwrap stage (Alpine, musl, `-static`);
+    4. final stage `FROM` the sandbox image: `/opt/zenera`, bwrap, `runtime/`, `etc/image-env.json`,
+       `ZEN_IMAGE_BUILD`/`BASE`, entrypoint `zen server start`; tag `localhost/zenera-agent:<hash>`
+       (rebuilt only when an input changes, or `--rebuild`);
+    5. `podman run --rm -d`: `/project:ro`, the root at `/state`, the port on `--host`, auth flags and
+       model keys passed by name (credential files are not: bwrap cannot re-bind them under SELinux),
+       logs followed, Ctrl-C → `podman stop`.
 
-### ZeneraLite: tokens per pod (next, in ZeneraLite)
+    Verified on macOS (podman machine): a `python:3.12-slim` project whose Dockerfile installs
+    `pyfiglet` and sets `PYTHONPATH`; a command under bwrap imports both and `zenera` (user `alice`),
+    and sees no `/state`, no `/project`, an empty `/opt/zenera/app`.
 
-- zenera-app makes a random token per user pod, keeps it in a Secret only it can read, and gives
-  it to the pod as `ZEN_SERVER_TOKEN`.
-- When it proxies a chat request it adds `Authorization: Bearer <that pod's token>` (and the run's
-  `x-zenera-mcp-token`), after its own login and project-access checks.
+### ZeneraLite: a JWT per request (next, in ZeneraLite)
+
+- zenera-app signs, for each request it proxies to a project's pod, an EdDSA JWT: `iss` zenera-app,
+  `aud` zenera-runtime, `sub` the user, `prj` the project, `req` `"<METHOD> <path>"`, `thr`, `role`,
+  `email`, `name`; short-lived. It keeps the private key; every pod gets only the public key
+  (`ZEN_SERVER_JWT_PUBLIC_KEY`).
+- One pod per project (or several, sharded by user) serves every user; login and project access stay
+  in zenera-app. It forwards the run's `x-zenera-mcp-token` too.
 - NetworkPolicy: only zenera-app → the pod's port.
 
 ### N6. `zenera/runtime` image (published per zen release, per arch)
@@ -197,18 +220,26 @@ Out of scope until N1–N8 are released.
 | ------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | spike   | static bwrap + `probeBwrap` in a test image under rootless podman, Docker Desktop, kind, GKE Sandbox | which flags each host needs is known                                                    |
 | 1.2.0   | N1 ✓                                                                                                 | `BwrapSandbox` passes `describeSandbox` + isolation tests in Linux CI; podman unchanged |
-| 1.2.x   | N4 ✓, N5 ✓                                                                                           | ZeneraLite runtime imports `@zenera/server`; same API, tests green                      |
+| 1.2.x   | N2 ✓, N4 ✓, N5 ✓                                                                                     | ZeneraLite signs a JWT per request; its pods run `@zenera/server`                       |
 | 1.3.0   | N6, N7, N8                                                                                           | `zen image build --release` + `zen image run` serve a chat locally with bwrap           |
 | later   | N9, BuildKit builder, musl runtime                                                                   | —                                                                                       |
 
 ## Decisions
 
-- `/state` layout: flat per user (`/state/data/{sessions,runs,memory}`).
-- The server is started by `zen server start` (CLI subcommand over `@zenera/server`).
+- One server per project image serves every user; each user has a folder of their own under the root
+  (`users/<user>/{sessions,memory}`); `server.json` ties the root to one project.
+- Who is calling is a JWT zenera-app signs per request; the server holds only the public key.
+  `--insecure` (no checks, loopback only) is the one dev mode.
+- A user's memory starts as a copy of the seed (the project's memory) and is shared by their chats.
+- One shared read-only `zenera` library at `/opt/zenera/runtime`; the image's `ENV` reaches bwrap.
+- The server is started by `zen server start`; `--container` builds and runs the agent image locally.
 - Background jobs end with the server; a restarted server has none.
 - Hidden paths: `/state`, `/run/secrets` by default, extended by the host (`BwrapHost.hidden`).
 
 ## Open questions
 
 - GKE Sandbox (gVisor): not verified yet.
+- In the agent image the server runs as the image's root (a user namespace's root under rootless
+  podman); a non-root user for k8s is still to do.
+- Node ESM `import 'zenera'` ignores `NODE_PATH` (CommonJS `require` works).
 - Gym in the agent image: not now.

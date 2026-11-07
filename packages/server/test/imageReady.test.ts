@@ -11,10 +11,9 @@ import { test } from 'vitest';
 const { configure, DEFAULTS } = await import('../src/config.ts');
 configure({
     ...DEFAULTS,
-    token: 'x'.repeat(32),
     projectId: 'project',
-    user: { id: 'u' },
-    sessionsDir: mkdtempSync(join(tmpdir(), 'image-ready-')),
+    auth: { mode: 'insecure' as const },
+    root: mkdtempSync(join(tmpdir(), 'image-ready-')),
 });
 const { imageReady } = await import('../src/store.ts');
 

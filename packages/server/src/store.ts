@@ -1,12 +1,18 @@
 // Where a chat's session, run logs and memory live, and the engine opened on one for a turn.
 // The chat code (runs.ts, history.ts, trace.ts, memory.ts) is the same for every kind of chat; a
 // ChatStore says where a thread's things are and who it belongs to.
-//   privateStore - the user's chats, as `zen run` keeps sessions:
-//     <sessions>/<thread id>/             - one zen session per chat thread: .data/ (state),
-//                                           runs/ (the engine's records), workspace/ (unless the
-//                                           server has one workspace), agui/ (its runs' AG-UI
-//                                           events, runLog.ts — never in the sandbox's view)
-//     memory                              - the project's own graph, or the server's `memoryDir`
+//   privateStore - each user's chats, under that user's own folder:
+//     <root>/users/<user>/sessions/<thread id>/  - one zen session per chat thread, as `zen run`
+//                                                  keeps one: .data/ (state), runs/ (the engine's
+//                                                  records), workspace/, and agui/ (its runs'
+//                                                  AG-UI events, runLog.ts — never in the
+//                                                  sandbox's view)
+//     <root>/users/<user>/memory/                - the user's graph: a copy of the seed, made the
+//                                                  first time a run of theirs remembers, shared by
+//                                                  all their sessions and nobody else's
+//     A thread id is only ever looked up under its caller's own folder, so another user's
+//     thread is simply not there.
+//   userMemory                  - the user's graph, copied from the seed first if it has to be
 //   ChatStore, ChatThread       - the contract (a host may serve other chats with it: the Test tab)
 //   usesMemory                  - whether any agent remembers, so the memory explorer has a graph
 //   openEngineFor               - the project wired to a session, memory and the user the run acts
@@ -24,10 +30,16 @@ import {
     type SandboxSetup,
     type SessionPaths,
 } from '@zenera/engine';
-import { memoryDir as projectMemoryDir, readProjectConfig } from '@zenera/neo';
+import {
+    copyMemory,
+    isMemory,
+    LEGACY_GRAPH_FILE,
+    memoryDir as projectMemoryDir,
+    readProjectConfig,
+} from '@zenera/neo';
 import type { Request } from 'express';
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BwrapSandbox, type SandboxFactory } from '@zenera/sandbox';
 import { settings, type ServerSettings } from './config.ts';
@@ -51,8 +63,8 @@ export interface ChatStore {
     runsDir(t: ChatThread): string;
     /** The graph the memory explorer reads; undefined when the project declares none. */
     memoryDir(t: ChatThread): string | undefined;
-    /** The graph a run remembers into; undefined lets the engine use the project's, as `zen run` does. */
-    engineMemoryDir(t: ChatThread): string | undefined;
+    /** The graph a run remembers into, ready; undefined lets the engine use the project's. */
+    engineMemoryDir(t: ChatThread): Promise<string | undefined>;
     removeThread(t: ChatThread): Promise<void>;
     /**
      * How many runs one owner may have going at once. Memory does not lower it: the graph is a
@@ -63,12 +75,23 @@ export interface ChatStore {
     ownerBusy: string;
 }
 
-const sessionDir = (t: ChatThread) => join(settings().sessionsDir, t.id);
+/** Where one user's things are. */
+export function userDir(user: string): string {
+    return join(settings().root, 'users', user);
+}
 
-/** The graph the runs remember into: the server's, else the project's own, as `zen run`. */
-export function memoryDir(): string | undefined {
+const sessionDir = (t: ChatThread) => join(userDir(t.owner), 'sessions', t.id);
+
+/** The user's graph, whether or not it has been made yet. */
+export function memoryDir(user: string): string {
+    return join(userDir(user), 'memory');
+}
+
+/** What a user's memory starts as: the server's seed, else the project's own graph. */
+export function memorySeed(): string | undefined {
     const s = settings();
-    if (s.memoryDir) return s.memoryDir;
+    if (s.memorySeed === null) return undefined;
+    if (s.memorySeed) return s.memorySeed;
     try {
         const { root, config } = readProjectConfig(s.projectDir);
         return projectMemoryDir(root, config);
@@ -76,6 +99,49 @@ export function memoryDir(): string | undefined {
         return undefined;
     }
 }
+
+const copying = new Map<string, Promise<string>>();
+
+/**
+ * The user's graph, made first from the seed when they have none: a consistent copy of it
+ * (`copyMemory`, the seed opened read-only) into a directory of its own, renamed into place, so
+ * a crash never leaves half a graph and two first runs at once make one. No seed, or one not made
+ * yet: the user starts with nothing, and their first run makes their graph.
+ */
+export function userMemory(user: string): Promise<string> {
+    const dir = memoryDir(user);
+    const pending = copying.get(dir);
+    if (pending) return pending;
+    const made = (async () => {
+        if (existsSync(dir)) return dir;
+        const seed = memorySeed();
+        if (seed && !isMemory(seed) && existsSync(join(seed, LEGACY_GRAPH_FILE))) {
+            throw new EngineError(
+                `the memory seed ${seed} holds a version 1 memory`,
+                EXIT.invalid,
+                `convert it first: zen memory migrate --dir ${seed}`,
+            );
+        }
+        if (!seed || !isMemory(seed)) return dir;
+        const tmp = `${dir}.copy-${process.pid}-${Date.now()}`;
+        try {
+            await copyMemory(seed, tmp);
+            await writeFile(
+                join(tmp, SEED_FILE),
+                `${JSON.stringify({ seed, copiedAt: new Date().toISOString() }, null, 2)}\n`,
+            );
+            await rename(tmp, dir);
+        } finally {
+            await rm(tmp, { recursive: true, force: true });
+        }
+        return dir;
+    })().finally(() => copying.delete(dir));
+    copying.set(dir, made);
+    return made;
+}
+
+/** Beside a user's graph: which seed it was copied from, and when. */
+export const SEED_FILE = 'seed.json';
 
 export const privateStore: ChatStore = {
     thread(req) {
@@ -88,20 +154,16 @@ export const privateStore: ChatStore = {
     },
     sessionFor(t) {
         const dir = sessionDir(t);
-        return (
-            this.existingSession(t) ??
-            createSessionAt(dir, settings().workspace ?? join(dir, 'workspace'))
-        );
+        return this.existingSession(t) ?? createSessionAt(dir, join(dir, 'workspace'));
     },
     runsDir: (t) => join(sessionDir(t), 'agui'),
-    memoryDir: () => memoryDir(),
-    // Unset is the project's own: what `zen run` does with no --memory.
-    engineMemoryDir: () => settings().memoryDir,
+    memoryDir: (t) => memoryDir(t.owner),
+    engineMemoryDir: (t) => userMemory(t.owner),
     async removeThread(t) {
         await rm(sessionDir(t), { recursive: true, force: true });
     },
     get maxOwnerRuns() {
-        return settings().maxRuns;
+        return settings().maxUserRuns;
     },
     ownerBusy: 'your other chats are still answering',
 };
@@ -134,13 +196,24 @@ export async function imageReady(setup: SandboxSetup): Promise<void> {
     }
 }
 
+/** Where the agent image installs zen and the server. */
+const AGENT_APP_DIR = '/opt/zenera/app';
+
 /** The factory a run's engine opens its sandbox with. */
 function sandboxFactory(s: ServerSettings): SandboxFactory {
     if (s.sandbox !== 'bwrap') return s.sandbox as SandboxFactory;
-    // Other chats, the graph (the server's to read and write, through its tools) and the zen
-    // home (its keyring) are not the command's; its own workspace and home are bound back in.
-    const memory = memoryDir();
-    const hidden = [s.sessionsDir, ...(memory ? [memory] : []), home(), ...s.hidden];
+    // Every user's chats and graphs, the seed (the server's to read and write, through its
+    // tools), the zen home (its keyring), the project (its .env) and, in the agent image, the
+    // server's own install are not the command's; its own workspace and home are bound back in.
+    const seed = memorySeed();
+    const hidden = [
+        s.root,
+        ...(seed ? [seed] : []),
+        home(),
+        s.projectDir,
+        ...(existsSync(AGENT_APP_DIR) ? [AGENT_APP_DIR] : []),
+        ...s.hidden,
+    ];
     return (opts) => new BwrapSandbox(opts, { hidden });
 }
 
