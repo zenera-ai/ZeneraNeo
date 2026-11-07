@@ -25,6 +25,10 @@ const ROLES = new Set<string>(['owner', 'editor', 'viewer', 'admin']);
 const EMAIL = /^[^\s@]{1,200}@[^\s@]{1,200}$/;
 const NAME = /^[^\n\r\0]{1,200}$/;
 
+export function isThreadId(id: string): boolean {
+    return THREAD_ID.test(id);
+}
+
 /**
  * Where a user's things are: their id when it is one safe path segment (a UUID lower-cased, as
  * zenera-app's are), else `u-` and a hash of it — so no id is ever a path of its own.
@@ -35,7 +39,7 @@ export function userFolder(sub: string): string {
     return `u-${createHash('sha256').update(sub).digest('hex').slice(0, 32)}`;
 }
 
-function caller(req: Request): CallerClaims {
+export function caller(req: Request): CallerClaims {
     const claims = req.res?.locals.caller as CallerClaims | undefined;
     if (!claims) throw new HttpError(401, 'no verified caller');
     return claims;
@@ -44,7 +48,7 @@ function caller(req: Request): CallerClaims {
 export function identify(req: Request): Identity {
     const claims = caller(req);
     const threadId = String(req.params.tid ?? '');
-    if (!THREAD_ID.test(threadId)) throw new HttpError(400, 'not a thread id');
+    if (!isThreadId(threadId)) throw new HttpError(400, 'not a thread id');
     if (claims.thr !== undefined && String(claims.thr).toLowerCase() !== threadId.toLowerCase()) {
         throw new HttpError(403, 'the token is for another thread');
     }

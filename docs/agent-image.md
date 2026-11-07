@@ -128,6 +128,13 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
   `ZEN_SERVER_JWT_{PUBLIC_KEY,ISSUER,AUDIENCE}`, `ZEN_RUNTIME_MAX_{RUNS,USER_RUNS,RUN_MINUTES}`.
 - Sandbox: bwrap in the agent image, podman elsewhere (readied as `zen run` does).
 - Keys: the keyring and the environment, as `zen run`; in the image, the environment.
+- Insecure startup prints a `file://` link to the CLI's bundled React chat (`assets/chat.html`),
+  with the server address and a dev JWT in the fragment. Default browser user `local`, or
+  `--user`. The page is compiled in ZeneraLite from its existing chat components into one HTML
+  file, then copied to the CLI package; no frontend build is needed in ZeneraNeo.
+  Only insecure servers allow local-file (`Origin: null`) CORS preflights. `GET /api/sessions`
+  lists the caller's sessions from engine metadata; history, streaming and cancellation use
+  the existing AG-UI routes.
 - **`--container`** (`cli/src/container.ts`), optional — plain `start` is unchanged:
     1. ready the project's sandbox image as `zen run` does; read its `Env`;
     2. `npm pack` this zen's `@zenera/{sandbox,neo,view,engine,server,cli}` from where they are

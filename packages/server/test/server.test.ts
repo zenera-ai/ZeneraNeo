@@ -294,6 +294,130 @@ describe('a turn', () => {
         expect(body.events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
     });
 
+    describe('session listing', () => {
+        it('lists only real sessions belonging to the caller, newest first, with metadata', async () => {
+            const { url, serverRoot } = await start();
+            const empty = await call(`${url}/api/sessions`);
+            expect(await empty.json()).toEqual({ sessions: [] });
+            expect(existsSync(join(serverRoot, 'users', ANN))).toBe(false);
+            const first = randomUUID();
+            const second = randomUUID();
+            const other = randomUUID();
+            await turn(url, first, ANN, 'First chat');
+            await turn(url, second, ANN, 'Second chat');
+            await turn(url, other, BOB, 'Private chat');
+            const path = join(serverRoot, 'users', ANN, 'sessions', first, '.data', 'session.json');
+            const meta = JSON.parse(readFileSync(path, 'utf8'));
+            writeFileSync(path, JSON.stringify({ ...meta, lastRunAt: '2000-01-01T00:00:00.000Z' }));
+            mkdirSync(join(serverRoot, 'users', ANN, 'sessions', 'not-a-session'));
+            const listed = await call(`${url}/api/sessions`);
+            const { sessions } = await listed.json();
+            expect(sessions.map((s: { id: string }) => s.id)).toEqual([second, first]);
+            expect(sessions[0]).toMatchObject({ title: 'Second chat', running: null });
+            expect(sessions[0].createdAt).toEqual(expect.any(String));
+            expect(sessions[0].updatedAt).toEqual(expect.any(String));
+            const scoped = await call(`${url}/api/sessions`, { claims: { thr: first } });
+            expect((await scoped.json()).sessions.map((s: { id: string }) => s.id)).toEqual([
+                first,
+            ]);
+            await call(`${url}/api/sessions/${second}`, { method: 'DELETE' });
+            expect((await (await call(`${url}/api/sessions`)).json()).sessions).toHaveLength(1);
+            expect((await fetch(`${url}/api/sessions`)).status).toBe(401);
+        });
+        it('reports a run that is still active', async () => {
+            let release!: () => void;
+            let notify!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const entered = new Promise<void>((resolve) => {
+                notify = resolve;
+            });
+            const { url } = await start({
+                sandbox: (opts) => ({
+                    ...fakeSandbox(opts),
+                    exec: async () => {
+                        notify();
+                        await gate;
+                        return { exit_code: 0, stdout: 'hello\n', stderr: '', duration_ms: 1 };
+                    },
+                }),
+            });
+            const thread = randomUUID();
+            const response = await call(`${url}/api/sessions/${thread}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hello' }] }),
+            });
+            try {
+                await entered;
+                const { sessions } = await (await call(`${url}/api/sessions`)).json();
+                expect(sessions).toHaveLength(1);
+                expect(sessions[0]).toMatchObject({
+                    id: thread,
+                    running: { runId: expect.any(String) },
+                });
+            } finally {
+                release();
+                await events(response);
+            }
+        });
+    });
+
+    describe('local-file CORS', () => {
+        const headers = {
+            origin: 'null',
+            'access-control-request-method': 'POST',
+            'access-control-request-headers': 'authorization, content-type',
+            'access-control-request-private-network': 'true',
+        };
+        it('allows local-file preflights only in insecure mode; actual requests still need a token', async () => {
+            const { url } = await start({ auth: { mode: 'insecure' } });
+            const preflight = await fetch(`${url}/api/sessions/test/runs`, {
+                method: 'OPTIONS',
+                headers,
+            });
+            expect(preflight.status).toBe(204);
+            expect(preflight.headers.get('access-control-allow-origin')).toBe('null');
+            expect(preflight.headers.get('access-control-allow-headers')).toContain(
+                'authorization',
+            );
+            expect(preflight.headers.get('access-control-allow-private-network')).toBe('true');
+            expect(preflight.headers.get('access-control-allow-credentials')).toBeNull();
+            const missing = await fetch(`${url}/api/sessions`, { headers: { origin: 'null' } });
+            expect(missing.status).toBe(401);
+            expect(missing.headers.get('access-control-allow-origin')).toBe('null');
+            const valid = await call(`${url}/api/sessions`, { headers: { origin: 'null' } });
+            expect(valid.status).toBe(200);
+            expect(valid.headers.get('access-control-allow-origin')).toBe('null');
+            const web = await fetch(`${url}/api/sessions`, {
+                method: 'OPTIONS',
+                headers: { ...headers, origin: 'https://example.com' },
+            });
+            expect(web.status).toBe(401);
+            expect(web.headers.get('access-control-allow-origin')).toBeNull();
+            const unsupported = await fetch(`${url}/api/sessions`, {
+                method: 'OPTIONS',
+                headers: { ...headers, 'access-control-request-method': 'PUT' },
+            });
+            expect(unsupported.status).toBe(403);
+            const unsupportedHeader = await fetch(`${url}/api/sessions`, {
+                method: 'OPTIONS',
+                headers: { ...headers, 'access-control-request-headers': 'x-secret' },
+            });
+            expect(unsupportedHeader.status).toBe(403);
+        });
+        it('does not bypass JWT authentication or enable CORS in secure mode', async () => {
+            const { url } = await start();
+            const preflight = await fetch(`${url}/api/sessions`, { method: 'OPTIONS', headers });
+            expect(preflight.status).toBe(401);
+            expect(preflight.headers.get('access-control-allow-origin')).toBeNull();
+            const valid = await call(`${url}/api/sessions`, { headers: { origin: 'null' } });
+            expect(valid.status).toBe(200);
+            expect(valid.headers.get('access-control-allow-origin')).toBeNull();
+        });
+    });
+
     it('keeps each user’s chats in their own folder: another user finds nothing', async () => {
         const { url, serverRoot } = await start();
         const thread = randomUUID();

@@ -100,6 +100,8 @@ export interface ContainerRun {
     memorySeed?: string | null;
     listen: { port: number; host: string };
     debug: boolean;
+    /** Host-side UI links are printed only after podman has started the container. */
+    onStarted?: () => void;
     auth:
         { mode: 'jwt'; publicKey: string; issuer: string; audience: string } | { mode: 'insecure' };
 }
@@ -188,6 +190,7 @@ export async function runContainer(run: ContainerRun): Promise<void> {
     const logs = spawn('podman', ['logs', '--follow', name], {
         stdio: ['ignore', 'inherit', 'inherit'],
     });
+    run.onStarted?.();
     let stopping = false;
     const stop = async (signal: string) => {
         if (stopping) return;

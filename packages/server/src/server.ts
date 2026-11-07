@@ -5,6 +5,7 @@
 //   GET  /healthz                         - for probes
 //   GET  /api/status                      - versions, auth, sandbox, image identity, root, seed
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)
+//   GET  /api/sessions                    - the caller's sessions, newest activity first
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   createServer  - the app, configured; `listen` starts it, `stop` ends runs and closes it
@@ -16,10 +17,12 @@ import { errorHandler, notFound } from './http.ts';
 import { requireCaller } from './auth.ts';
 import { inAgentImage } from './config.ts';
 import { openLayout } from './layout.ts';
+import { localFileCors } from './localFileCors.ts';
 import { memoryRouter } from './memory.ts';
 import { acceptRuns, activeRuns, runDebugRouter, runsRouter, stopAllRuns } from './runs.ts';
 import { serverStatus, setListening } from './status.ts';
 import { privateStore } from './store.ts';
+import { sessionsRouter } from './sessions.ts';
 import { traceRouter } from './trace.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
@@ -50,6 +53,7 @@ export function createServer(opts: ServerOptions): AgentServer {
 
     const app = express();
     app.disable('x-powered-by');
+    app.use(localFileCors);
     app.use(requireCaller());
     app.use(express.json({ limit: '1mb' }));
     app.get('/healthz', (_req, res) => {
@@ -61,6 +65,7 @@ export function createServer(opts: ServerOptions): AgentServer {
     app.get('/api/activity', (_req, res) => {
         res.json({ busy: activeRuns() > 0, runs: activeRuns() });
     });
+    app.use('/api/sessions', sessionsRouter());
     app.use('/api/sessions', runsRouter(privateStore));
     app.use('/api/sessions', historyRouter(privateStore));
     if (settings.debug) {

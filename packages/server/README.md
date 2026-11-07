@@ -15,6 +15,25 @@ zen server check                                       # could it start here?
 zen server status                                      # a running one's report
 ```
 
+With `--insecure`, startup prints a ready-to-open `file://` link to a bundled
+React chat page. It includes the server address and an unsigned JWT in the
+fragment (not a query parameter); the page removes the fragment and keeps the
+token only in memory. The default browser user is `local`; use `--user ann` to
+test another user's sessions. The same works with `--container`: the outer CLI
+prints the host's file path and published port, not paths inside the container.
+
+The HTML contains its JavaScript, React components and CSS; it needs no frontend
+server or CDN. It reuses ZeneraLite's chat messages, composer, tool cards and
+AG-UI reducer. It lists sessions, loads history, streams turns, follows active
+runs, cancels runs and deletes sessions. Connected-account actions still need
+zenera-app. Reopen the printed link after a page reload, or paste a dev JWT into
+the connection form: tokens are deliberately not saved in browser storage.
+
+Local files send `Origin: null`. Only insecure servers allow that origin and
+its GET/POST/DELETE preflights with Authorization and JSON headers; actual API
+requests still require a token. Secure servers do not enable this CORS access.
+A browser may ask you to allow local-network access.
+
 ```ts
 import { createServer } from '@zenera/server';
 
@@ -89,6 +108,7 @@ publishing the port on loopback only).
 | `GET /healthz`                                   | For probes; no token                                         |
 | `GET /api/status`                                | Versions, auth, sandbox (and why not), image identity, root  |
 | `GET /api/activity`                              | Whether a run is going, for idle stop                        |
+| `GET /api/sessions`                              | The caller's sessions, newest activity first                 |
 | `GET /api/sessions/:tid`                         | The chat so far, as AG-UI events                             |
 | `POST /api/sessions/:tid/runs`                   | A turn (or AG-UI `resume` entries), streamed as SSE          |
 | `GET /api/sessions/:tid/runs/:runId/events`      | Follow a run, or replay one that ended                       |
@@ -97,6 +117,12 @@ publishing the port on loopback only).
 | `/api/sessions/:tid/{runs,…/trace,memory}` debug | With `debug: true` only: recorded runs, traces, memory graph |
 
 Every session route is the caller's own: `:tid` is looked up under their folder.
+The list returns `{ sessions: [{ id, title, createdAt, updatedAt, running }] }`;
+`running` is `{ runId }` or `null`, and titles come from the engine's session
+metadata (falling back to the ID). A thread-scoped token lists only its thread.
+Listing does not create sessions or memory. A new session is still created on
+its first turn.
+
 A run belongs to the server, not the request: it goes on when the caller leaves
 and can be followed again. At most `maxRuns` (`ZEN_RUNTIME_MAX_RUNS`, 4) run at
 once, `maxUserRuns` (`ZEN_RUNTIME_MAX_USER_RUNS`, 2) per user. An
@@ -164,3 +190,15 @@ reports a failed probe rather than running commands without isolation.
 
 Model keys come from the keyring (`zen key …`) and the environment, as for any
 run; in the agent image, the environment.
+
+## Rebuilding the standalone page
+
+The source and build live in ZeneraLite's `services/zenera-app`. Run there:
+
+```sh
+npm run build:chat -- --output /path/to/ZeneraNeo/packages/cli/assets/chat.html
+```
+
+Without `--output`, the result is `dist/chat.html`, which can be copied to
+ZeneraNeo. The CLI package includes the compiled asset; ZeneraNeo needs no
+frontend build dependencies.

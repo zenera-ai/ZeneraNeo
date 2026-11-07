@@ -2,6 +2,7 @@ import { home } from '@zenera/engine';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from '../args.ts';
+import { chatUrl } from '../chat.ts';
 import { buildAgentImage, runContainer } from '../container.ts';
 import { asCliError, ensurePodmanReady } from '../podman.ts';
 import { project as resolveProject } from '../resolve.ts';
@@ -73,6 +74,9 @@ export const server: Command = {
         '  --jwt-issuer <iss>     Default zenera-app.   --jwt-audience <aud>  Default zenera-runtime.',
         '  --insecure             Read tokens without checking them: no key, any signature,',
         '                         any age. Loopback only, never in a pod.',
+        '                         Prints a file:// link to the bundled React test chat.',
+        '  --user <id>            Browser user with --insecure (default local); required',
+        '                         with token. API callers still choose their user via JWT.',
         '',
         '  --container            Run it in podman, in an image built from the project\u2019s',
         '                         sandbox/Dockerfile and this zen: commands under bwrap,',
@@ -320,6 +324,10 @@ async function start(ctx: Context, values: Flags): Promise<void> {
     if (settings.auth.mode === 'insecure') {
         note(yellow('⚠ insecure: tokens are read, not checked — anyone here can be anyone'));
     }
+    const page =
+        settings.auth.mode === 'insecure' && !mod.inAgentImage()
+            ? chatUrl(listen, mod.unsignedToken({ sub: values.user ?? 'local' }))
+            : undefined;
     const app = mod.createServer(settings);
     await app.listen(listen);
     note(
@@ -329,6 +337,7 @@ async function start(ctx: Context, values: Flags): Promise<void> {
                     `sandbox=${settings.sandboxProvider}${settings.debug ? ', debug' : ''})`,
             ),
     );
+    if (page) write(`Test chat: ${page}`);
     // A stopping container: runs end as interrupted and save their sessions within the grace
     // period, then the process ends — whatever a run's tools left open must not keep it alive.
     await new Promise<void>((done) => {
@@ -359,6 +368,10 @@ async function startContainer(ctx: Context, values: Flags): Promise<void> {
     if (auth.mode === 'insecure' && !LOOPBACK.has(listen.host)) {
         throw usageError(`--insecure listens on loopback only, not ${listen.host}`, USAGE);
     }
+    const page =
+        auth.mode === 'insecure'
+            ? chatUrl(listen, mod.unsignedToken({ sub: values.user ?? 'local' }))
+            : undefined;
     const image = await buildAgentImage(project.dir, { rebuild: values.rebuild });
     note(
         `zen server in ${image.tag} ${dim(`(on ${image.base}${image.built ? ', just built' : ''})`)}`,
@@ -376,6 +389,7 @@ async function startContainer(ctx: Context, values: Flags): Promise<void> {
         listen,
         debug: Boolean(values.debug),
         auth,
+        onStarted: page ? () => write(`Test chat: ${page}`) : undefined,
     });
     process.exit(0);
 }

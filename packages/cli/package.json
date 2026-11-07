@@ -38,7 +38,8 @@
         "dist",
         "!dist/**/*.map",
         "postinstall.mjs",
-        "templates"
+        "templates",
+        "assets"
     ],
     "engines": {
         "node": ">=24"
