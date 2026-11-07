@@ -140,6 +140,11 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
     5. `podman run --rm -d`: `/project:ro`, the root at `/state`, the port on `--host`, auth flags and
        model keys passed by name (credential files are not: bwrap cannot re-bind them under SELinux),
        logs followed, Ctrl-C → `podman stop`.
+       The server runs as numeric UID/GID 10001 with `HOME=/home/zenera`; the image deliberately
+       overrides the base's `USER`. Rootless podman maps the host user to it with
+       `--userns keep-id:uid=10001,gid=10001`, preserving host-owned state. With rootful podman the
+       host must provide state writable by 10001. All capabilities are dropped and privilege
+       escalation is disabled.
 
     Verified on macOS (podman machine): a `python:3.12-slim` project whose Dockerfile installs
     `pyfiglet` and sets `PYTHONPATH`; a command under bwrap imports both and `zenera` (user `alice`),
@@ -239,7 +244,7 @@ Out of scope until N1–N8 are released.
 ## Open questions
 
 - GKE Sandbox (gVisor): not verified yet.
-- In the agent image the server runs as the image's root (a user namespace's root under rootless
-  podman); a non-root user for k8s is still to do.
+- Non-root bwrap must be allowed by the host's user-namespace policy. Verified under rootless
+  podman with UID/GID 10001, no capabilities and no privilege escalation; GKE is still unverified.
 - Node ESM `import 'zenera'` ignores `NODE_PATH` (CommonJS `require` works).
 - Gym in the agent image: not now.

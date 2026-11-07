@@ -28,6 +28,8 @@ const PACKAGES = ['sandbox', 'neo', 'view', 'engine', 'server', 'cli'] as const;
 
 const BWRAP_VERSION = '0.13.1';
 const IMAGE_REPO = 'localhost/zenera-agent';
+const AGENT_UID = 10001;
+const AGENT_GID = 10001;
 
 export interface AgentImage {
     /** the agent image */
@@ -108,6 +110,13 @@ export interface ContainerRun {
  */
 export async function runContainer(run: ContainerRun): Promise<void> {
     mkdirSync(run.root, { recursive: true, mode: 0o700 });
+    const rootless = (await podman(['info', '--format', '{{.Host.Security.Rootless}}'])).trim();
+    if (rootless !== 'true' && rootless !== 'false') {
+        throw new CliError(
+            `could not determine whether podman is rootless: ${rootless}`,
+            EXIT.sandbox,
+        );
+    }
     const name = `zen-server-${run.project.id.replace(/[^\w.-]/g, '_')}-${run.listen.port}`;
     const env: NodeJS.ProcessEnv = { ...process.env, ZEN_PROJECT_ID: run.project.id };
     const args = [
@@ -118,6 +127,13 @@ export async function runContainer(run: ContainerRun): Promise<void> {
         name,
         '--label',
         'zenera.server=1',
+        '--user',
+        `${AGENT_UID}:${AGENT_GID}`,
+        '--cap-drop',
+        'ALL',
+        '--security-opt',
+        'no-new-privileges',
+        ...(rootless === 'true' ? ['--userns', `keep-id:uid=${AGENT_UID},gid=${AGENT_GID}`] : []),
         '--publish',
         `${run.listen.host}:${run.listen.port}:3000`,
         '--volume',
@@ -280,7 +296,11 @@ COPY runtime/ /opt/zenera/runtime/
 COPY etc/ /opt/zenera/etc/
 # Mount points: the image's root is read-only to every command. Node needs glibc: a base
 # without it fails here, not when the server starts.
-RUN mkdir -p /project /state /workspace /home/agent && /opt/zenera/bin/node -e "process.exit(0)"
+RUN mkdir -p /project /state /workspace /home/agent /home/zenera \\
+ && chown ${AGENT_UID}:${AGENT_GID} /state /workspace /home/agent /home/zenera \\
+ && /opt/zenera/bin/node -e "process.exit(0)"
+ENV HOME=/home/zenera
+USER ${AGENT_UID}:${AGENT_GID}
 ENV ${Object.entries(identity)
         .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
         .join(' ')}

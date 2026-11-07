@@ -36,6 +36,17 @@ if (probe.ok) {
     });
 
     describe(`bwrap isolation (${probe.proc} /proc)`, () => {
+        it('keeps the caller uid when no command user is configured', async () => {
+            const box = open();
+            try {
+                const result = await box.exec('id -u');
+                expect(result.exit_code).toBe(0);
+                expect(Number(result.stdout.trim())).toBe(process.getuid!());
+            } finally {
+                await box.close();
+            }
+        });
+
         it('shows a command none of this process’s environment it was not given', async () => {
             process.env.ZEN_LIVE_SERVER_SECRET = 'leaked';
             const box = open({ secrets: ['ZEN_LIVE_NAMED'] });

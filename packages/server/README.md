@@ -146,5 +146,21 @@ this machine, with podman:
    keys passed through (by name; credential files are not), logs followed;
    Ctrl-C stops it.
 
+The server runs as numeric UID/GID **10001**, with `HOME=/home/zenera`, not
+as root or as the sandbox base image's `USER`. Commands inherit that UID unless
+the project's sandbox config explicitly selects another user. Rootless podman
+uses `--userns keep-id:uid=10001,gid=10001`: existing host-owned state stays
+writable, without changing its ownership. With rootful podman, the host must
+provide a state directory writable by UID/GID 10001; ownership is not changed
+automatically. Project and seed mounts must also be readable by that user.
+The container drops all capabilities and disables privilege escalation;
+bwrap uses unprivileged user namespaces.
+
+For Kubernetes, set `runAsNonRoot: true`, `runAsUser: 10001`,
+`runAsGroup: 10001`, `fsGroup: 10001` for the state PVC, and
+`allowPrivilegeEscalation: false` with all capabilities dropped. The node's
+security policy must allow bwrap's unprivileged user namespaces; startup
+reports a failed probe rather than running commands without isolation.
+
 Model keys come from the keyring (`zen key …`) and the environment, as for any
 run; in the agent image, the environment.
