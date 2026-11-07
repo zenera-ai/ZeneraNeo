@@ -1,3 +1,9 @@
+/**
+ * Express middleware allowing the standalone file:// chat to reach an insecure runtime.
+ * localFileCors handles Origin: null responses and restricted preflight methods/headers;
+ * server.ts installs it before requireCaller so preflights work without bypassing
+ * authentication on actual API requests. Secure servers do not enable this CORS policy.
+ */
 import type { NextFunction, Request, Response } from 'express';
 import { settings } from './config.ts';
 import { HttpError } from './http.ts';

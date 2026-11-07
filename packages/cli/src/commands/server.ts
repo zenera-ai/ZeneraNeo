@@ -1,3 +1,10 @@
+/**
+ * Server command entry point used by the CLI dispatcher.
+ * server dispatches start/check/status/token; start and startContainer launch the
+ * runtime, while token prints an unsigned dev JWT. On insecure startup, --user only
+ * chooses the sub claim for the printed browser link (default local); every API
+ * request still selects its user through its own JWT, not a server-wide user setting.
+ */
 import { home } from '@zenera/engine';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

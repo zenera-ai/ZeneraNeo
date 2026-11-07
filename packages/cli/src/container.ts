@@ -1,3 +1,10 @@
+/**
+ * Host-side image build and container lifecycle for zen server start --container.
+ * buildAgentImage packs the installed runtime onto the project's sandbox image;
+ * agentDockerfile defines its non-root Node/bwrap environment, and runContainer
+ * mounts project/state, publishes the port, follows logs and forwards shutdown.
+ * Used by commands/server.ts; onStarted lets that command print a host-side chat link.
+ */
 import { home, KeyStore, credentials, resolveBuild, writeRuntime } from '@zenera/engine';
 import { DEFAULT_SANDBOX_IMAGE, readProjectConfig } from '@zenera/neo';
 import { runProcess } from '@zenera/sandbox';

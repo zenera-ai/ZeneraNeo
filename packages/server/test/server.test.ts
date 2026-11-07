@@ -1,3 +1,10 @@
+/**
+ * Vitest end-to-end coverage for the multi-user HTTP runtime and standalone-chat API.
+ * start creates test servers; signed/call create per-request JWT requests, and
+ * events/turn consume AG-UI runs against a scripted local model and fake sandbox.
+ * The server suite checks authentication, private state, sessions, run lifecycle,
+ * local-file CORS and optional live bwrap execution.
+ */
 import { EventType, type AGUIEvent } from '@ag-ui/core';
 import {
     probeBwrap,

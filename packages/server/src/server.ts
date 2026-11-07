@@ -1,7 +1,9 @@
-// The agent server: a project's chats over HTTP, for every user its host vouches for. Every request
-// but /healthz carries a JWT the host signed for that request (auth.ts), whose `sub` is the user;
-// each user's things are in a folder of their own (store.ts). A sandboxed command shares the
-// container's network, so it can reach the port, and is refused: it can make no token.
+// HTTP runtime assembled for `zen server start`, directly or inside the agent image.
+// createServer configures Express and its routes, returning listen/stop lifecycle methods;
+// insecureHere permits the CLI's loopback-published local test container.
+// Every API request carries a JWT whose `sub` selects the user's private store (store.ts).
+// Secure mode verifies a host signature bound to that request; insecure mode only decodes it.
+// A sandboxed command can reach the port but cannot mint a valid JWT in secure mode.
 //   GET  /healthz                         - for probes
 //   GET  /api/status                      - versions, auth, sandbox, image identity, root, seed
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)

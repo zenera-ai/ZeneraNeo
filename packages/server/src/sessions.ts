@@ -1,3 +1,9 @@
+/**
+ * Per-user session-list endpoint mounted by server.ts at GET /api/sessions.
+ * sessionsRouter reads engine metadata under the authenticated JWT subject's folder,
+ * honors thread-scoped claims, adds current run ids and sorts by latest activity.
+ * The standalone chat uses this list without opening engines or creating user memory.
+ */
 import { readSessionMeta, sessionPathsAt } from '@zenera/engine';
 import { Router } from 'express';
 import type { Dirent } from 'node:fs';

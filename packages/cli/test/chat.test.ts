@@ -1,3 +1,9 @@
+/**
+ * Vitest coverage for chatUrl, the insecure server CLI's standalone-chat launcher.
+ * Parameterized tests check IPv4/IPv6 file URLs and fragment parameters, then read
+ * the packaged HTML to verify that no external scripts or stylesheets are required.
+ * Run by the CLI test suite without starting a server or browser.
+ */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { chatUrl } from '../src/chat.ts';

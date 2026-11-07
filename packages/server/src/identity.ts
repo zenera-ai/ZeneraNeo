@@ -1,6 +1,9 @@
-// Who a request is for, from the claims requireCaller (auth.ts) verified: the user the token's
-// `sub` names, the folder that user's things are in, and the thread the route names.
+// Request identity helpers used by session/history/run/debug routes. Claims come from
+// requireCaller (auth.ts), which verifies JWTs in secure mode and decodes them in insecure mode.
+// The JWT's `sub`, not a startup flag, determines whose sessions and memory a request uses.
+//   caller      - the claims attached by authentication, or an HttpError
 //   userFolder  - a user's folder name: the id itself when it is one safe path segment, else a hash
+//   isThreadId  - whether a thread id is safe to use as a session folder name
 //   identify    - the user and thread of a chat request, or an HttpError
 //   runUser     - who a run acts for, as the engine takes it: what the agent's `current_user`
 //                 answers and its sandbox sees as ZEN_USER_*

@@ -1,3 +1,8 @@
+/**
+ * Packaged standalone-chat URL helper, used by the server CLI after insecure startup.
+ * chatUrl locates assets/chat.html and puts the runtime address and dev JWT in its
+ * fragment, handling IPv6 addresses and reporting a missing packaged page explicitly.
+ */
 import { existsSync } from 'node:fs';
 import { CliError, EXIT } from './term.ts';
 
