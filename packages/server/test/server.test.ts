@@ -36,12 +36,15 @@ import {
     LAYOUT_VERSION,
     openLayout,
     SEED_FILE,
+    StaleGenerationError,
     stopAllRuns,
     unsignedToken,
+    USER_LAYOUT,
     userFolder,
     userMemory,
     type AgentServer,
     type ServerOptions,
+    type UserStateStore,
 } from '../src/index.ts';
 
 // The server end to end: a project whose one agent runs a command, a model that is a local
@@ -153,6 +156,9 @@ const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
         exec: async (command) => {
             started = true;
             commands.push(command);
+            // `sleep-ms <n>`: a command that takes a while, for runs that must still be going.
+            const wait = /^sleep-ms (\d+)$/.exec(command);
+            if (wait) await new Promise((r) => setTimeout(r, Number(wait[1])));
             return { exit_code: 0, stdout: 'hello\n', stderr: '', duration_ms: 1 };
         },
         startJob: async () => 'job-1',
@@ -726,5 +732,286 @@ describe('stopping', () => {
         expect((await turn(first.url, randomUUID())).status).toBe(503);
         const again = await start();
         expect((await turn(again.url, randomUUID())).status).toBe(200);
+    });
+});
+
+// --- user state: a store that keeps users elsewhere -----------------------------------------
+// A durable store in memory: what it holds per user is a file map plus the newest lease
+// generation it has seen, which is how a real one fences a copy that moved on.
+interface FakeRemote {
+    files: Map<string, Buffer>;
+    generation: number;
+}
+
+function fakeStore(opts: { loadDelayMs?: number } = {}) {
+    const remote = new Map<string, FakeRemote>();
+    const calls: { op: string; user: string; generation?: number; reason?: string }[] = [];
+    const memorySnapshots: boolean[] = [];
+    const walk = (dir: string, base = dir, out = new Map<string, Buffer>()) => {
+        if (!existsSync(dir)) return out;
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const path = join(dir, entry.name);
+            const rel = path.slice(base.length + 1);
+            if (entry.isDirectory()) walk(path, base, out);
+            else out.set(rel, readFileSync(path));
+        }
+        return out;
+    };
+    const store: UserStateStore = {
+        name: 'fake',
+        durable: true,
+        async load(user) {
+            calls.push({ op: 'load', user: user.id, generation: user.generation });
+            if (opts.loadDelayMs) await new Promise((r) => setTimeout(r, opts.loadDelayMs));
+            const held = remote.get(user.id);
+            if (held && (user.generation ?? 0) < held.generation) {
+                throw new StaleGenerationError('a newer lease holds this user');
+            }
+            for (const [rel, data] of held?.files ?? []) {
+                mkdirSync(join(user.dir, rel, '..'), { recursive: true });
+                writeFileSync(join(user.dir, rel), data);
+            }
+        },
+        async checkpoint(user, reason, snapshot) {
+            calls.push({ op: 'checkpoint', user: user.id, generation: user.generation, reason });
+            const held = remote.get(user.id);
+            if (held && (user.generation ?? 0) < held.generation) {
+                throw new StaleGenerationError('a newer lease holds this user');
+            }
+            memorySnapshots.push(Boolean(snapshot.memoryDir && isMemory(snapshot.memoryDir)));
+            const files = new Map<string, Buffer>();
+            for (const [rel, data] of walk(user.dir)) {
+                if (rel === USER_LAYOUT.marker || rel.startsWith(`${USER_LAYOUT.memory}/`))
+                    continue;
+                files.set(rel, data);
+            }
+            for (const [rel, data] of snapshot.memoryDir ? walk(snapshot.memoryDir) : []) {
+                files.set(`${USER_LAYOUT.memory}/${rel}`, data);
+            }
+            remote.set(user.id, { files, generation: user.generation ?? 0 });
+        },
+        async release(user) {
+            calls.push({ op: 'release', user: user.id, generation: user.generation });
+        },
+        async recover(users) {
+            for (const user of users) calls.push({ op: 'recover', user: user.id });
+        },
+    };
+    return { store, remote, calls, memorySnapshots };
+}
+
+const SYSTEM = 'zenera-app';
+
+async function until(check: () => boolean, what: string): Promise<void> {
+    for (let i = 0; i < 1000; i++) {
+        if (check()) return;
+        await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error(`timed out waiting for ${what}`);
+}
+
+describe('user state', () => {
+    it('loads a user before their first request, saves after a run, and moves them on release', async () => {
+        const fake = fakeStore();
+        const { url, serverRoot } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        const thread = randomUUID();
+        expect((await turn(url, thread)).status).toBe(200);
+        expect(fake.calls[0]).toEqual({ op: 'load', user: ANN, generation: undefined });
+        await until(
+            () => fake.calls.some((c) => c.op === 'checkpoint' && c.reason === 'run-end'),
+            'the run-end checkpoint',
+        );
+        const saved = fake.remote.get(ANN)!.files;
+        expect(saved.has(`sessions/${thread}/.data/state.json`)).toBe(true);
+        expect([...saved.keys()].some((k) => k.endsWith(USER_LAYOUT.marker))).toBe(false);
+
+        const users = await call(`${url}/api/admin/users`, { as: SYSTEM });
+        expect(await users.json()).toMatchObject({
+            store: 'fake',
+            durable: true,
+            users: [{ id: ANN, status: 'ready', activeRuns: 0, unsaved: false }],
+        });
+
+        const released = await call(`${url}/api/admin/users/${ANN}/release`, {
+            method: 'POST',
+            as: SYSTEM,
+        });
+        expect(await released.json()).toEqual({ result: 'released' });
+        expect(fake.calls.filter((c) => c.op !== 'load').map((c) => c.reason ?? c.op)).toEqual([
+            'run-end',
+            'release',
+            'release',
+        ]);
+        expect(existsSync(join(serverRoot, 'users', ANN))).toBe(false);
+
+        // Back again: loaded from the store, the chat is all there.
+        const listed = await (await call(`${url}/api/sessions`)).json();
+        expect(listed.sessions.map((s: { id: string }) => s.id)).toEqual([thread]);
+        expect(fake.calls.filter((c) => c.op === 'load')).toHaveLength(2);
+        const history = await (await call(`${url}/api/sessions/${thread}`)).json();
+        expect(history.events.some((e: AGUIEvent) => e.type === EventType.RUN_FINISHED)).toBe(true);
+    });
+
+    it('loads a user once, however many requests arrive at the same time, before any is answered', async () => {
+        const fake = fakeStore({ loadDelayMs: 100 });
+        const { url } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        const answers = await Promise.all(
+            [1, 2, 3].map(() => call(`${url}/api/sessions`).then((r) => r.status)),
+        );
+        expect(answers).toEqual([200, 200, 200]);
+        expect(fake.calls.filter((c) => c.op === 'load')).toHaveLength(1);
+    });
+
+    it('keeps the local store as it was: nothing loaded, saved or deleted', async () => {
+        const { url, serverRoot } = await start({ checkpointSeconds: 0 });
+        const thread = randomUUID();
+        await turn(url, thread);
+        const released = await call(`${url}/api/admin/users/${ANN}/release`, {
+            method: 'POST',
+            as: SYSTEM,
+        });
+        expect(await released.json()).toEqual({ result: 'released' });
+        expect(existsSync(join(serverRoot, 'users', ANN, 'sessions', thread))).toBe(true);
+        const status = await (await call(`${url}/api/status`)).json();
+        expect(status.state).toMatchObject({ store: 'local', durable: false });
+    });
+
+    it('fences a lease that moved on: an older token is refused, a newer one reloads', async () => {
+        const fake = fakeStore();
+        const { url } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        expect((await call(`${url}/api/sessions`, { claims: { gen: 2 } })).status).toBe(200);
+        const old = await call(`${url}/api/sessions`, { claims: { gen: 1 } });
+        expect(old.status).toBe(409);
+        expect(await old.json()).toMatchObject({ code: 'stale_lease' });
+        expect((await call(`${url}/api/sessions`, { claims: { gen: 3 } })).status).toBe(200);
+        expect(fake.calls.filter((c) => c.op === 'load').map((c) => c.generation)).toEqual([2, 3]);
+        expect((await call(`${url}/api/sessions`, { claims: { gen: -1 } })).status).toBe(401);
+    });
+
+    it('drops its copy when the store says a newer lease saved the user elsewhere', async () => {
+        const fake = fakeStore();
+        const { url, serverRoot } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        const thread = randomUUID();
+        await call(`${url}/api/sessions`, { claims: { gen: 1 } });
+        // Another server took the user over and saved them as generation 2.
+        fake.remote.set(ANN, { files: new Map(), generation: 2 });
+        const res = await call(`${url}/api/sessions/${thread}/runs`, {
+            method: 'POST',
+            claims: { gen: 1 },
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hi' }] }),
+        });
+        await res.text();
+        await until(() => !existsSync(join(serverRoot, 'users', ANN)), 'the copy to be dropped');
+        const users = await (await call(`${url}/api/admin/users`, { as: SYSTEM })).json();
+        expect(users.users).toEqual([]);
+        // Its remote state is the newer one's, untouched by this server.
+        expect(fake.remote.get(ANN)).toEqual({ files: new Map(), generation: 2 });
+    });
+
+    it('refuses to release a user while their run goes on, and drains once runs end', async () => {
+        const fake = fakeStore();
+        const { url } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        script = 'sleep-ms 400';
+        try {
+            const pending = turn(url, randomUUID());
+            await until(() => commands.includes('sleep-ms 400'), 'the slow command');
+            const busy = await call(`${url}/api/admin/users/${ANN}/release`, {
+                method: 'POST',
+                as: SYSTEM,
+            });
+            expect(busy.status).toBe(409);
+            expect(await busy.json()).toMatchObject({ code: 'busy' });
+            const drained = await call(`${url}/api/admin/drain?timeout=10`, {
+                method: 'POST',
+                as: SYSTEM,
+            });
+            expect(await drained.json()).toEqual({ released: [ANN], failed: {} });
+            expect((await pending).status).toBe(200);
+            // Draining: nobody new.
+            const late = await call(`${url}/api/sessions`, { as: BOB });
+            expect(late.status).toBe(503);
+            await call(`${url}/api/admin/undrain`, { method: 'POST', as: SYSTEM });
+            expect((await call(`${url}/api/sessions`, { as: BOB })).status).toBe(200);
+        } finally {
+            script = 'echo hello';
+            commands.length = 0;
+        }
+    });
+
+    it('answers the admin routes for the host only', async () => {
+        const { url } = await start({ checkpointSeconds: 0 });
+        expect((await call(`${url}/api/admin/users`)).status).toBe(403);
+        const scoped = await call(`${url}/api/admin/users`, {
+            as: SYSTEM,
+            claims: { thr: randomUUID() },
+        });
+        expect(scoped.status).toBe(403);
+        expect((await call(`${url}/api/admin/users`, { as: SYSTEM })).status).toBe(200);
+    });
+
+    it('saves everyone on stop, and a restarted server recovers and saves the users it finds', async () => {
+        const fake = fakeStore();
+        const first = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        const thread = randomUUID();
+        await turn(first.url, thread, ANN);
+        await turn(first.url, randomUUID(), BOB);
+        await first.server.stop(1000);
+        running = undefined;
+        expect(
+            fake.calls
+                .filter((c) => c.reason === 'shutdown')
+                .map((c) => c.user)
+                .sort(),
+        ).toEqual([ANN, BOB].sort());
+        // The process restarts on the same disk (an emptyDir survives a container restart).
+        fake.calls.length = 0;
+        const again = await start({
+            stateStore: fake.store,
+            checkpointSeconds: 0,
+            root: first.serverRoot,
+        });
+        await until(
+            () => fake.calls.filter((c) => c.reason === 'recover').length === 2,
+            'recovery checkpoints',
+        );
+        expect(
+            fake.calls
+                .filter((c) => c.op === 'recover')
+                .map((c) => c.user)
+                .sort(),
+        ).toEqual([ANN, BOB].sort());
+        // Known already: no load, the chat answers from what survived.
+        const listed = await (await call(`${again.url}/api/sessions`)).json();
+        expect(listed.sessions.map((s: { id: string }) => s.id)).toEqual([thread]);
+        expect(fake.calls.some((c) => c.op === 'load')).toBe(false);
+    });
+
+    it('saves a consistent copy of the user’s memory with their files', async () => {
+        const seedDir = mkdtempSync(join(root, 'state-seed-'));
+        const seeded = await MemoryStore.open(seedDir);
+        await seeded.commit();
+        seeded.release();
+        const fake = fakeStore();
+        const { url } = await start({
+            stateStore: fake.store,
+            checkpointSeconds: 0,
+            memorySeed: seedDir,
+        });
+        await call(`${url}/api/sessions`);
+        await userMemory(ANN);
+        await turn(url, randomUUID());
+        await until(() => fake.memorySnapshots.length > 0, 'a checkpoint');
+        expect(fake.memorySnapshots.at(-1)).toBe(true);
+        const keys = [...fake.remote.get(ANN)!.files.keys()];
+        expect(keys).toContain(`${USER_LAYOUT.memory}/memory.db`);
+        expect(keys.some((k) => /\.checkpoints/.test(k))).toBe(false);
+    });
+
+    it('refuses new runs once a user is over their storage quota', async () => {
+        const { url } = await start({ checkpointSeconds: 0, userDiskQuotaBytes: 1 });
+        expect((await turn(url, randomUUID())).status).toBe(200);
+        const over = await turn(url, randomUUID());
+        expect(over.status).toBe(507);
     });
 });

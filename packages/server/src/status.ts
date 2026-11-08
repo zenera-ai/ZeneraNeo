@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 import { settings, type ServerSettings } from './config.ts';
 import { LAYOUT_VERSION, openLayout } from './layout.ts';
 import { memorySeed } from './store.ts';
+import { userStates } from './userState.ts';
 
 export interface ServerStatus {
     server: string;
@@ -50,6 +51,8 @@ export interface ServerStatus {
     root: { dir: string; version?: number; supported: number; error?: string };
     /** what each user's memory starts as, when there is anything */
     memorySeed?: string;
+    /** where users' data is kept, and how many are on this server now */
+    state: { store: string; durable: boolean; users: number; draining: boolean };
 }
 
 const require = createRequire(import.meta.url);
@@ -148,6 +151,12 @@ export async function serverStatus(env: NodeJS.ProcessEnv = process.env): Promis
         image,
         root,
         ...(memorySeed() ? { memorySeed: memorySeed() } : {}),
+        state: {
+            store: s.stateStore?.name ?? 'local',
+            durable: s.stateStore?.durable ?? false,
+            users: userStates.size,
+            draining: userStates.draining,
+        },
     };
 }
 

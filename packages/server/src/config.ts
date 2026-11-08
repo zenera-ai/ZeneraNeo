@@ -9,8 +9,9 @@
 // server holds only the public key. `insecure` reads the token without checking its signature,
 // for trying a server on this machine.
 import type { SandboxSetup, ZenPlugin } from '@zenera/engine';
-import { ZENERA_BWRAP, type SandboxFactory } from '@zenera/sandbox';
+import { ZENERA_BWRAP, type CommandLimits, type SandboxFactory } from '@zenera/sandbox';
 import { existsSync } from 'node:fs';
+import type { UserStateStore } from './userState.ts';
 
 export type ServerAuth =
     /** EdDSA tokens signed per request by the host (zenera-app), checked with its public key */
@@ -54,6 +55,19 @@ export interface ServerSettings {
     maxUserRuns: number;
     maxRunMinutes: number;
     runLogMaxBytes: number;
+    /**
+     * Where users' data lives beyond this disk (userState.ts): loaded before their first request,
+     * saved at safe points, released on the host's word. Unset: only here (`localStore`).
+     */
+    stateStore?: UserStateStore;
+    /** how often users with runs going (or a failed save) are saved again; 0: never */
+    checkpointSeconds: number;
+    /** the `sub` of the host's own calls, the only one /api/admin answers */
+    systemSubject: string;
+    /** soft limit on one user's folder; over it, no new runs and running ones stop; 0: none */
+    userDiskQuotaBytes: number;
+    /** what each bwrap command is held to: priority, largest file, size of its /tmp; 0: none */
+    commandLimits: CommandLimits;
 }
 
 /**
@@ -91,6 +105,10 @@ export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'auth' | 'root'> = {
     maxUserRuns: 2,
     maxRunMinutes: 120,
     runLogMaxBytes: 50 * 1024 * 1024,
+    checkpointSeconds: 300,
+    systemSubject: DEFAULT_ISSUER,
+    userDiskQuotaBytes: 0,
+    commandLimits: { nice: 10, fileSizeBytes: 0, tmpBytes: 0 },
 };
 
 let current: ServerSettings | undefined;

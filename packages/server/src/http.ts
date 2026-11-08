@@ -30,5 +30,9 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     const status =
         err instanceof HttpError ? err.status : ((err as { status?: number })?.status ?? 500);
     if (status >= 500) console.error(`${req.method} ${req.originalUrl}:`, err);
-    res.status(status).json({ error: errorMessage(err) });
+    const code = (err as { code?: unknown })?.code;
+    res.status(status).json({
+        error: errorMessage(err),
+        ...(err instanceof HttpError && typeof code === 'string' ? { code } : {}),
+    });
 }

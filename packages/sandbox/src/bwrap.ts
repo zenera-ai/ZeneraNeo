@@ -88,9 +88,34 @@ const JOB_SCRIPT = '/tmp/.zenera-job.sh';
  * Commands go first when memory runs out, the server last. Set by a shell of
  * ours just before it becomes bwrap, so everything in the sandbox inherits it
  * (raising one's own score needs no privilege), whether or not the sandbox's
- * `/proc` is writable.
+ * `/proc` is writable. The same shell lowers the command's priority and caps
+ * the size of any one file it writes, when the host asks: soft limits that need
+ * no cgroup of their own, which a pod rarely lets a process make.
  */
-const LAUNCH = ['-c', '{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null; exec "$0" "$@"'];
+export function launchArgs(limits: CommandLimits = {}): string[] {
+    const steps = ['{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null'];
+    // `sh`'s `ulimit -f` counts 512-byte blocks (POSIX; bash in sh mode, dash and ash alike).
+    if (limits.fileSizeBytes && limits.fileSizeBytes > 0) {
+        steps.push(`ulimit -f ${Math.ceil(limits.fileSizeBytes / 512)}`);
+    }
+    const nice = Math.trunc(limits.nice ?? 0);
+    steps.push(
+        nice > 0
+            ? `if command -v nice >/dev/null 2>&1; then exec nice -n ${Math.min(nice, 19)} "$0" "$@"; fi; exec "$0" "$@"`
+            : 'exec "$0" "$@"',
+    );
+    return ['-c', steps.join('; ')];
+}
+
+/** What a host may hold each command to; unset or 0 is no limit. */
+export interface CommandLimits {
+    /** how much lower the command's CPU priority is than the server's (1-19) */
+    nice?: number;
+    /** the largest file a command may write (RLIMIT_FSIZE); a bigger write fails with EFBIG */
+    fileSizeBytes?: number;
+    /** the size of the command's own /tmp, which is memory (tmpfs) */
+    tmpBytes?: number;
+}
 
 const CGROUP = '/sys/fs/cgroup';
 
@@ -116,6 +141,8 @@ export interface BwrapHost {
     env?: NodeJS.ProcessEnv;
     /** more paths no command sees, besides `/state` and `/run/secrets` (always hidden) */
     hidden?: readonly string[];
+    /** soft limits on every command: priority, file size, /tmp size */
+    limits?: CommandLimits;
     /**
      * What this image was built from, which `prepare` checks the spec against;
      * from `ZEN_IMAGE_BUILD` / `ZEN_IMAGE_BASE` when unset. Neither known, or
@@ -299,7 +326,7 @@ export class BwrapSandbox implements Sandbox {
         // The script goes down stdin, so no text of the agent's is ever part of a parse here.
         const res = await this.#run(
             '/bin/sh',
-            [...LAUNCH, this.#bwrap!, ...this.#args(cwd, ['/bin/sh', '-s'])],
+            [...launchArgs(this.#host.limits), this.#bwrap!, ...this.#args(cwd, ['/bin/sh', '-s'])],
             {
                 input: command,
                 timeoutMs: this.#timeout(opts.timeout),
@@ -336,7 +363,7 @@ export class BwrapSandbox implements Sandbox {
             child = spawn(
                 '/bin/sh',
                 [
-                    ...LAUNCH,
+                    ...launchArgs(this.#host.limits),
                     this.#bwrap!,
                     ...this.#args(cwd, ['/bin/sh', JOB_SCRIPT], ['--ro-bind', script, JOB_SCRIPT]),
                 ],
@@ -477,6 +504,7 @@ export class BwrapSandbox implements Sandbox {
             proc: this.#proc,
             network: s.network,
             strict: s.hardening === 'strict',
+            tmpBytes: this.#host.limits?.tmpBytes,
             user: s.user,
             cwd,
             extra,
@@ -582,6 +610,8 @@ export interface BwrapArgs {
     proc: ProcMode;
     network: SandboxNetwork;
     strict: boolean;
+    /** the size of the command's /tmp; strict mode's own cap applies when smaller */
+    tmpBytes?: number;
     user?: { uid: string; gid?: string };
     cwd: string;
     /** more mounts, after `/tmp` exists */
@@ -630,8 +660,9 @@ export function bwrapArgs(a: BwrapArgs): string[] {
         }
     }
     args.push(...(a.proc === 'fresh' ? ['--proc', '/proc'] : ['--ro-bind', '/proc', '/proc']));
-    if (a.strict) {
-        args.push('--size', String(STRICT_TMP_BYTES));
+    if (a.strict || a.tmpBytes) {
+        const sizes = [a.strict ? STRICT_TMP_BYTES : 0, a.tmpBytes ?? 0].filter((n) => n > 0);
+        args.push('--size', String(Math.min(...sizes)));
     }
     args.push('--tmpfs', '/tmp');
     for (const b of a.binds) {
