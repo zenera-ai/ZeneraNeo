@@ -28,10 +28,10 @@ Requires Node.js 24+ and the [Zenera CLI](../cli/README.md).
 
 ## Quickstart
 
-From a configured project:
+For local testing, run the server in the configured project's agent container:
 
 ```sh
-zen server start --insecure --user ann
+zen server start --insecure --container --user andrey
 ```
 
 Open the printed HTTP `/chat` link to list sessions, send messages, follow active
@@ -43,16 +43,21 @@ impersonate any user. API requests still need a JWT, but signatures are not chec
 The test page is available only in this mode. Its token stays in memory; after a
 reload, reopen the printed link or enter a development token again.
 
-To run the server in the project's agent image:
+To show full image build logs:
 
 ```sh
-zen server start --container --insecure --user ann
-zen server start --container --insecure --user ann --verbose # full build logs
+zen server start --insecure --container --user andrey --verbose
 ```
 
 Podman builds and caches the image. Default build output shows a spinner, elapsed
 time, and the latest line; warnings remain visible. Use `--rebuild` to rebuild.
 Press Ctrl+C to stop gracefully and save active runs.
+
+To run the server directly on the host instead, omit `--container`:
+
+```sh
+zen server start --insecure --user andrey
+```
 
 ## Secure setup
 
