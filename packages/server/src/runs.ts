@@ -11,7 +11,10 @@
 //   runDebugRouter(store) - GET /:tid/runs, /:tid/runs/:runId, /:tid/runs/:runId/report: the
 //                           recorded runs, for the Test tab's Debug panel
 //   activeRuns   - how many runs are going; currentRun - the one on a thread, if any
+//   ownerRuns, stopOwnerRuns - one user's runs, and ending them (moved away, over quota)
 //   stopAllRuns  - end every run as interrupted, for a process shutting down
+// A store's optional hooks: admit (before a run: e.g. the storage quota), changed (after a run
+// ended or a thread was deleted: e.g. save the user, userState.ts).
 import type { AGUIEvent, ResumeEntry, RunAgentInput } from '@ag-ui/core';
 import * as engineLib from '@zenera/engine';
 import { runEngine, type Engine, type RunIdentity } from '@zenera/engine';
@@ -74,6 +77,22 @@ export function activeRuns(): number {
 export function currentRun(t: ChatThread): { runId: string } | null {
     const run = runs.get(t.id);
     return run && run.owner === t.owner ? { runId: run.runId } : null;
+}
+
+/** One owner's runs going now, with the thread each is on and when it ends. */
+export function ownerRuns(
+    owner: string,
+): { threadId: string; runId: string; done: Promise<void> }[] {
+    return [...runs.entries()]
+        .filter(([, run]) => run.owner === owner)
+        .map(([threadId, run]) => ({ threadId, runId: run.runId, done: run.done }));
+}
+
+/** Ends one owner's runs as interrupted, saying why; resolves once they have saved. */
+export async function stopOwnerRuns(owner: string, message: string): Promise<void> {
+    const mine = [...runs.values()].filter((run) => run.owner === owner);
+    for (const run of mine) run.controller.abort(new RunStop('interrupted', message));
+    await Promise.all(mine.map((run) => run.done));
 }
 
 interface UserMessage {
@@ -332,6 +351,7 @@ async function execute(
         }
         await log.end().catch((err) => console.error(`run ${runId}: saving its log:`, err));
         runs.delete(t.id);
+        store.changed?.(t, 'run-end');
     }
 }
 
@@ -362,6 +382,8 @@ export function runsRouter(store: ChatStore): Router {
         const resume = resumeOf(req.body);
         const turn = resume ? { resume } : { message: inputOf(req.body) };
         const runId = ID.test(req.body?.runId ?? '') ? String(req.body.runId) : randomUUID();
+        // Over its storage quota, a user gets no new run (checked before the slot is taken).
+        await store.admit?.(t);
 
         if (stopping) {
             res.set('Retry-After', '5');
@@ -452,6 +474,7 @@ export function runsRouter(store: ChatStore): Router {
             await run.done;
         }
         await store.removeThread(t);
+        store.changed?.(t, 'changed');
         res.status(204).end();
     });
 

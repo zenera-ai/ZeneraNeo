@@ -458,7 +458,7 @@ CMD ["server", "start"]
 }
 
 /** Everything that went into the image: the base's id and the context, file by file. */
-function contentHash(ctx: string, baseId: string): string {
+export function contentHash(ctx: string, baseId: string): string {
     const hash = createHash('sha256').update(baseId);
     const walk = (rel: string): void => {
         for (const entry of readdirSync(join(ctx, rel), { withFileTypes: true }).sort((a, b) =>

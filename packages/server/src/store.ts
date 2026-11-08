@@ -46,6 +46,7 @@ import { settings, type ServerSettings } from './config.ts';
 import { HttpError } from './http.ts';
 import { identify, type Identity } from './identity.ts';
 import { applyProjectEnv } from './projectEnv.ts';
+import { userStates } from './userState.ts';
 
 export interface ChatThread {
     id: string;
@@ -73,6 +74,10 @@ export interface ChatStore {
     maxOwnerRuns: number;
     /** Why a run is refused when the owner has that many going. */
     ownerBusy: string;
+    /** Before a run takes its slot: throw an HttpError to refuse it (e.g. storage over quota). */
+    admit?(t: ChatThread): Promise<void>;
+    /** After a run ended or the thread was deleted: the owner's data changed. */
+    changed?(t: ChatThread, reason: 'run-end' | 'changed'): void;
 }
 
 /** Where one user's things are. */
@@ -166,6 +171,8 @@ export const privateStore: ChatStore = {
         return settings().maxUserRuns;
     },
     ownerBusy: 'your other chats are still answering',
+    admit: (t) => userStates.admit(t.owner),
+    changed: (t, reason) => userStates.changed(t.owner, reason),
 };
 
 export function usesMemory(): boolean {
@@ -214,7 +221,7 @@ function sandboxFactory(s: ServerSettings): SandboxFactory {
         ...(existsSync(AGENT_APP_DIR) ? [AGENT_APP_DIR] : []),
         ...s.hidden,
     ];
-    return (opts) => new BwrapSandbox(opts, { hidden });
+    return (opts) => new BwrapSandbox(opts, { hidden, limits: s.commandLimits });
 }
 
 export async function openEngineFor(

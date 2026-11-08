@@ -175,6 +175,25 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
     `pyfiglet` and sets `PYTHONPATH`; a command under bwrap imports both and `zenera` (user `alice`),
     and sees no `/state`, no `/project`, an empty `/opt/zenera/app`.
 
+- **`zen server build`** (`cli/src/release.ts`) — release images, phase 1 of N7 on top of the
+  agent image: `FROM localhost/zenera-agent:<hash>`, the project snapshot (`collect` from
+  `archive.ts`, minus every memory dir; modes 0755/0644, executables kept 0755) at `/project`,
+  the seed snapshot at `/seed` (default seed in the image when no seed flag is given),
+  `--add <src>:<dest>` trees (e.g. plugins), `ENV ZEN_RELEASE ZEN_PROJECT_ID`, `LABEL zenera.release/project`;
+  tagged `localhost/zenera-release:<hash>` (agent image id + release + context) and, with
+  `--push <ref> [--authfile] [--insecure-registry]`, pushed with `--digestfile` to report the
+  digest ZeneraLite deploys. Deploy-time settings (MCP plugin, Bifrost, S3) stay env/ConfigMap.
+
+- **User state** (`server/src/userState.ts`) — phase 2 of N7, so many pods can serve a project:
+  a `UserStateStore` module named by `ZEN_STATE_STORE` (ZeneraLite: `state.mjs`, S3) is called to
+  load a user before their first request (`loadSession` per chat, lazily), to checkpoint after each
+  run, deletion, periodically while runs go on, on release and at shutdown (memory as a
+  `copyMemory` snapshot), and to recover users whose folders survived a restart (`.zen-user.json`
+  marker). The token's `gen` claim is the host's lease generation: older ones get `409
+stale_lease`; a store's `StaleGenerationError` drops the local copy and stops its runs. The host
+  uses `/api/admin` (system subject) to list, release and drain. Soft limits: per-user disk quota,
+  and per bwrap command `nice`, `RLIMIT_FSIZE` (`ulimit -f`) and a `--size` on `/tmp`.
+
 ### ZeneraLite: a JWT per request (next, in ZeneraLite)
 
 - zenera-app signs, for each request it proxies to a project's pod, an EdDSA JWT: `iss` zenera-app,

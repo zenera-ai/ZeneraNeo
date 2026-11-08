@@ -22,6 +22,8 @@ export interface CallerClaims extends JWTPayload {
     role?: string;
     email?: string;
     name?: string;
+    /** the host's lease generation for this user on this server (userState.ts) */
+    gen?: number;
 }
 
 const OPEN = new Set(['/healthz']);

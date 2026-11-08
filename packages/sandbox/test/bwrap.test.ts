@@ -7,6 +7,7 @@ import {
     bwrapArgs,
     buildIdentity,
     hiddenArgs,
+    launchArgs,
     probeBwrap,
     rootArgs,
     SandboxError,
@@ -117,6 +118,56 @@ describe('bwrapArgs', () => {
         expect(bwrapArgs({ ...base, user: { uid: '1000' } }).join(' ')).toContain(
             '--uid 1000 --gid 1000',
         );
+    });
+
+    it('caps /tmp when the host asks, the smaller cap winning under strict', () => {
+        expect(bwrapArgs({ ...base, tmpBytes: 1024 }).join(' ')).toContain(
+            '--size 1024 --tmpfs /tmp',
+        );
+        expect(bwrapArgs({ ...base, strict: true, tmpBytes: 1024 }).join(' ')).toContain(
+            '--size 1024 --tmpfs /tmp',
+        );
+        const big = 1024 * 2 ** 20;
+        expect(bwrapArgs({ ...base, strict: true, tmpBytes: big }).join(' ')).toContain(
+            `--size ${64 * 2 ** 20} --tmpfs /tmp`,
+        );
+        expect(bwrapArgs(base)).not.toContain('--size');
+    });
+});
+
+describe('launchArgs', () => {
+    it('marks the command for the OOM killer, and adds only the limits it is given', () => {
+        const [flag, script] = launchArgs();
+        expect(flag).toBe('-c');
+        expect(script).toBe(
+            '{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null; exec "$0" "$@"',
+        );
+    });
+
+    it('lowers priority and caps file size in 512-byte blocks', () => {
+        const script = launchArgs({ nice: 10, fileSizeBytes: 1_000_000 })[1]!;
+        expect(script).toContain('ulimit -f 1954');
+        expect(script).toContain('exec nice -n 10 "$0" "$@"');
+        // Without nice on the host, the command still runs.
+        expect(script).toMatch(/if command -v nice .*; fi; exec "\$0" "\$@"$/);
+        expect(launchArgs({ nice: 40 })[1]).toContain('nice -n 19');
+    });
+
+    it('runs: the limits apply in a real shell', async () => {
+        const { spawnSync } = await import('node:child_process');
+        const out = spawnSync(
+            '/bin/sh',
+            [
+                ...launchArgs({ nice: 5, fileSizeBytes: 512 * 8 }),
+                '/bin/sh',
+                '-c',
+                'ulimit -f; nice 2>/dev/null || echo no-nice',
+            ],
+            { encoding: 'utf8' },
+        );
+        const [blocks, nice] = out.stdout.trim().split('\n');
+        expect(blocks).toBe('8');
+        expect(nice === 'no-nice' || Number(nice) >= 5).toBe(true);
     });
 });
 

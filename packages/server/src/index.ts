@@ -39,7 +39,15 @@ export {
     type ChatStore,
     type ChatThread,
 } from './store.ts';
-export { runsRouter, runDebugRouter, activeRuns, currentRun, stopAllRuns } from './runs.ts';
+export {
+    runsRouter,
+    runDebugRouter,
+    activeRuns,
+    currentRun,
+    ownerRuns,
+    stopAllRuns,
+    stopOwnerRuns,
+} from './runs.ts';
 export { historyRouter, toMessages } from './history.ts';
 export { traceRouter, openTrace, stepParam } from './trace.ts';
 export { memoryRouter } from './memory.ts';
@@ -48,5 +56,22 @@ export { RunLog, compact, readRunLog, threadRunLogs } from './runLog.ts';
 export * from './runRecords.ts';
 export { applyProjectEnv, withoutProjectEnv } from './projectEnv.ts';
 export { HttpError, errorHandler, notFound } from './http.ts';
-export { envRunPlugins } from './plugins.ts';
+export {
+    envRunPlugins,
+    envServerLimits,
+    envStateStore,
+    type StateStoreOptions,
+} from './plugins.ts';
+export {
+    localStore,
+    StaleGenerationError,
+    USER_LAYOUT,
+    userStates,
+    userUsageBytes,
+    type CheckpointReason,
+    type UserInfo,
+    type UserRef,
+    type UserSnapshot,
+    type UserStateStore,
+} from './userState.ts';
 export { serverStatus, startupErrors, type ServerStatus } from './status.ts';

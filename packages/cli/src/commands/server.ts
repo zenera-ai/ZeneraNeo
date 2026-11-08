@@ -1,13 +1,14 @@
 /**
  * Server command entry point used by the CLI dispatcher.
- * server dispatches start/check/status/token/keygen; start and startContainer launch
- * the runtime with a fixed seed, token prints a dev JWT, and keygen writes an Ed25519 pair.
+ * server dispatches start/check/status/token/keygen/build; start and startContainer launch
+ * the runtime with a fixed seed, token prints a dev JWT, keygen writes an Ed25519 pair, and
+ * build makes (and optionally pushes) a release image with the project baked in (release.ts).
  * On insecure startup, --user only
  * chooses the sub claim for the printed browser link (default local); every API
  * request still selects its user through its own JWT, not a server-wide user setting.
  */
 import { home } from '@zenera/engine';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from '../args.ts';
 import { chatPage, chatUrl } from '../chat.ts';
@@ -15,15 +16,32 @@ import { AGENT_GID, AGENT_UID, buildAgentImage, runContainer } from '../containe
 import { stageContainerCredentials } from '../containerCredentials.ts';
 import { asCliError, ensurePodmanReady } from '../podman.ts';
 import { project as resolveProject } from '../resolve.ts';
+import { buildReleaseImage, checkRelease, parseAdd } from '../release.ts';
 import { preflight } from '../sandbox.ts';
 import { prepareMemorySeed } from '../seed.ts';
 import { generateServerKeys } from '../serverKeys.ts';
 import { hostManagedOutput, printServerStarted } from '../serverDisplay.ts';
 import type { Command, Context } from '../command.ts';
-import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
+import {
+    bold,
+    CliError,
+    cyan,
+    dim,
+    EXIT,
+    green,
+    json,
+    note,
+    red,
+    table,
+    usageError,
+    write,
+    yellow,
+} from '../term.ts';
 
-const USAGE = 'zen server <start|check|status|token|keygen> [options]';
-const SUBCOMMANDS = ['start', 'check', 'status', 'token', 'keygen'];
+const USAGE = 'zen server <start|check|status|build|token|keygen> [options]';
+const SUBCOMMANDS = ['start', 'check', 'status', 'build', 'token', 'keygen'];
+/** Where a release image keeps the memory seed it was built with. */
+const RELEASE_SEED = '/seed';
 
 interface Flags {
     port?: string;
@@ -48,6 +66,11 @@ interface Flags {
     name?: string;
     thread?: string;
     out?: string;
+    release?: string;
+    push?: string;
+    authfile?: string;
+    'insecure-registry'?: boolean;
+    add?: string[];
 }
 
 /**
@@ -75,6 +98,9 @@ export const server: Command = {
         '                         <prefix>.private.pem (0600) and <prefix>.public.pem.',
         '                         Existing files are never overwritten. Keep the private',
         '                         key with the trusted caller, not the runtime.',
+        '  build                  A release image: the agent image plus the project and',
+        '                         its memory seed, baked in (never .env, sessions, .git).',
+        '                         Prints its digest when pushed, else its local tag.',
         '',
         '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
         '  --host <addr>          Default $ZEN_SERVER_HOST, else 127.0.0.1.',
@@ -110,7 +136,18 @@ export const server: Command = {
         '  --token <jwt>          With status: the token to send (default: an unsigned one,',
         '                         which an --insecure server takes).',
         '',
+        '  --release <id>         With build: the release id ([A-Za-z0-9._-], at most 64);',
+        '                         default r-<hash of its content>. In the image: $ZEN_RELEASE.',
+        '  --push <ref>           With build: push to a registry, e.g. registry:5000/agent:r42.',
+        '  --authfile <file>      With --push: podman’s auth file for the registry.',
+        '  --insecure-registry    With --push: plain HTTP / unverified TLS (in-cluster registry).',
+        '  --add <src>:<dest>     With build: copy src into the image at dest (absolute, not',
+        '                         /project, /seed, /state, /workspace, /opt/zenera/{app,bin}).',
+        '                         Repeatable; for large plugins.',
+        '',
         'Model keys come from the keyring and the environment, as for zen run.',
+        'Many servers per project: ZEN_STATE_STORE=<module> keeps users in a store (e.g. S3);',
+        'the host lists, releases and drains them through /api/admin.',
     ],
     run: async (ctx) => {
         const { values, positionals } = parse<Flags>(
@@ -138,6 +175,11 @@ export const server: Command = {
                 name: { type: 'string' },
                 thread: { type: 'string' },
                 out: { type: 'string' },
+                release: { type: 'string' },
+                push: { type: 'string' },
+                authfile: { type: 'string' },
+                'insecure-registry': { type: 'boolean' },
+                add: { type: 'string', multiple: true },
             },
             USAGE,
         );
@@ -159,6 +201,8 @@ export const server: Command = {
                 return token(values);
             case 'keygen':
                 return keygen(ctx, values);
+            case 'build':
+                return build(ctx, values);
         }
     },
 };
@@ -256,12 +300,17 @@ function whichRoot(
     return join(home(), 'servers', project.replace(/[^\w.@-]/g, '_'));
 }
 
-function whichSeed(ctx: Context, values: Flags): string | null | undefined {
+/**
+ * --memory-seed, --no-memory-seed, else the project's own memory — in a release image, the seed
+ * baked in at /seed (its /project carries no memory).
+ */
+function whichSeed(ctx: Context, values: Flags, inAgentImage = false): string | null | undefined {
     if (values['no-memory-seed']) {
         if (values['memory-seed']) throw usageError('--memory-seed or --no-memory-seed', USAGE);
         return null;
     }
-    return values['memory-seed'] ? resolve(ctx.cwd, values['memory-seed']) : undefined;
+    if (values['memory-seed']) return resolve(ctx.cwd, values['memory-seed']);
+    return inAgentImage && existsSync(RELEASE_SEED) ? RELEASE_SEED : undefined;
 }
 
 async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = process.env) {
@@ -278,7 +327,7 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
         projectDir: project.dir,
         projectId,
         root: whichRoot(ctx, values, env, mod, projectId),
-        memorySeed: whichSeed(ctx, values),
+        memorySeed: whichSeed(ctx, values, mod.inAgentImage()),
         auth: whichAuth(ctx, values, env, mod),
         debug: Boolean(values.debug ?? truthy(env.ZEN_SERVER_DEBUG)),
         sandbox: sandboxName,
@@ -292,6 +341,12 @@ async function options(ctx: Context, values: Flags, env: NodeJS.ProcessEnv = pro
             : {}),
         hidden: [],
         plugins: mod.envRunPlugins(env),
+        // Where users' data lives beyond this disk (ZEN_STATE_STORE), and the soft limits.
+        stateStore: await mod.envStateStore(env, {
+            projectId,
+            root: whichRoot(ctx, values, env, mod, projectId),
+        }),
+        ...mod.envServerLimits(env),
         maxRuns: positive(env.ZEN_RUNTIME_MAX_RUNS, mod.DEFAULTS.maxRuns),
         maxUserRuns: positive(env.ZEN_RUNTIME_MAX_USER_RUNS, mod.DEFAULTS.maxUserRuns),
         maxRunMinutes: positive(env.ZEN_RUNTIME_MAX_RUN_MINUTES, mod.DEFAULTS.maxRunMinutes),
@@ -464,6 +519,65 @@ async function startContainer(ctx: Context, values: Flags): Promise<void> {
             }),
     });
     process.exit(0);
+}
+
+/** `build`: a release image, the project baked into the agent image; pushed with --push. */
+async function build(ctx: Context, values: Flags): Promise<void> {
+    const mod = await load();
+    if (mod.inAgentImage()) {
+        throw usageError(
+            'release images are built on a host with podman, not in the agent image',
+            USAGE,
+        );
+    }
+    if (!values.push && (values.authfile || values['insecure-registry'])) {
+        throw usageError('--authfile and --insecure-registry go with --push <ref>', USAGE);
+    }
+    if (values.push !== undefined && !values.push.trim()) {
+        throw usageError('push where? --push <registry>/<name>:<tag>', USAGE);
+    }
+    const release = values.release === undefined ? undefined : checkRelease(values.release);
+    const adds = (values.add ?? []).map((spec) => parseAdd(spec, ctx.cwd));
+    const authfile = values.authfile ? resolve(ctx.cwd, values.authfile) : undefined;
+    if (authfile && !existsSync(authfile)) {
+        throw usageError(`no such auth file: ${authfile}`, USAGE);
+    }
+    const memorySeed = whichSeed(ctx, values);
+    const env = process.env;
+    const project = await whichProject(ctx, values, env, mod);
+    const result = await buildReleaseImage(project.dir, {
+        release,
+        memorySeed,
+        adds,
+        projectId: env.ZEN_PROJECT_ID?.trim() || project.name,
+        push: values.push
+            ? {
+                  ref: values.push.trim(),
+                  authfile,
+                  insecure: Boolean(values['insecure-registry']),
+              }
+            : undefined,
+        rebuild: values.rebuild,
+        verbose: values.verbose,
+    });
+    if (ctx.json) {
+        json(result);
+        return;
+    }
+    note();
+    note(
+        `  ${bold(cyan('Release'))} ${bold(result.release)}${result.built ? '' : dim(' (already built)')}`,
+    );
+    for (const line of table([
+        ['Image', result.image],
+        ['Agent', result.agentImage],
+        ['Base', result.base],
+        ...(result.ref ? [['Pushed', result.ref]] : []),
+        ...(result.digest ? [['Digest', green(result.digest)]] : []),
+    ]))
+        note(`  ${line}`);
+    note();
+    write(result.digest ?? result.image);
 }
 
 async function status(ctx: Context, values: Flags): Promise<void> {

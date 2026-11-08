@@ -100,6 +100,7 @@ it expires. The server does not perform user login or project-membership checks.
 | `zen server status`                | Inspect a running runtime; use `--token <jwt>` for secure mode. |
 | `zen server keygen --out <prefix>` | Generate private/public signing keys.                           |
 | `zen server token --user <id>`     | Print an **unsigned** development JWT for insecure mode.        |
+| `zen server build`                 | Build (and push) a release image; see below.                    |
 
 Test an API without the browser:
 
@@ -138,6 +139,61 @@ credential files. The gateway must be reachable from the container; host
 `localhost` is not container `localhost`.
 Set `sandbox.keys: false` to withhold credentials from agent-written commands,
 while allowing the engine to use them for model calls.
+
+## Release images
+
+`zen server build` bakes a project into an immutable image for Kubernetes and
+prints its digest (or the local tag when not pushed):
+
+```sh
+zen server build --project p1 --release r42 \
+  --push registry.local:5000/agent-p1:r42 [--authfile auth.json] [--insecure-registry]
+```
+
+The image is the agent image plus the project at `/project`, its memory seed at
+`/seed` (`--memory-seed <dir>` / `--no-memory-seed`), `ZEN_RELEASE` and
+`ZEN_PROJECT_ID`. The release id defaults to `r-<content hash>`; `--json` prints
+`{release, image, agentImage, base, built, ref, digest}`.
+
+Never baked in: `.env*` (except `.env.example`), `sessions/`, `.git`,
+`node_modules`, `.tmp/`, or the live memory directory. Deployment settings (JWT public key, MCP
+plugin, Bifrost URL/key, storage) are passed at deploy time via environment
+variables or a ConfigMap. Use `--add <src>:<dest>` (repeatable) to add large
+content such as plugins, e.g. `--add ./plugins:/opt/zenera/plugins`.
+
+## Many servers per project
+
+Several servers can serve one project when users' data lives in a store rather
+than on one disk. Name a store module with `ZEN_STATE_STORE` (ZeneraLite ships an
+S3 store as `state.mjs`). The server then:
+
+- loads a user's data before their first request, and a chat's files when it is opened;
+- saves them after every run, after deletions, every `ZEN_STATE_CHECKPOINT_SECONDS`
+  (300) while runs go on, when released, and on shutdown;
+- refuses a token whose `gen` (lease generation) is older than the one it holds,
+  and drops its copy when the store reports that a newer lease saved the user.
+
+The host manages users through `/api/admin` with tokens for its own subject
+(`ZEN_SERVER_SYSTEM_SUBJECT`, default `zenera-app`):
+
+| Route                                 | Use                                                       |
+| ------------------------------------- | --------------------------------------------------------- |
+| `GET /api/admin/users[?usage=1]`      | Users here: lease, runs, unsaved changes, disk use.       |
+| `POST /api/admin/users/:sub/release`  | Save and let go of one user; `409 busy` while runs go on. |
+| `POST /api/admin/drain[?timeout=600]` | No new users; release each one as their runs end.         |
+| `POST /api/admin/undrain`             | Take new users again.                                     |
+
+Soft limits for many users per pod:
+
+| Variable                   | Limit                                                      |
+| -------------------------- | ---------------------------------------------------------- |
+| `ZEN_RUNTIME_USER_DISK_MB` | Per-user disk; over it, no new runs and running ones stop. |
+| `ZEN_RUNTIME_NICE`         | Lower CPU priority for commands (default 10).              |
+| `ZEN_RUNTIME_MAX_FILE_MB`  | Largest file a command may write.                          |
+| `ZEN_RUNTIME_TMP_MB`       | Size of each command's `/tmp` (it uses memory).            |
+
+These are soft. Hard limits come from the pod: CPU, memory, and a fixed-size
+volume for `/state`.
 
 ## HTTP API
 
