@@ -201,16 +201,33 @@ and does not execute their scripts or setup files.
 
 ## Commands at a glance
 
-| Need                 | Commands                                                  |
-| -------------------- | --------------------------------------------------------- |
-| Create and find work | `zen init`, `zen open`, `zen list`                        |
-| Build and validate   | `zen meta`, `zen check`, `zen sandbox`                    |
-| Run and review       | `zen run`, `zen inspect`, `zen view`                      |
-| Configure providers  | `zen key`, `zen models`                                   |
-| Work with memory     | `zen memory`                                              |
-| Share and maintain   | `zen export`, `zen import`, `zen cache`, `zen completion` |
+| Need                  | Commands                                                    |
+| --------------------- | ----------------------------------------------------------- |
+| Create and find work  | `zen init`, `zen open`, `zen list`                          |
+| Build and validate    | `zen meta`, `zen check`, `zen sandbox`                      |
+| Run and review        | `zen run`, `zen inspect`, `zen view`                        |
+| Configure providers   | `zen key`, `zen models`                                     |
+| Work with memory      | `zen memory`                                                |
+| Serve chats over HTTP | `zen server start`, `zen server check`, `zen server status` |
+| Server authentication | `zen server keygen`, `zen server token`                     |
+| Share and maintain    | `zen export`, `zen import`, `zen cache`, `zen completion`   |
 
 Run `zen --help` or `zen <command> --help` for details and options.
+
+### Serve a project
+
+```sh
+zen server start --insecure --user ann             # local test chat; open the printed HTTP link
+zen server start --container --insecure --user ann # run the server in the project's agent image
+zen server keygen --out ./runtime-auth             # standalone Ed25519 signing keys
+zen server start --jwt-public-key ./runtime-auth.public.pem
+```
+
+`keygen` creates private/public PEM files without overwriting existing files. Keep
+the private key with the trusted caller, not the runtime. `token --user ann`
+prints an **unsigned development JWT**, usable only with `--insecure`; it does
+not sign production requests. See the [server usage guide](../server/README.md)
+for secure callers, storage, and common options.
 
 ### Optional Zenera commands
 
@@ -232,13 +249,14 @@ npm install --global @zenera/rag @zenera/gym
 `@zenera/cli` is the command-line front end for ZeneraNeo. The other packages
 provide the runtime and optional capabilities that work alongside it:
 
-| Package                                                                                    | What it is                                                    |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| [`@zenera/cli`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/README.md)   | `zen` — agent projects on the command line                    |
-| [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)   | The runtime — agents, models, tools, skills, and memory       |
-| [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)   | `zen gym` — mock APIs from OpenAPI or Swagger documents       |
-| [`@zenera/rag`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/rag/README.md)   | `zen rag` — indexing and search for documents and API schemas |
-| [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md) | `zen view` — a live local viewer for a folder                 |
+| Package                                                                                    | What it is                                                          |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| [`@zenera/cli`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/README.md)   | `zen` — agent projects on the command line                          |
+| [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)   | The runtime — agents, models, tools, skills, and memory             |
+| [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)   | `zen gym` — mock APIs from OpenAPI or Swagger documents             |
+| [`@zenera/rag`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/rag/README.md)   | `zen rag` — indexing and search for documents and API schemas       |
+| [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md) | `zen view` — a live local viewer for a folder                       |
+| [`@zenera/server`](../server/README.md)                                                    | `zen server` — multi-user chats over HTTP and server authentication |
 
 `@zenera/rag` also exports tools that can be passed to `loadProject`, allowing
 an agent to search an API schema it has not read beforehand.

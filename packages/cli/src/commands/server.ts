@@ -1,7 +1,7 @@
 /**
  * Server command entry point used by the CLI dispatcher.
- * server dispatches start/check/status/token; start and startContainer launch the
- * runtime with a fixed startup memory seed, while token prints an unsigned dev JWT.
+ * server dispatches start/check/status/token/keygen; start and startContainer launch
+ * the runtime with a fixed seed, token prints a dev JWT, and keygen writes an Ed25519 pair.
  * On insecure startup, --user only
  * chooses the sub claim for the printed browser link (default local); every API
  * request still selects its user through its own JWT, not a server-wide user setting.
@@ -17,12 +17,13 @@ import { asCliError, ensurePodmanReady } from '../podman.ts';
 import { project as resolveProject } from '../resolve.ts';
 import { preflight } from '../sandbox.ts';
 import { prepareMemorySeed } from '../seed.ts';
+import { generateServerKeys } from '../serverKeys.ts';
 import { hostManagedOutput, printServerStarted } from '../serverDisplay.ts';
 import type { Command, Context } from '../command.ts';
 import { CliError, dim, EXIT, green, json, note, red, usageError, write, yellow } from '../term.ts';
 
-const USAGE = 'zen server <start|check|status|token> [options]';
-const SUBCOMMANDS = ['start', 'check', 'status', 'token'];
+const USAGE = 'zen server <start|check|status|token|keygen> [options]';
+const SUBCOMMANDS = ['start', 'check', 'status', 'token', 'keygen'];
 
 interface Flags {
     port?: string;
@@ -46,6 +47,7 @@ interface Flags {
     role?: string;
     name?: string;
     thread?: string;
+    out?: string;
 }
 
 /**
@@ -69,6 +71,10 @@ export const server: Command = {
         '  status                 A running server\u2019s own report (/api/status).',
         '  token                  Print an unsigned token for an --insecure server:',
         '                         --user <id> [--email …] [--role …] [--thread <id>].',
+        '  keygen                 Generate Ed25519 keys: --out <prefix> writes',
+        '                         <prefix>.private.pem (0600) and <prefix>.public.pem.',
+        '                         Existing files are never overwritten. Keep the private',
+        '                         key with the trusted caller, not the runtime.',
         '',
         '  --port <n>             Default $ZEN_SERVER_PORT, else 3000.',
         '  --host <addr>          Default $ZEN_SERVER_HOST, else 127.0.0.1.',
@@ -85,8 +91,9 @@ export const server: Command = {
         '                         $ZEN_SERVER_JWT_PUBLIC_KEY (the PEM itself).',
         '  --jwt-issuer <iss>     Default zenera-app.   --jwt-audience <aud>  Default zenera-runtime.',
         '  --insecure             Read tokens without checking them: no key, any signature,',
-        '                         any age. Loopback only, never in a pod.',
-        '                         Prints a file:// link to the bundled React test chat.',
+        '                         any age. Local testing only; loopback or --container',
+        '                         with its port published on loopback.',
+        '                         Prints an HTTP /chat link to the bundled React test chat.',
         '  --user <id>            Browser user with --insecure (default local); required',
         '                         with token. API callers still choose their user via JWT.',
         '',
@@ -130,6 +137,7 @@ export const server: Command = {
                 role: { type: 'string' },
                 name: { type: 'string' },
                 thread: { type: 'string' },
+                out: { type: 'string' },
             },
             USAGE,
         );
@@ -149,9 +157,25 @@ export const server: Command = {
                 return status(ctx, values);
             case 'token':
                 return token(values);
+            case 'keygen':
+                return keygen(ctx, values);
         }
     },
 };
+
+function keygen(ctx: Context, values: Flags): void {
+    if (!values.out?.trim()) {
+        throw usageError('give an output prefix: --out <prefix>', USAGE);
+    }
+    const paths = generateServerKeys(resolve(ctx.cwd, values.out));
+    if (ctx.json) {
+        json(paths);
+    } else {
+        write(`Private key: ${paths.privateKey}`);
+        write(`Public key:  ${paths.publicKey}`);
+    }
+    note('Keep the private key with the trusted caller. Give only the public key to zen server.');
+}
 
 type ServerModule = typeof import('@zenera/server');
 type ServerSettings = import('@zenera/server').ServerSettings;
