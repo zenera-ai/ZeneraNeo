@@ -15,6 +15,7 @@ import { models } from './models.ts';
 import { open } from './open.ts';
 import { run } from './run.ts';
 import { sandbox } from './sandbox.ts';
+import { server } from './server.ts';
 import { version } from './version.ts';
 import { view } from './view.ts';
 
@@ -42,6 +43,7 @@ export const COMMANDS: Record<string, Command> = {
     import: unpack,
     memory,
     sandbox,
+    server,
     cache,
     completion,
     version,

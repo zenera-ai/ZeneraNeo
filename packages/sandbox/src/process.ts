@@ -20,6 +20,8 @@ export interface ProcOptions {
     signal?: AbortSignal;
     /** per stream */
     maxBytes?: number;
+    /** the child's whole environment; this process's when unset */
+    env?: NodeJS.ProcessEnv;
 }
 
 export interface ProcResult {
@@ -47,7 +49,11 @@ export const runProcess: Runner = (bin, args, opts = {}) =>
         let timedOut = false;
         let done = false;
 
-        const child = spawn(bin, [...args], { shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+        const child = spawn(bin, [...args], {
+            shell: false,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: opts.env,
+        });
 
         const keep = (into: Buffer[], size: number, chunk: Buffer): number => {
             const room = max - size;

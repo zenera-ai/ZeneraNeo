@@ -1,3 +1,9 @@
+/**
+ * Host container-engine preflight used by server, sandbox and project setup commands.
+ * ensurePodmanReady checks the binary, machine and socket; ensureImage builds/pulls
+ * images with terminalProgress or caller-supplied progress, while asCliError surfaces
+ * sandbox failures using the CLI's standard error reporting.
+ */
 import { isBusy, isProjectDir, Registry, sessionIds, sessionsDir } from '@zenera/engine';
 import {
     ensurePodmanImage,
@@ -175,13 +181,18 @@ export function terminalProgress(): Pick<PrepareOptions, 'onProgress' | 'slow'> 
  */
 export async function ensureImage(
     target: { image: string; build?: BuildSpec },
-    opts: { engine?: string; exec?: typeof runProcess; force?: boolean } = {},
+    opts: {
+        engine?: string;
+        exec?: typeof runProcess;
+        force?: boolean;
+        progress?: Pick<PrepareOptions, 'onProgress' | 'slow'>;
+    } = {},
 ): Promise<void> {
     try {
         await ensurePodmanImage(
             target,
             { engine: opts.engine, exec: opts.exec },
-            { ...terminalProgress(), force: opts.force },
+            { ...(opts.progress ?? terminalProgress()), force: opts.force },
         );
     } catch (err) {
         throw asCliError(err);

@@ -38,7 +38,8 @@
         "dist",
         "!dist/**/*.map",
         "postinstall.mjs",
-        "templates"
+        "templates",
+        "assets"
     ],
     "engines": {
         "node": ">=24"
@@ -56,6 +57,8 @@
         "@openrouter/sdk": "^1.4.25",
         "@zenera/engine": "^1.1.59",
         "@zenera/neo": "^1.1.59",
+        "@zenera/sandbox": "^1.1.59",
+        "@zenera/server": "^1.1.59",
         "@zenera/view": "^1.1.59",
         "google-auth-library": "^10.0.0",
         "ink": "^7.1.1",

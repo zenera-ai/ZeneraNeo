@@ -15,10 +15,11 @@ import {
     buildSandbox,
     createSessionAt,
     EngineError,
-    prepareHome,
     readProjectEnv,
     resolveUser,
+    runtimeDir,
     teardown,
+    RUNTIME_DIR,
     RUNTIME_NODE,
     RUNTIME_PYTHON,
 } from '../src/index.ts';
@@ -99,7 +100,10 @@ describe('the sandbox a run gets', () => {
     it('carries the user on every command, never by name from the host', () => {
         const box = setup(ANN).sandbox as PodmanSandbox;
         expect(box.spec.execEnv).toMatchObject({ ZEN_USER_ID: 'u-1', ZEN_USER_ROLE: 'editor' });
-        expect(box.spec.execPaths.PYTHONPATH).toEqual([RUNTIME_PYTHON]);
+        expect(box.spec.execPaths).toEqual({
+            PYTHONPATH: [RUNTIME_PYTHON],
+            NODE_PATH: [RUNTIME_NODE],
+        });
         expect(box.spec.secrets).not.toContain('ZEN_USER_ID');
         expect(Object.keys(box.spec.env).some((k) => k.startsWith('ZEN_USER_'))).toBe(false);
     });
@@ -135,6 +139,7 @@ describe('the sandbox a run gets', () => {
         expect(opened[0].execEnv).toMatchObject({ ZEN_USER_ID: 'u-1' });
         expect(s.mounts.map(({ at, readOnly, source }) => ({ at, readOnly, source }))).toEqual([
             { at: '/home/agent', readOnly: undefined, source: { kind: 'home' } },
+            { at: RUNTIME_DIR, readOnly: true, source: { kind: 'runtime' } },
         ]);
 
         await teardown(s);
@@ -147,19 +152,10 @@ describe('the sandbox a run gets', () => {
 });
 
 describe('the zenera libraries', () => {
+    // What every sandbox binds at /opt/zenera/runtime: python/ and node/, each holding `zenera`.
     function installed(): { home: string; python: string; node: string } {
-        const s = (() => {
-            const root = scratch();
-            return buildSandbox({
-                config: parseConfig('agents:\n  - name: solo\n', 'agents.yaml'),
-                session: createSessionAt(join(root, 'session'), join(root, 'ws')),
-                workspace: join(root, 'ws'),
-                root,
-            });
-        })();
-        prepareHome(s);
-        const at = (p: string) => join(s.home, p.replace('/home/agent/', ''));
-        return { home: s.home, python: at(RUNTIME_PYTHON), node: at(RUNTIME_NODE) };
+        const dir = runtimeDir();
+        return { home: dir, python: join(dir, 'python'), node: join(dir, 'node', 'zenera') };
     }
 
     const env = (extra: Record<string, string>): NodeJS.ProcessEnv => {
@@ -169,11 +165,38 @@ describe('the zenera libraries', () => {
         return { ...clean, ...extra };
     };
 
-    it('are written into the home the container mounts', () => {
-        const { python, node } = installed();
+    it('are one copy for every session, mounted read-only, never in a session', () => {
+        const { home, python, node } = installed();
         expect(existsSync(join(python, 'zenera', '__init__.py'))).toBe(true);
         expect(existsSync(join(node, 'index.cjs'))).toBe(true);
         expect(existsSync(join(node, 'index.mjs'))).toBe(true);
+        expect(runtimeDir()).toBe(home);
+
+        const root = scratch();
+        const session = createSessionAt(join(root, 'session'), join(root, 'ws'));
+        const s = buildSandbox({
+            config: parseConfig('agents:\n  - name: solo\n', 'agents.yaml'),
+            session,
+            workspace: join(root, 'ws'),
+            root,
+        });
+        expect(s.mounts).toContainEqual({
+            host: home,
+            at: RUNTIME_DIR,
+            readOnly: true,
+            source: { kind: 'runtime' },
+        });
+        expect(existsSync(join(s.home, '.zenera'))).toBe(false);
+    });
+
+    it('are found by require through NODE_PATH, as every command has it', () => {
+        const { node } = installed();
+        const found = spawnSync(
+            process.execPath,
+            ['-e', "console.log(require('zenera').identity().id)"],
+            { env: env({ ZEN_USER_ID: 'u-9', NODE_PATH: join(node, '..') }), encoding: 'utf8' },
+        );
+        expect(found.stdout.trim()).toBe('u-9');
     });
 
     it('answer from node, both module systems', () => {

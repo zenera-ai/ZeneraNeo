@@ -29,6 +29,8 @@ export type MountSource =
     | { kind: 'skills' }
     /** the container's private, persistent `$HOME` */
     | { kind: 'home' }
+    /** the `zenera` libraries, read-only, at /opt/zenera/runtime — one copy for every session */
+    | { kind: 'runtime' }
     /** one credential file, by the variable that names it */
     | { kind: 'credential'; name: string };
 
