@@ -1,6 +1,6 @@
 {
     "name": "@zenera/rag",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "description": "Retrieval over a corpus: openapi/swagger documents as a searchable graph, markdown and text as searchable passages.",
     "keywords": [
         "agents",
@@ -61,8 +61,8 @@
     "dependencies": {
         "@apidevtools/swagger-parser": "^12.0.0",
         "@lancedb/lancedb": "^0.38.0",
-        "@zenera/cli": "^1.2.3",
-        "@zenera/neo": "^1.2.3",
+        "@zenera/cli": "^1.2.4",
+        "@zenera/neo": "^1.2.4",
         "graphology": "^0.26.0",
         "remark-frontmatter": "^5.0.0",
         "remark-gfm": "^4.0.1",
