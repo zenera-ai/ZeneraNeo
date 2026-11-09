@@ -5,6 +5,7 @@
         { "path": "packages/neo" },
         { "path": "packages/view" },
         { "path": "packages/engine" },
+        { "path": "packages/server" },
         { "path": "packages/cli" },
         { "path": "packages/gym" },
         { "path": "packages/rag" }

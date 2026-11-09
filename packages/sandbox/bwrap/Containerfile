@@ -1,0 +1,23 @@
+# A statically linked bubblewrap: one file with no shared libraries, so the
+# agent image can run it on whatever base the project chose (Debian, Ubuntu,
+# Fedora, Alpine, distroless). The image holds that one file, for
+#
+#   podman build --platform linux/amd64 -t zenera-bwrap -f packages/sandbox/bwrap/Containerfile .
+#   COPY --from=zenera-bwrap /bwrap /opt/zenera/bin/bwrap
+#
+# No setuid: the sandbox uses unprivileged user namespaces.
+FROM docker.io/library/alpine:3.22 AS build
+ARG BWRAP_VERSION=0.13.1
+RUN apk add --no-cache build-base meson ninja pkgconf libcap-dev libcap-static linux-headers curl xz
+RUN mkdir -p /src && curl -fsSL https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz \
+    | tar -xJ -C /src --strip-components=1
+WORKDIR /src
+RUN meson setup build --buildtype=release --prefer-static --default-library=static \
+        -Dc_link_args=-static -Dselinux=disabled -Dman=disabled -Dtests=false \
+        -Dbash_completion=disabled -Dzsh_completion=disabled \
+    && ninja -C build bwrap \
+    && strip build/bwrap \
+    && sha256sum build/bwrap
+
+FROM scratch
+COPY --from=build /src/build/bwrap /bwrap

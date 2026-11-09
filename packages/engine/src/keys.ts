@@ -1,3 +1,9 @@
+/**
+ * Host keyring and ambient credential discovery used by the engine and CLI.
+ * KeyStore materializes active entries, credentials lists supplied secrets/files,
+ * and gcloudAdc locates SDK-default credentials. MODEL_CONTEXT_ENV defines the
+ * non-secret provider settings shared by command sandboxes and agent containers.
+ */
 import { EXA_API_KEY_ENV, GATEWAY_KEY_ENV, GATEWAY_URL_ENV } from '@zenera/neo';
 import { chmodSync, copyFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -57,6 +63,14 @@ export const MODES: readonly KeyMode[] = ['direct', ...GATEWAYS];
 export const OWNERS = [...PROVIDERS, ...SERVICES, ...GATEWAYS] as const;
 
 export type KeyOwner = Provider | Service | GatewayOwner;
+
+/** Non-secret provider settings that accompany credentials into a runtime or sandbox. */
+export const MODEL_CONTEXT_ENV = [
+    'GOOGLE_CLOUD_PROJECT',
+    'GOOGLE_CLOUD_LOCATION',
+    'GOOGLE_CLOUD_QUOTA_PROJECT',
+    GATEWAY_URL_ENV,
+] as const;
 
 /**
  * One way a credential can arrive.

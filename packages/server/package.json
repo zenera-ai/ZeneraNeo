@@ -1,0 +1,57 @@
+{
+    "name": "@zenera/server",
+    "version": "1.2.4",
+    "description": "One user's chats with a project over HTTP: the server in the agent image, commands isolated with bubblewrap. Every user its host vouches for with a signed JWT, each in a folder of their own.",
+    "keywords": [
+        "agents",
+        "ai-agents",
+        "agent-runtime",
+        "ag-ui",
+        "server"
+    ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "author": "Andrey Ryabov",
+    "homepage": "https://github.com/zenera-ai/ZeneraNeo#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zenera-ai/ZeneraNeo.git",
+        "directory": "packages/server"
+    },
+    "bugs": "https://github.com/zenera-ai/ZeneraNeo/issues",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "!dist/**/*.map"
+    ],
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "clean": "tsc -b --clean && rm -rf dist",
+        "prepack": "tsc -b"
+    },
+    "dependencies": {
+        "@ag-ui/core": "^1.0.3",
+        "@zenera/engine": "^1.2.4",
+        "@zenera/neo": "^1.2.4",
+        "@zenera/sandbox": "^1.2.4",
+        "express": "^5.3.0",
+        "jose": "^6.2.13"
+    },
+    "devDependencies": {
+        "@types/express": "^5.0.6"
+    }
+}

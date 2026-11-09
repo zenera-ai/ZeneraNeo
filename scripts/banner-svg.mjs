@@ -109,6 +109,10 @@ const ACCENTS = {
         dark: { accent: '#ff87d7', accentShade: '#d75faf' },
         light: { accent: '#bf3989', accentShade: '#99286e' },
     },
+    crimson: {
+        dark: { accent: '#ff005f', accentShade: '#af0000' },
+        light: { accent: '#c21846', accentShade: '#8f1234' },
+    },
 };
 
 /** An ANSI line as `{ char, role }` cells — the escape codes carry the tone. */
@@ -183,6 +187,7 @@ const WORDMARKS = [
     { file: 'banner-rag', accent: 'green', text: { ...NEO_BANNER, accent: 'Rag' } },
     { file: 'banner-gym', accent: 'violet', text: { ...NEO_BANNER, accent: 'Gym' } },
     { file: 'banner-view', accent: 'pink', text: { ...NEO_BANNER, accent: 'View' } },
+    { file: 'banner-server', accent: 'crimson', text: { ...NEO_BANNER, accent: 'Server' } },
 ];
 
 const selected = process.argv.slice(2);

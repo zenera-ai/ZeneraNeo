@@ -11,5 +11,10 @@
         "types": ["node", "react"]
     },
     "include": ["src/**/*.ts", "src/**/*.tsx"],
-    "references": [{ "path": "../neo" }, { "path": "../engine" }, { "path": "../view" }]
+    "references": [
+        { "path": "../neo" },
+        { "path": "../engine" },
+        { "path": "../view" },
+        { "path": "../server" }
+    ]
 }
