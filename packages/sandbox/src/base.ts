@@ -139,7 +139,9 @@ export async function ensureSandboxBases(
         if (pulled.code === 0) {
             continue;
         }
-        say(`  could not pull it; building it here instead (several minutes, once)`);
+        const why = (pulled.stderr.trim() || `exit ${pulled.code}`).split('\n').at(-1)!;
+        say(`  could not pull it (${why.slice(0, 200)})`);
+        say(`  building it here instead (several minutes, once)`);
         const ctx = mkdtempSync(join(tmpdir(), 'zen-sandbox-base-'));
         try {
             writeFileSync(join(ctx, 'Dockerfile'), sandboxBaseDockerfile());
