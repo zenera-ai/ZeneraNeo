@@ -1,6 +1,6 @@
 {
     "name": "@zenera/sandbox",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "description": "Where an agent's commands run and the files they see: the Sandbox contract, podman and bubblewrap implementations, filesystem drivers and a contract test suite for other implementations.",
     "keywords": [
         "sandbox",
@@ -47,7 +47,8 @@
     "scripts": {
         "build": "tsc -b",
         "clean": "tsc -b --clean && rm -rf dist",
-        "prepack": "tsc -b"
+        "prepack": "tsc -b",
+        "sandbox-base:dockerfile": "tsc -b && node -e \"import(\\\"./dist/base.js\\\").then((m) => process.stdout.write(m.sandboxBaseDockerfile()))\" > sandbox-base.Dockerfile"
     },
     "peerDependencies": {
         "vitest": ">=3"

@@ -89,6 +89,27 @@ Pushing the tag is what publishes. Until then nothing has left the machine.
    **skipping any `name@version` the registry already has** - so re-running a partially
    failed release finishes it instead of dying on the first already-published package.
 5. `gh release create <tag> --generate-notes`.
+6. Job `images` (one per image): once npm serves the version, builds for linux/amd64 and
+   linux/arm64 and pushes (skipped when already pushed):
+
+- `ghcr.io/zenera-ai/zenera-agent-runtime:<version>` from `packages/cli/agent-runtime.Dockerfile`:
+  `zen server build` copies the agent runtime from it instead of installing and compiling it;
+- `ghcr.io/zenera-ai/zenera-sandbox:<version>` from `packages/sandbox/sandbox-base.Dockerfile`:
+  the base new projects' `sandbox/Dockerfile` starts `FROM` (Python, Node, the npm packages,
+  this zen), so `zen init`/`zen check` pull it instead of installing for minutes.
+
+If this job fails, nothing breaks: zen builds either image itself, just slower. Re-run the
+workflow with the tag.
+
+> **Both images must be public.** Each first push creates a private package on ghcr:
+> _github.com/orgs/zenera-ai/packages → zenera-agent-runtime / zenera-sandbox → Package
+> settings → Change visibility → Public_ (once each). Until then, pulls fail and zen builds
+> them itself.
+>
+> The Dockerfiles are generated: edit `agentRuntimeDockerfile()` (`packages/cli/src/container.ts`)
+> or `sandboxBaseDockerfile()` (`packages/sandbox/src/base.ts`), then
+> `npm run agent-runtime:dockerfile -w packages/cli` / `npm run sandbox-base:dockerfile -w
+packages/sandbox` (a test fails while they differ).
 
 > **CI has no npm token.** `NPM_TOKEN` is unset; the workflow authenticates with npm
 > **trusted publishing** (OIDC, `id-token: write` + npm >= 11.5.1), which also signs a

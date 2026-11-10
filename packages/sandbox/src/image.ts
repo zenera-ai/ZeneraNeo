@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { ensureSandboxBases } from './base.ts';
 import { SandboxError, type BuildSpec, type PrepareOptions } from './contract.ts';
 import { runProcess, type ProcResult, type Runner } from './process.ts';
 
@@ -211,6 +212,8 @@ async function obtain(
         say(`${opts.force ? 'rebuilding' : 'building'} the sandbox image from ${build.dockerfile}`);
         say('  the agent runs its commands inside a container, so the image is needed first');
         say('  this takes a few minutes; later runs reuse it');
+        // The zenera base it starts FROM: pulled, or built here when it cannot be.
+        await ensureSandboxBases(engine, run, build.dockerfile, opts);
         const args = Object.entries(build.args ?? {}).flatMap(([k, v]) => [
             '--build-arg',
             `${k}=${v}`,

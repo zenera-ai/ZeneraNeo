@@ -7,9 +7,10 @@
 import type { ProcResult } from '@zenera/neo';
 import { MemoryStore } from '@zenera/neo';
 import { ChildProcess, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@zenera/sandbox', async (original) => ({
@@ -29,7 +30,14 @@ vi.mock('node:child_process', async (original) => ({
 
 import { runProcess } from '@zenera/sandbox';
 import { credentials, gcloudAdc } from '@zenera/engine';
-import { agentDockerfile, runContainer, type ContainerRun } from '../src/container.ts';
+import {
+    AGENT_RUNTIME_REPO,
+    agentDockerfile,
+    agentRuntimeDockerfile,
+    agentRuntimeRef,
+    runContainer,
+    type ContainerRun,
+} from '../src/container.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'zen-container-test-'));
 const materialize = vi.fn(() => ({}));
@@ -59,6 +67,61 @@ const run: ContainerRun = {
     auth: { mode: 'insecure' },
     debug: false,
 };
+
+describe('prebuilt agent runtime', () => {
+    const released = { version: '1.2.5', installed: true };
+
+    it('a released CLI uses its release image; a dev checkout builds its own code', () => {
+        expect(agentRuntimeRef(released, {})).toBe(`${AGENT_RUNTIME_REPO}:1.2.5`);
+        expect(agentRuntimeRef({ ...released, installed: false }, {})).toBeNull();
+    });
+
+    it('ZEN_AGENT_RUNTIME=local builds here; ZEN_AGENT_RUNTIME_IMAGE names a mirror', () => {
+        expect(agentRuntimeRef(released, { ZEN_AGENT_RUNTIME: 'local' })).toBeNull();
+        expect(
+            agentRuntimeRef(
+                { ...released, installed: false },
+                { ZEN_AGENT_RUNTIME_IMAGE: 'mirror.local/rt:1.2.5' },
+            ),
+        ).toBe('mirror.local/rt:1.2.5');
+        expect(
+            agentRuntimeRef(released, {
+                ZEN_AGENT_RUNTIME: 'local',
+                ZEN_AGENT_RUNTIME_IMAGE: 'mirror.local/rt:1.2.5',
+            }),
+        ).toBeNull();
+    });
+
+    it('copies /opt/zenera from the runtime image instead of installing and compiling', () => {
+        const prebuilt = agentDockerfile('test-base', { ZEN_IMAGE_BASE: 'b' }, 'rt:1.2.5');
+        expect(prebuilt).toContain(
+            'FROM test-base\nUSER root\nCOPY --from=rt:1.2.5 /opt/zenera /opt/zenera',
+        );
+        expect(prebuilt).not.toMatch(/npm install|meson|pkgs\/|app\.json/);
+        expect(prebuilt.match(/^FROM /gm)).toHaveLength(1);
+        // Same final image either way, past the runtime.
+        const local = agentDockerfile('test-base', { ZEN_IMAGE_BASE: 'b' });
+        const tail = (d: string) => d.slice(d.indexOf('COPY runtime/'));
+        expect(tail(prebuilt)).toBe(tail(local));
+        expect(local).toContain('COPY --from=bwrap /src/build/bwrap /opt/zenera/bin/bwrap');
+    });
+
+    it('the runtime image pins every @zenera package and checks the version it installed', () => {
+        const dockerfile = agentRuntimeDockerfile();
+        for (const name of ['sandbox', 'neo', 'view', 'engine', 'server']) {
+            expect(dockerfile).toContain(`"overrides.@zenera/${name}=$ZEN_VERSION"`);
+        }
+        expect(dockerfile).toContain('"dependencies.@zenera/cli=$ZEN_VERSION"');
+        expect(dockerfile).toContain('--version)" = "$ZEN_VERSION"');
+        expect(dockerfile).toContain('LABEL zenera.agent-runtime=1 zenera.version=$ZEN_VERSION');
+        expect(dockerfile).toContain('org.opencontainers.image.source=');
+    });
+
+    it('agent-runtime.Dockerfile is agentRuntimeDockerfile() (npm run agent-runtime:dockerfile)', () => {
+        const file = fileURLToPath(new URL('../agent-runtime.Dockerfile', import.meta.url));
+        expect(readFileSync(file, 'utf8')).toBe(agentRuntimeDockerfile());
+    });
+});
 
 describe('non-root agent containers', () => {
     it('passes API keys by environment name without putting values in argv', async () => {

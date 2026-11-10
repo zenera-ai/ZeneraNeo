@@ -949,9 +949,17 @@ sandbox:
 Both must resolve inside the project; a path that escapes the root is refused
 at load, as everywhere else in this file.
 
-`zen init` writes a `sandbox/Dockerfile` with Python and Node in it and points
-this at it. It is the project's file from then on - edit it, commit it, and
-`zen init` will not touch it again.
+`zen init` writes a `sandbox/Dockerfile` and points this at it. It is the
+project's file from then on - edit it, commit it, and `zen init` will not touch
+it again. It starts `FROM ghcr.io/zenera-ai/zenera-sandbox:<version>`, zen's
+sandbox base: Python and Node, the packages zen's tools need, and that version
+of `zen` itself, built once per release. It is pulled once per machine; when it
+cannot be pulled (offline, not published) the build makes it here from the same
+recipe (`sandboxBaseDockerfile()` in `@zenera/sandbox`) under that name. The tag
+is the pin `zen check` reads: after an upgrade it warns `sandbox.pin.stale`, and
+`zen check --fix` moves it. Projects created before the base keep their own
+Dockerfile, which is never rewritten; start yours `FROM` the base by hand to
+switch.
 
 **The tag is a hash of the content.** The image is tagged
 `localhost/zenera-sandbox:<digest>`, where the digest covers the Dockerfile and

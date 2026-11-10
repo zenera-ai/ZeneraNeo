@@ -150,14 +150,20 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
   and retains the final progress line. Managed images report HTTP readiness without duplicating
   the host summary or insecure warning.
     1. ready the project's sandbox image as `zen run` does; read its `Env`;
-    2. `npm pack` this zen's `@zenera/{sandbox,neo,view,engine,server,cli}` from where they are
-       installed (no npm release needed), `npm install` them in a `node:24-trixie-slim` stage into
-       `/opt/zenera/app` (`overrides` point at the tarballs), copy its `node` to `/opt/zenera/bin`;
-    3. a static bwrap stage (Alpine, musl, `-static`);
-    4. final stage `FROM` the sandbox image: `/opt/zenera`, bwrap, `runtime/`, `etc/image-env.json`,
+    2. the runtime (`/opt/zenera`: node, the `@zenera` packages, bwrap). A released zen copies it
+       from its release's prebuilt image `ghcr.io/zenera-ai/zenera-agent-runtime:<version>`
+       (`packages/cli/agent-runtime.Dockerfile`, pushed by the release workflow; pulled once,
+       checked by its `zenera.version` label): seconds instead of minutes. A dev checkout, an
+       image that cannot be pulled or carries another version, or `ZEN_AGENT_RUNTIME=local`
+       builds it here instead: `npm pack` this zen's `@zenera/{sandbox,neo,view,engine,server,cli}`
+       from where they are installed (no npm release needed), `npm install` them in a
+       `node:24-trixie-slim` stage into `/opt/zenera/app` (`overrides` point at the tarballs),
+       copy its `node` to `/opt/zenera/bin`, and a static bwrap stage (Alpine, musl, `-static`).
+       `ZEN_AGENT_RUNTIME_IMAGE=<ref>` names a mirror of the prebuilt image (air-gapped installs);
+    3. final stage `FROM` the sandbox image: `/opt/zenera`, bwrap, `runtime/`, `etc/image-env.json`,
        `ZEN_IMAGE_BUILD`/`BASE`, entrypoint `zen server start`; tag `localhost/zenera-agent:<hash>`
-       (rebuilt only when an input changes, or `--rebuild`);
-    5. snapshot the seed on the host, then `podman run --rm -d`: `/project:ro`, the root at `/state`,
+       (rebuilt only when an input changes, or `--rebuild`; the hash covers the runtime image's id);
+    4. snapshot the seed on the host, then `podman run --rm -d`: `/project:ro`, the root at `/state`,
        the prepared snapshot at `/seed:ro` (or `--no-memory-seed`), the port on `--host`, auth flags and
        model keys and provider context passed by environment name; credential files
        mounted as private Podman secrets and staged into the container's private home
