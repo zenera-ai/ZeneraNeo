@@ -230,8 +230,8 @@ describe('the handler context', () => {
 
     it('names a collection for a type nobody has bound', () => {
         expect(collectionFor('Message')).toBe('messages');
-        expect(collectionFor('PolicyTransportZone')).toBe('policy_transport_zones');
-        expect(collectionFor('Tier0')).toBe('tier0s');
+        expect(collectionFor('AvailabilityZone')).toBe('availability_zones');
+        expect(collectionFor('Ipv6')).toBe('ipv6s');
         expect(collectionFor('Address')).toBe('address');
     });
 

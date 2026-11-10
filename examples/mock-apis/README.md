@@ -9,19 +9,10 @@ world, and the reference documents it draws on.
 | [specs/calendar.yaml](specs/calendar.yaml)                 | A calendar API shaped after Google Calendar                                       |
 | [stories/northwind-launch.md](stories/northwind-launch.md) | Northwind Labs in the week of a product launch: people, mail, meetings, a bug     |
 | [kb/](kb)                                                  | Northwind's handbook: meeting rooms and lengths, the release process, escalations |
-| [nsx/story.md](nsx/story.md)                               | An NSX datacenter the morning after a cutover, one segment left down              |
-| [nsx/kb/](nsx/kb)                                          | How NSX Policy segments and ports are shaped                                      |
 
 Mail and calendar, in two processes sharing one world:
 
 ```sh
 zen gym serve specs/mail.yaml     --story stories/northwind-launch.md --docs kb --port 8787
 zen gym serve specs/calendar.yaml --story stories/northwind-launch.md --docs kb --port 8788
-```
-
-NSX, against the NSX Policy and Manager API documents (not included here; any
-directory holding them works, an API index included):
-
-```sh
-zen gym serve --schema path/to/nsx-specs --story nsx/story.md --docs nsx/kb --world nsx
 ```

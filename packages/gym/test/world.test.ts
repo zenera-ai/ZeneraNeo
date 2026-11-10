@@ -201,14 +201,14 @@ describe('the world agent', () => {
                           type: 'Zone',
                           records: [{ id: 'z1', name: 'overlay' }],
                       })
-                    : call('save_records', { records: [thing('/infra/zones/z1')] }),
+                    : call('save_records', { records: [thing('/zones/z1')] }),
             );
             r = rr;
             await ask(r);
             expect(r.bindings.of('Zone')).toEqual({ collection: 'zones', idField: 'id' });
             expect(r.store.collection('zones').get('z1')).toEqual({ id: 'z1', name: 'overlay' });
             expect(r.store.collection('things').get('t1')).toMatchObject({
-                zone_path: '/infra/zones/z1',
+                zone_path: '/zones/z1',
             });
             // made as a dependency, not read as a list: the zones are not "populated"
             expect(r.store.getMeta(populatedKey('zones'))).toBeUndefined();
@@ -238,7 +238,7 @@ describe('the world agent', () => {
             const model = scripted({
                 world: (turn) =>
                     turn.results.length === 0
-                        ? call('save_records', { records: [thing('/infra/zones/nowhere')] })
+                        ? call('save_records', { records: [thing('/zones/nowhere')] })
                         : say('done'),
             });
             r = await rig('shared.yaml', model);
@@ -254,7 +254,7 @@ describe('the world agent', () => {
                 { collection: 'things', type: 'Thing', idField: 'id', ids: ['t1'] },
                 { db: r.store.path, probe: false, input: request },
             );
-            expect(made[0]!.dangling).toEqual(['zone_path=/infra/zones/nowhere']);
+            expect(made[0]!.dangling).toEqual(['zone_path=/zones/nowhere']);
         });
     });
 

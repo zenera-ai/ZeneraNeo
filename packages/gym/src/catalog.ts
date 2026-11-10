@@ -189,7 +189,7 @@ export class Catalog {
     /**
      * The type of the records an operation is about: its response type, or —
      * when that is a list envelope with no identity of its own — the type its
-     * list holds. `Tier0ListResult` is about `Tier0`; `Event` is about `Event`.
+     * list holds. `RouterListResult` is about `Router`; `Event` is about `Event`.
      */
     itemType(operation: Operation): string | undefined {
         const op = this.find(operation);
@@ -213,7 +213,7 @@ export class Catalog {
 
     /**
      * A type's own properties and the ones it inherits through `allOf`, which is
-     * how most documents spell inheritance — an NSX `Tier0` declares little of
+     * how most documents spell inheritance — a `Router` built on a base resource declares little of
      * what it holds itself.
      */
     properties(type: string): { name: string; schema: rag.Schema; required: boolean }[] {
@@ -252,8 +252,8 @@ export class Catalog {
     /**
      * Fields that point at other entities, judged by name: `*_id`, `*_path`,
      * `*Ref`, `parent`, `owner`… Names rather than the schema because the
-     * schema rarely says: an NSX `connectivity_path` is a string, and only its
-     * name and its description say it names a Tier-1.
+     * schema rarely says: a `gateway_path` is a string, and only its name and
+     * its description say it names a Gateway.
      */
     references(type: string): { name: string; signature: string; doc: string }[] {
         const own = this.idField(type);
@@ -268,7 +268,7 @@ export class Catalog {
 
     /**
      * The type a reference field most likely names, from the field's name:
-     * `labelIds` → `Label`, `transport_zone_path` → `PolicyTransportZone`. A
+     * `labelIds` → `Label`, `availability_zone_path` → `AvailabilityZone`. A
      * field that names no type — a `threadId` where threads are not a schema —
      * has no referent, and cannot dangle.
      */

@@ -608,7 +608,7 @@ export class World {
 
     /**
      * Where records of another type go, placing the type if nobody has: the
-     * world agent can be first to need a transport zone, before any handler has
+     * world agent can be first to need a label, before any handler has
      * served one.
      */
     #placeOf(type: string):
@@ -645,7 +645,7 @@ export class World {
     /**
      * References in the records just made that point at nothing. Judged loosely:
      * a value counts as found if any collection holds a record under it, or
-     * under its last path segment — `/infra/tier-1s/t1-app` names `t1-app`.
+     * under its last path segment — `/v1/gateways/gw-app` names `gw-app`.
      * Reported, never repaired: a guess at the missing entity would be worse.
      */
     #dangling(

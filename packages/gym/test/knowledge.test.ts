@@ -148,8 +148,8 @@ describe('the story', () => {
 
 describe('the docs', () => {
     const kb = (): void => {
-        write('kb/bgp.md', '# BGP\n\nTier-0 gateways peer over BGP. The local ASN is 65001.\n');
-        write('kb/segments.md', '# Segments\n\nEvery segment attaches to a transport zone.\n');
+        write('kb/bgp.md', '# BGP\n\nEdge routers peer over BGP. The local ASN is 65001.\n');
+        write('kb/subnets.md', '# Subnets\n\nEvery subnet attaches to an availability zone.\n');
     };
 
     it('are indexed by wording when there is no embedding model, and searched', async () => {
@@ -162,7 +162,7 @@ describe('the docs', () => {
             'read_docs',
             'search_docs',
         ]);
-        expect(await k.recall('transport zone')).toContain('Every segment attaches');
+        expect(await k.recall('availability zone')).toContain('Every subnet attaches');
         // A vector wording is asked of the text index instead of failing.
         const search = k.tools.find((t) => t.name === 'search_docs')!;
         const found = (await search.execute({ vector_query: 'ASN' }, {} as never)) as {

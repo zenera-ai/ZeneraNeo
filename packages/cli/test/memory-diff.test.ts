@@ -81,8 +81,8 @@ describe('zen memory diff', () => {
     }
 
     const base = [
-        node('KEEP', { text: 'the firewall rules are listed at /policy/api/v1/infra/domains' }),
-        node('READ', { text: 'tier-1 gateways are paged with cursor' }),
+        node('KEEP', { text: 'the firewall rules are listed at /api/v1/firewall/rules' }),
+        node('READ', { text: 'gateways are paged with cursor' }),
         node('OLD', { text: 'the old answer' }),
         node('GONE'),
     ];
@@ -96,11 +96,11 @@ describe('zen memory diff', () => {
                 { ...base[1]!, useCount: 2, lastUsedAt: T1 },
                 { ...base[2]!, text: 'the corrected answer', revision: 2, updatedAt: T1 },
                 node('NEW', {
-                    text: 'segments live under /policy/api/v1/infra/segments',
+                    text: 'subnets live under /api/v1/subnets',
                     createdAt: T1,
                 }),
                 node('AGAIN', {
-                    text: '  The firewall rules are listed at /policy/api/v1/infra/domains ',
+                    text: '  The firewall rules are listed at /api/v1/firewall/rules ',
                     createdAt: T1,
                 }),
                 node('FIX', { text: 'the answer, superseded properly', createdAt: T1 }),

@@ -186,7 +186,7 @@ export const isTypeName = (name: string): boolean => /^[A-Z]/.test(name);
 
 /**
  * The collection an unbound type gets: `Message` → `messages`,
- * `PolicyTransportZone` → `policy_transport_zones`. Only ever a first guess —
+ * `AvailabilityZone` → `availability_zones`. Only ever a first guess —
  * once bound, the binding is the answer.
  */
 export function collectionFor(type: string): string {

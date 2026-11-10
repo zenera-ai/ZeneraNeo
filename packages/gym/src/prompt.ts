@@ -33,7 +33,7 @@ THE WORLD. All content lives in a shared world of records, grouped by type. Seve
 APIs share it, so a message listed here is the message read there. Your handler owns
 the mechanics — which type, which filter, what a write changes — and never invents
 content itself. Name records by their schema TYPE (a name with a capital: "Message",
-"Tier0"); the world knows which collection and id field each type has. When the world
+"Router"); the world knows which collection and id field each type has. When the world
 lacks what a request needs, ask for it and an agent writes it, consistent with
 everything else:
 

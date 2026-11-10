@@ -101,8 +101,7 @@ zen gym serve specs/calendar.yaml --story world.md --docs kb/ --port 8788
 ```
 
 [`examples/mock-apis`](https://github.com/zenera-ai/ZeneraNeo/tree/main/examples/mock-apis)
-has a story and a knowledge base for the mail and calendar specs beside it, and
-another for an NSX network.
+has a story and a knowledge base for the mail and calendar specs beside it.
 
 Everything is indexed before the server listens, so no request waits on an
 index. Write every handler up front, before a demo or a test run:
@@ -153,7 +152,7 @@ an inbox nobody has read yet, an id nobody has seen — `ctx.ensure` and
 docs, and consistent with everything already in the world, checked against the
 schema type before anything can read them. On a first read it makes what the
 story says exists, however many that is. Records it refers to that do not exist
-yet — a label, a transport zone — it makes too, in their own collections.
+yet — a label, a calendar — it makes too, in their own collections.
 `me`, `primary` and the like resolve through `ctx.owner()`, the account the story
 says the API belongs to.
 
