@@ -14,8 +14,9 @@
 //   /api/admin/{users,users/:sub/release,drain,undrain} - the host's view of this server's users
 // Every /api/sessions request first has the caller's data loaded (userState.ts): a store plugin
 // may keep users elsewhere and move them between servers; the token's `gen` is their lease.
-//   createServer  - the app, configured; `listen` recovers users and starts it, `stop` ends runs,
-//                   saves every user and closes it
+//   createServer  - the app, configured; `listen` recovers users and starts it, `stop` lets runs
+//                   finish (stopGraceSeconds, taking no new ones), ends the rest, saves every
+//                   user and closes it
 import express, { type Express } from 'express';
 import type { Server } from 'node:http';
 import { configure, DEFAULTS, type ServerSettings } from './config.ts';
@@ -26,7 +27,14 @@ import { inAgentImage } from './config.ts';
 import { openLayout } from './layout.ts';
 import { localFileCors } from './localFileCors.ts';
 import { memoryRouter } from './memory.ts';
-import { acceptRuns, activeRuns, runDebugRouter, runsRouter, stopAllRuns } from './runs.ts';
+import {
+    acceptRuns,
+    activeRuns,
+    runDebugRouter,
+    runsRouter,
+    runsEnded,
+    stopAllRuns,
+} from './runs.ts';
 import { serverStatus, setListening } from './status.ts';
 import { privateStore } from './store.ts';
 import { sessionsRouter } from './sessions.ts';
@@ -50,8 +58,9 @@ export interface AgentServer {
     settings: ServerSettings;
     listen(on: ListenOn): Promise<Server>;
     /**
-     * Stops taking runs, ends the running ones as interrupted (they save), saves every user
-     * (within `saveMs`), closes the listener.
+     * Stops taking users and runs, lets the running ones finish for `stopGraceSeconds`, ends the
+     * rest as interrupted (they save, within `graceMs`), saves every user (within `saveMs`),
+     * closes the listener.
      */
     stop(graceMs?: number, saveMs?: number): Promise<void>;
 }
@@ -121,6 +130,11 @@ export function createServer(opts: ServerOptions): AgentServer {
             });
         },
         stop: async (graceMs = 20_000, saveMs = 60_000) => {
+            // A drain first: runs going finish while followers stay connected; new ones get 503.
+            if (settings.stopGraceSeconds > 0 && activeRuns() > 0) {
+                userStates.stopTaking();
+                await runsEnded(settings.stopGraceSeconds * 1000);
+            }
             // No new connections, and no new runs on the ones still open, before the drain.
             const closed = new Promise<void>((resolve) =>
                 server ? server.close(() => resolve()) : resolve(),

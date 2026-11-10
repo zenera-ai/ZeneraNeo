@@ -7,7 +7,8 @@
 //   StaleGenerationError - what a store throws when a newer lease owns the user
 //   localStore           - the default: nothing to load or save
 //   userStates           - the server's manager: acquire (middleware), session, changed,
-//                          release, drain, list, start (recovery, timers), shutdown
+//                          release, drain (no new users or runs; each user released once
+//                          their runs end), stopTaking, list, start (recovery, timers), shutdown
 //   userStateRouter      - /api/admin: the host's view of this server's users (system token only)
 //   userUsageBytes       - a user's local disk use, for the soft quota
 // Used by server.ts (middleware, admin routes, listen/stop), store.ts (privateStore hooks) and
@@ -21,7 +22,7 @@ import { join } from 'node:path';
 import { settings } from './config.ts';
 import { HttpError } from './http.ts';
 import { caller, userFolder } from './identity.ts';
-import { ownerRuns, stopOwnerRuns } from './runs.ts';
+import { ownerRuns, refuseRuns, stopOwnerRuns } from './runs.ts';
 import { memoryDir, userDir } from './store.ts';
 
 /** Where things are in a user's folder, for stores that cannot import this package. */
@@ -143,9 +144,16 @@ async function writeMarker(entry: Entry): Promise<void> {
     );
 }
 
+export interface DrainResult {
+    released: string[];
+    /** by user: why they could not be released (a run still going, a failed save) */
+    failed: Record<string, string>;
+}
+
 class UserStates {
     readonly #users = new Map<string, Entry>();
     #draining = false;
+    #drainJob?: Promise<DrainResult>;
     #timer?: NodeJS.Timeout;
     #quotaTimer?: NodeJS.Timeout;
     #usage = new Map<string, { bytes: number; at: number }>();
@@ -317,11 +325,28 @@ class UserStates {
         return 'released';
     }
 
-    /** No new users; each one here released once their runs end. */
-    async drain(
-        timeoutMs: number,
-    ): Promise<{ released: string[]; failed: Record<string, string> }> {
+    /** No new users and no new runs; the runs going may finish (a stopping server's drain). */
+    stopTaking(): void {
         this.#draining = true;
+        refuseRuns(true);
+    }
+
+    /**
+     * No new users or runs; each user here released once their runs end (at the latest when
+     * `timeoutMs` is up, then refused if a run still goes). A second call joins the first.
+     */
+    drain(timeoutMs: number): Promise<DrainResult> {
+        this.stopTaking();
+        if (!this.#drainJob) {
+            const job = this.#drain(timeoutMs).finally(() => {
+                if (this.#drainJob === job) this.#drainJob = undefined;
+            });
+            this.#drainJob = job;
+        }
+        return this.#drainJob;
+    }
+
+    async #drain(timeoutMs: number): Promise<DrainResult> {
         const released: string[] = [];
         const failed: Record<string, string> = {};
         const deadline = Date.now() + timeoutMs;
@@ -333,6 +358,8 @@ class UserStates {
                     Promise.all(runs),
                     new Promise((resolve) => setTimeout(resolve, left).unref()),
                 ]);
+                // Called off meanwhile (undrain): the user stays.
+                if (!this.#draining) return;
                 try {
                     if ((await this.release(id)) === 'released') released.push(id);
                 } catch (err) {
@@ -346,6 +373,7 @@ class UserStates {
     /** Takes users again: a drain that was called off. */
     undrain(): void {
         this.#draining = false;
+        refuseRuns(false);
     }
 
     async list(withUsage = false): Promise<UserInfo[]> {
@@ -388,6 +416,7 @@ class UserStates {
     /** Recovers users whose folders survived a restart, and starts the timers. */
     async start(): Promise<void> {
         this.#draining = false;
+        refuseRuns(false);
         const s = store();
         const recovered: Entry[] = [];
         const users = join(settings().root, 'users');
@@ -516,10 +545,17 @@ export function userStateRouter(): Router {
         const result = await userStates.release(userFolder(String(req.params.sub)));
         res.json({ result });
     });
+    // ?wait=0: answers at once; GET /users then shows who is left and `draining`.
     router.post('/drain', async (req, res) => {
         const seconds = Number(req.query.timeout ?? 600);
         const timeout = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 600_000;
-        res.json(await userStates.drain(timeout));
+        const job = userStates.drain(timeout);
+        if (req.query.wait === '0') {
+            job.catch(() => undefined);
+            res.json({ draining: true, users: userStates.size });
+            return;
+        }
+        res.json(await job);
     });
     router.post('/undrain', (_req, res) => {
         userStates.undrain();

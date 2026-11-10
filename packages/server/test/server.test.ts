@@ -802,9 +802,9 @@ function fakeStore(opts: { loadDelayMs?: number } = {}) {
 
 const SYSTEM = 'zenera-app';
 
-async function until(check: () => boolean, what: string): Promise<void> {
+async function until(check: () => boolean | Promise<boolean>, what: string): Promise<void> {
     for (let i = 0; i < 1000; i++) {
-        if (check()) return;
+        if (await check()) return;
         await new Promise((r) => setTimeout(r, 10));
     }
     throw new Error(`timed out waiting for ${what}`);
@@ -933,6 +933,94 @@ describe('user state', () => {
             expect(late.status).toBe(503);
             await call(`${url}/api/admin/undrain`, { method: 'POST', as: SYSTEM });
             expect((await call(`${url}/api/sessions`, { as: BOB })).status).toBe(200);
+        } finally {
+            script = 'echo hello';
+            commands.length = 0;
+        }
+    });
+
+    it('drains without waiting: no new runs, users released as their runs end', async () => {
+        const fake = fakeStore();
+        const { url } = await start({ stateStore: fake.store, checkpointSeconds: 0 });
+        script = 'sleep-ms 400';
+        try {
+            const pending = turn(url, randomUUID());
+            await until(() => commands.includes('sleep-ms 400'), 'the slow command');
+            const drain = await call(`${url}/api/admin/drain?timeout=10&wait=0`, {
+                method: 'POST',
+                as: SYSTEM,
+            });
+            expect(await drain.json()).toEqual({ draining: true, users: 1 });
+            // The same user, a new chat: refused while the server drains.
+            const refused = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hi' }] }),
+            });
+            expect(refused.status).toBe(503);
+            expect(refused.headers.get('retry-after')).toBe('5');
+            const first = await pending;
+            expect(first.evs.at(-1)?.type).toBe(EventType.RUN_FINISHED);
+            const usersLeft = async () =>
+                (await (await call(`${url}/api/admin/users`, { as: SYSTEM })).json()) as {
+                    draining: boolean;
+                    users: unknown[];
+                };
+            await until(async () => (await usersLeft()).users.length === 0, 'the release');
+            expect((await usersLeft()).draining).toBe(true);
+            await call(`${url}/api/admin/undrain`, { method: 'POST', as: SYSTEM });
+            script = 'echo hello';
+            expect((await turn(url, randomUUID())).status).toBe(200);
+        } finally {
+            script = 'echo hello';
+            commands.length = 0;
+        }
+    });
+
+    it('lets runs finish on stop within stopGraceSeconds, refusing new ones', async () => {
+        const { url, server } = await start({ checkpointSeconds: 0, stopGraceSeconds: 10 });
+        script = 'sleep-ms 400';
+        try {
+            const res = call(`${url}/api/sessions/${randomUUID()}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hi' }] }),
+            });
+            await until(() => commands.includes('sleep-ms 400'), 'the slow command');
+            const stopped = server.stop(1000);
+            running = undefined;
+            await new Promise((r) => setTimeout(r, 50));
+            const refused = await call(`${url}/api/sessions/${randomUUID()}/runs`, {
+                method: 'POST',
+                as: BOB,
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hi' }] }),
+            });
+            expect(refused.status).toBe(503);
+            const evs = await events(await res);
+            expect(evs.at(-1)?.type).toBe(EventType.RUN_FINISHED);
+            await stopped;
+        } finally {
+            script = 'echo hello';
+            commands.length = 0;
+        }
+    });
+
+    it('interrupts runs on stop at once without stopGraceSeconds', async () => {
+        const { url, server } = await start({ checkpointSeconds: 0 });
+        script = 'sleep-ms 2000';
+        try {
+            const res = call(`${url}/api/sessions/${randomUUID()}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content: 'hi' }] }),
+            });
+            await until(() => commands.includes('sleep-ms 2000'), 'the slow command');
+            const stopped = server.stop(1000);
+            running = undefined;
+            const evs = await events(await res).catch(() => [] as AGUIEvent[]);
+            expect(evs.some((e) => e.type === EventType.RUN_FINISHED)).toBe(false);
+            await stopped;
         } finally {
             script = 'echo hello';
             commands.length = 0;

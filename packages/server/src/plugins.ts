@@ -92,13 +92,18 @@ export function envServerLimits(
     env: NodeJS.ProcessEnv,
 ): Pick<
     ServerSettings,
-    'checkpointSeconds' | 'systemSubject' | 'userDiskQuotaBytes' | 'commandLimits'
+    | 'checkpointSeconds'
+    | 'systemSubject'
+    | 'userDiskQuotaBytes'
+    | 'commandLimits'
+    | 'stopGraceSeconds'
 > {
     const limits = DEFAULTS.commandLimits;
     return {
         checkpointSeconds: whole(env.ZEN_STATE_CHECKPOINT_SECONDS, DEFAULTS.checkpointSeconds),
         systemSubject: env.ZEN_SERVER_SYSTEM_SUBJECT?.trim() || DEFAULTS.systemSubject,
         userDiskQuotaBytes: whole(env.ZEN_RUNTIME_USER_DISK_MB, 0) * MB,
+        stopGraceSeconds: whole(env.ZEN_SERVER_STOP_GRACE_SECONDS, DEFAULTS.stopGraceSeconds),
         commandLimits: {
             nice: whole(env.ZEN_RUNTIME_NICE, limits.nice ?? 0, 19),
             fileSizeBytes: whole(env.ZEN_RUNTIME_MAX_FILE_MB, 0) * MB,

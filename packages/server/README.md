@@ -180,8 +180,9 @@ The host manages users through `/api/admin` with tokens for its own subject
 | ------------------------------------- | --------------------------------------------------------- |
 | `GET /api/admin/users[?usage=1]`      | Users here: lease, runs, unsaved changes, disk use.       |
 | `POST /api/admin/users/:sub/release`  | Save and let go of one user; `409 busy` while runs go on. |
-| `POST /api/admin/drain[?timeout=600]` | No new users; release each one as their runs end.         |
-| `POST /api/admin/undrain`             | Take new users again.                                     |
+| `POST /api/admin/drain[?timeout=600]` | No new users or runs; release each one as their runs end. |
+| `POST /api/admin/drain?wait=0`        | The same, answering at once; `/users` shows who is left.  |
+| `POST /api/admin/undrain`             | Take new users and runs again.                            |
 
 Soft limits for many users per pod:
 
@@ -191,6 +192,11 @@ Soft limits for many users per pod:
 | `ZEN_RUNTIME_NICE`         | Lower CPU priority for commands (default 10).              |
 | `ZEN_RUNTIME_MAX_FILE_MB`  | Largest file a command may write.                          |
 | `ZEN_RUNTIME_TMP_MB`       | Size of each command's `/tmp` (it uses memory).            |
+
+On SIGTERM a server with `ZEN_SERVER_STOP_GRACE_SECONDS` set (default 0) first
+drains: it takes no new users or runs (503 + `Retry-After`) and lets the runs going
+finish for up to that long, then interrupts the rest and saves everyone. Give the
+pod a termination grace period longer than it, to leave time to save.
 
 These are soft. Hard limits come from the pod: CPU, memory, and a fixed-size
 volume for `/state`.

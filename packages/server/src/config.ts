@@ -68,6 +68,11 @@ export interface ServerSettings {
     userDiskQuotaBytes: number;
     /** what each bwrap command is held to: priority, largest file, size of its /tmp; 0: none */
     commandLimits: CommandLimits;
+    /**
+     * How long a stopping server (SIGTERM) lets the runs going finish, taking no new users or
+     * runs, before it interrupts the rest; 0: interrupts them at once.
+     */
+    stopGraceSeconds: number;
 }
 
 /**
@@ -109,6 +114,7 @@ export const DEFAULTS: Omit<ServerSettings, 'projectId' | 'auth' | 'root'> = {
     systemSubject: DEFAULT_ISSUER,
     userDiskQuotaBytes: 0,
     commandLimits: { nice: 10, fileSizeBytes: 0, tmpBytes: 0 },
+    stopGraceSeconds: 0,
 };
 
 let current: ServerSettings | undefined;

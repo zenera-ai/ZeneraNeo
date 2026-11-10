@@ -13,6 +13,7 @@
 //   activeRuns   - how many runs are going; currentRun - the one on a thread, if any
 //   ownerRuns, stopOwnerRuns - one user's runs, and ending them (moved away, over quota)
 //   stopAllRuns  - end every run as interrupted, for a process shutting down
+//   refuseRuns, runsEnded - no new runs while the server drains, and waiting for the last to end
 // A store's optional hooks: admit (before a run: e.g. the storage quota), changed (after a run
 // ended or a thread was deleted: e.g. save the user, userState.ts).
 import type { AGUIEvent, ResumeEntry, RunAgentInput } from '@ag-ui/core';
@@ -69,6 +70,27 @@ interface ActiveRun {
 const runs = new Map<string, ActiveRun>();
 // Set by stopAllRuns: a run started after it would be cut off mid-turn by the exit that follows.
 let stopping = false;
+// Set while the server drains (userState.ts): runs going finish, no new ones start here.
+let refusing = false;
+
+/** No new runs (a drain) or new runs again (it was called off, or a new server started). */
+export function refuseRuns(on: boolean): void {
+    refusing = on;
+}
+
+/** Resolves once no run is going, or after `timeoutMs`; true when none is left. */
+export async function runsEnded(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (runs.size > 0) {
+        const left = deadline - Date.now();
+        if (left <= 0) return false;
+        await Promise.race([
+            Promise.all([...runs.values()].map((run) => run.done)),
+            new Promise((resolve) => setTimeout(resolve, left).unref()),
+        ]);
+    }
+    return true;
+}
 
 export function activeRuns(): number {
     return runs.size;
@@ -358,6 +380,7 @@ async function execute(
 /** Runs may start again: a new server in a process whose previous one stopped. */
 export function acceptRuns(): void {
     stopping = false;
+    refusing = false;
 }
 
 export async function stopAllRuns(timeoutMs: number): Promise<void> {
@@ -388,6 +411,10 @@ export function runsRouter(store: ChatStore): Router {
         if (stopping) {
             res.set('Retry-After', '5');
             throw new HttpError(503, 'the server is stopping, try again shortly');
+        }
+        if (refusing) {
+            res.set('Retry-After', '5');
+            throw new HttpError(503, 'this server is draining, try again shortly');
         }
         const running = runs.get(t.id);
         // Answers to what the chat no longer waits on (a new message went first): nothing to run.

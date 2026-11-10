@@ -445,16 +445,19 @@ async function start(ctx: Context, values: Flags): Promise<void> {
                 chatUser: values.user,
             });
         }
-        // A stopping container: runs end as interrupted and save their sessions within the grace
-        // period, then the process ends — whatever a run's tools left open must not keep it alive.
+        // A stopping container: runs may finish for ZEN_SERVER_STOP_GRACE_SECONDS, the rest end
+        // as interrupted and save their sessions, then the process ends — whatever a run's tools
+        // left open must not keep it alive.
         await new Promise<void>((done, fail) => {
             let stopping = false;
             const stop = (signal: string) => {
                 if (stopping) return;
                 stopping = true;
+                const runs = mod.activeRuns();
+                const grace = app.settings.stopGraceSeconds;
                 note();
                 note(
-                    `  ${yellow('Stopping server')} ${dim(`(${signal} · ${mod.activeRuns()} active runs)`)}`,
+                    `  ${yellow('Stopping server')} ${dim(`(${signal} · ${runs} active runs${runs && grace ? `, up to ${grace}s to finish` : ''})`)}`,
                 );
                 void app.stop(20_000).then(done, fail);
             };

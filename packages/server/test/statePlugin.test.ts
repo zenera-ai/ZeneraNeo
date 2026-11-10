@@ -1,7 +1,7 @@
 /**
  * Vitest coverage for the server's environment-configured state store and limits (plugins.ts).
  * envStateStore loads a ZEN_STATE_STORE module and checks what it returns; envServerLimits
- * reads checkpoint interval, host subject, disk quota and command limits.
+ * reads checkpoint interval, host subject, disk quota, command limits and the stop grace.
  * Uses temporary plugin modules only; no server is started.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -65,6 +65,7 @@ describe('envServerLimits', () => {
             systemSubject: 'zenera-app',
             userDiskQuotaBytes: 0,
             commandLimits: { nice: 10, fileSizeBytes: 0, tmpBytes: 0 },
+            stopGraceSeconds: 0,
         });
     });
 
@@ -77,12 +78,14 @@ describe('envServerLimits', () => {
                 ZEN_RUNTIME_NICE: '50',
                 ZEN_RUNTIME_MAX_FILE_MB: '512',
                 ZEN_RUNTIME_TMP_MB: 'lots',
+                ZEN_SERVER_STOP_GRACE_SECONDS: '540',
             }),
         ).toEqual({
             checkpointSeconds: 60,
             systemSubject: 'host',
             userDiskQuotaBytes: 2048 * 2 ** 20,
             commandLimits: { nice: 19, fileSizeBytes: 512 * 2 ** 20, tmpBytes: 0 },
+            stopGraceSeconds: 540,
         });
         expect(envServerLimits({ ZEN_RUNTIME_NICE: '0' }).commandLimits.nice).toBe(0);
     });
