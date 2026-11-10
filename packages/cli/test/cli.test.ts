@@ -2134,8 +2134,10 @@ describe('the scaffold', () => {
         expect(written.editor).toContain(join('.vscode', 'settings.json'));
         const dockerfile = readFileSync(join(dir, 'sandbox', 'Dockerfile'), 'utf8');
         expect(dockerfile).toMatch(/^FROM /m);
-        // The tools in the container are the ones that wrote the project.
-        expect(dockerfile).toContain(`@zenera/cli@${await versionOf(cliManifest)}`);
+        // The tools in the container are the ones that wrote the project: the base's tag.
+        expect(dockerfile).toContain(
+            `FROM ghcr.io/zenera-ai/zenera-sandbox:${await versionOf(cliManifest)}`,
+        );
         expect(readFileSync(join(dir, 'agents.yaml'), 'utf8')).toContain(
             'dockerfile: sandbox/Dockerfile',
         );
@@ -3284,6 +3286,47 @@ describe('the sandbox check', () => {
             const report = await validateProject({ dir, sandbox: { enabled: false } });
             expect(of(report, 'warning')).not.toContain('sandbox.pin.stale');
             expect(of(report, 'warning')).not.toContain('sandbox.pin.absent');
+        });
+
+        const BASE = 'ghcr.io/zenera-ai/zenera-sandbox';
+
+        it('reads the zenera sandbox base tag as the pin, too', async () => {
+            const mine = await versionOf(cliManifest);
+            const ok = await validateProject({
+                dir: project(`FROM ${BASE}:${mine}\nRUN pip install x\n`),
+                sandbox: { enabled: false },
+            });
+            expect(of(ok, 'warning')).not.toContain('sandbox.pin.stale');
+
+            const old = await validateProject({
+                dir: project(`FROM ${BASE}:0.0.1\n`),
+                sandbox: { enabled: false },
+            });
+            expect(of(old, 'warning')).toContain('sandbox.pin.stale');
+            expect(old.findings.find((f) => f.code === 'sandbox.pin.stale')!.message).toContain(
+                `${BASE}:0.0.1`,
+            );
+
+            const untagged = await validateProject({
+                dir: project(`FROM ${BASE}\n`),
+                sandbox: { enabled: false },
+            });
+            expect(of(untagged, 'warning')).toContain('sandbox.pin.absent');
+        });
+
+        it('--fix moves the base tag with the installs, and only the tag', async () => {
+            const mine = await versionOf(cliManifest);
+            const dir = project(
+                `# from ${BASE}:0.0.1\nFROM --platform=linux/amd64 ${BASE}:0.0.1 AS base\n` +
+                    'RUN npm install -g @zenera/cli@0.0.1\n',
+            );
+
+            expect(repinDockerfile(dir)).toEqual(['sandbox/Dockerfile']);
+            expect(readFileSync(join(dir, 'sandbox', 'Dockerfile'), 'utf8')).toBe(
+                `# from ${BASE}:0.0.1\nFROM --platform=linux/amd64 ${BASE}:${mine} AS base\n` +
+                    `RUN npm install -g @zenera/cli@${mine}\n`,
+            );
+            expect(repinDockerfile(dir)).toEqual([]);
         });
     });
 });

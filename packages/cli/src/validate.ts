@@ -1757,9 +1757,13 @@ function checkSandbox(
 
 /** `@zenera/cli`, and the version after it when the line pins one. */
 const ZENERA_INSTALL = /@zenera\/([a-z0-9-]+)(?:@([^\s\\'"]+))?/g;
+// `FROM ghcr.io/zenera-ai/zenera-sandbox:<version>`: zen's sandbox base, whose tag is the zen in it.
+const ZENERA_BASE =
+    /^(\s*FROM\s+(?:--platform=\S+\s+)?ghcr\.io\/zenera-ai\/zenera-sandbox)(?::([^\s@]+))?/i;
 
 /**
- * Whether the Dockerfile's `@zenera/*` installs name this `zen`.
+ * Whether the Dockerfile's `@zenera/*` installs, and the tag of the zenera sandbox base it
+ * starts FROM, name this `zen`.
  *
  * `zen init` writes the version it was run by and never rewrites the file
  * again — the scaffold keeps what the project already has — so the pin is fixed
@@ -1788,6 +1792,15 @@ function checkPin(path: string, rel: string, add: Add): void {
         // A comment naming the package is prose about the pin, not the pin.
         if (/^\s*#/.test(line)) {
             continue;
+        }
+        const base = ZENERA_BASE.exec(line);
+        if (base) {
+            const name = 'ghcr.io/zenera-ai/zenera-sandbox';
+            if (base[2] === undefined) {
+                loose.add(name);
+            } else if (base[2] !== mine) {
+                stale.add(`${name}:${base[2]}`);
+            }
         }
         for (const match of line.matchAll(ZENERA_INSTALL)) {
             const name = `@zenera/${match[1]}`;
@@ -1826,8 +1839,8 @@ function checkPin(path: string, rel: string, add: Add): void {
 }
 
 /**
- * Pins every `@zenera/*` install in the project's Dockerfile to this `zen`,
- * which is what `zen check --fix` does about `sandbox.pin.stale` and
+ * Pins every `@zenera/*` install in the project's Dockerfile, and the zenera sandbox base's tag,
+ * to this `zen`, which is what `zen check --fix` does about `sandbox.pin.stale` and
  * `sandbox.pin.absent`. Only the version after each name is touched, and only
  * on lines `checkPin` reads, so whatever else the file holds is left alone.
  *
@@ -1861,7 +1874,9 @@ export function repinDockerfile(root: string): string[] {
         .map((line) =>
             /^\s*#/.test(line)
                 ? line
-                : line.replace(ZENERA_INSTALL, (_, name: string) => `@zenera/${name}@${mine}`),
+                : line
+                      .replace(ZENERA_BASE, (_, from: string) => `${from}:${mine}`)
+                      .replace(ZENERA_INSTALL, (_, name: string) => `@zenera/${name}@${mine}`),
         )
         .join('\n');
     if (next === text) {

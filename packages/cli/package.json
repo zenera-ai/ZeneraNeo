@@ -48,7 +48,8 @@
         "build": "tsc -b",
         "clean": "tsc -b --clean && rm -rf dist",
         "postinstall": "node postinstall.mjs",
-        "prepack": "tsc -b"
+        "prepack": "tsc -b",
+        "agent-runtime:dockerfile": "tsc -b && node -e \"import(\\\"./dist/container.js\\\").then((m) => process.stdout.write(m.agentRuntimeDockerfile()))\" > agent-runtime.Dockerfile"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.120.0",
