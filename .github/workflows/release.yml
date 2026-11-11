@@ -125,7 +125,7 @@ jobs:
             - name: Wait for the packages on npm
               run: |
                   for pkg in $NEEDS; do
-                      for i in $(seq 1 30); do
+                      for i in $(seq 1 120); do
                           npm view "$pkg@$VERSION" version > /dev/null 2>&1 && continue 2
                           sleep 10
                       done
