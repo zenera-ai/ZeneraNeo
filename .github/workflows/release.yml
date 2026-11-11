@@ -144,6 +144,11 @@ jobs:
                   password: ${{ github.token }}
 
             # Skips a version already pushed (re-runs), and tags older than the Dockerfile.
+            # The build cache lives next to the images (<image>:buildcache, every stage: mode=max):
+            # without it each release rebuilt every layer, and the sandbox base's third-party
+            # `npm install -g` (~585 MB) came out as a new layer every time, so every machine and
+            # cache pulled ~1 GB again per zen release. With it, a release rebuilds only the steps
+            # from `ARG ZEN_VERSION` on, and pulls fetch just those layers.
             - name: Build and push
               run: |
                   if [ ! -f "$DIR/$DOCKERFILE" ]; then
@@ -154,9 +159,12 @@ jobs:
                   fi
                   docker buildx build --platform linux/amd64,linux/arm64 \
                       --build-arg ZEN_VERSION="$VERSION" \
+                      --cache-from "type=registry,ref=$CACHE" \
+                      --cache-to "type=registry,ref=$CACHE,mode=max,oci-mediatypes=true,image-manifest=true" \
                       -f "$DIR/$DOCKERFILE" -t "$IMAGE" --push "$DIR"
               env:
                   VERSION: ${{ steps.v.outputs.version }}
                   IMAGE: ${{ steps.v.outputs.image }}
+                  CACHE: ghcr.io/zenera-ai/${{ matrix.name }}:buildcache
                   DIR: ${{ matrix.dir }}
                   DOCKERFILE: ${{ matrix.dockerfile }}
