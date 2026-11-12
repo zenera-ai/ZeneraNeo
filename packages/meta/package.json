@@ -1,6 +1,6 @@
 {
     "name": "@zenera/meta",
-    "version": "1.2.9",
+    "version": "1.3.0",
     "description": "The meta agent for zen: GitHub Copilot over a zen project on your own keys, plus the dataset and fine-tuning loop.",
     "keywords": [
         "agents",
@@ -43,10 +43,10 @@
         "prepack": "tsc -b"
     },
     "dependencies": {
-        "@zenera/cli": "^1.2.9",
-        "@zenera/engine": "^1.2.9",
-        "@zenera/neo": "^1.2.9",
-        "@zenera/view": "^1.2.9",
+        "@zenera/cli": "^1.3.0",
+        "@zenera/engine": "^1.3.0",
+        "@zenera/neo": "^1.3.0",
+        "@zenera/view": "^1.3.0",
         "google-auth-library": "^10.0.0",
         "ink": "^7.1.1",
         "react": "^19.2.8",
