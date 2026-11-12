@@ -164,7 +164,7 @@ zen meta run my-project /spec-apply-feedback
 
 ## What is the meta-agent?
 
-The meta-agent is the agent that builds your system. It is part of the `@zenera/cli` (`zen meta run`) and works on your project as a developer would:
+The meta-agent is the agent that builds your system. It ships as `@zenera/meta`, which adds `zen meta` to the CLI, and works on your project as a developer would:
 
 - reads `SPECIFICATION.md` and generates the project from it: agents, prompts, tools, skills, memory rules and setup scripts;
 - runs the setup (for example, builds the search indexes) and checks that the
@@ -223,16 +223,17 @@ and propose the next improvement with evidence.
 
 ## Packages
 
-| Package                                       | Role                                                                                                                                           |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@zenera/cli`](packages/cli/README.md)       | The `zen` command-line workflow for creating projects, generating agent systems, running them, testing them and inspecting their trajectories. |
-| [`@zenera/neo`](packages/neo/README.md)       | The TypeScript runtime for applications that need agents, models, tools, skills, memory, trajectories and project loading directly in code.    |
-| [`@zenera/engine`](packages/engine/README.md) | Runs a project the way `zen run` does - keyring, sandbox, sessions, run records - for a server or any other host that is not the CLI.          |
-| [`@zenera/rag`](packages/rag/README.md)       | Advanced retrieval for agent knowledge: semantic, full-text and hybrid search over documents, plus graph-aware API schema indexing and search. |
-| [`@zenera/gym`](packages/gym/README.md)       | Stateful mock APIs from OpenAPI and Swagger descriptions, populated from a story of the world and reference documents.                         |
+| Package                                       | Role                                                                                                                                                              |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@zenera/cli`](packages/cli/README.md)       | The `zen` command-line workflow for creating projects, generating agent systems, running them, testing them and inspecting their trajectories.                    |
+| [`@zenera/neo`](packages/neo/README.md)       | The TypeScript runtime for applications that need agents, models, tools, skills, memory, trajectories and project loading directly in code.                       |
+| [`@zenera/engine`](packages/engine/README.md) | Runs a project the way `zen run` does - keyring, sandbox, sessions, run records - for a server or any other host that is not the CLI.                             |
+| [`@zenera/meta`](packages/meta/README.md)     | The meta-agent behind `zen meta`: builds a project from its specification, runs its commands, keeps its evaluation dataset and fine-tunes its prompts against it. |
+| [`@zenera/rag`](packages/rag/README.md)       | Advanced retrieval for agent knowledge: semantic, full-text and hybrid search over documents, plus graph-aware API schema indexing and search.                    |
+| [`@zenera/gym`](packages/gym/README.md)       | Stateful mock APIs from OpenAPI and Swagger descriptions, populated from a story of the world and reference documents.                                            |
 
-`@zenera/cli` installs `zen`; `@zenera/rag` and `@zenera/gym` extend it with
-their own subcommands. Install only the capabilities a project needs.
+`@zenera/cli` installs `zen`; `@zenera/meta`, `@zenera/rag` and `@zenera/gym`
+extend it with their own subcommands. Install only the capabilities a project needs.
 
 ## Learn more
 

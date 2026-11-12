@@ -595,6 +595,7 @@ passage, read around it, then edit the file the passage came from.
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
 | [`@zenera/cli`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/README.md)   | `zen` - agent projects on the command line                    |
 | [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)   | the runtime - agents, models, tools, skills, memory           |
+| [`@zenera/meta`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/meta/README.md) | `zen meta` - the meta-agent that builds and tunes a project   |
 | [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)   | `zen gym` - a mock API from an openapi/swagger document       |
 | **`@zenera/rag`**                                                                          | `zen rag` - indexing and search for documents and API schemas |
 | [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md) | `zen view` - a live local viewer for a folder                 |
