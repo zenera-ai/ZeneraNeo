@@ -260,6 +260,7 @@ provide the runtime and optional capabilities that work alongside it:
 | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
 | [`@zenera/cli`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/README.md)   | `zen` — agent projects on the command line                          |
 | [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)   | The runtime — agents, models, tools, skills, and memory             |
+| [`@zenera/meta`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/meta/README.md) | `zen meta` — the meta-agent that builds and tunes a project         |
 | [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)   | `zen gym` — mock APIs from OpenAPI or Swagger documents             |
 | [`@zenera/rag`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/rag/README.md)   | `zen rag` — indexing and search for documents and API schemas       |
 | [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md) | `zen view` — a live local viewer for a folder                       |
