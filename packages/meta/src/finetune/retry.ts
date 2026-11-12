@@ -3,10 +3,10 @@ import { mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { CliError, confirm, EXIT, note, usageError } from '../host.ts';
-import { DatasetStore } from './dataset/store.ts';
-import type { Case } from './dataset/types.ts';
+import { DatasetStore } from '../dataset/store.ts';
+import type { Case } from '../dataset/types.ts';
 import { recover } from './journal.ts';
-import { resultOf, selection } from './sampler.ts';
+import { resultOf, selection } from './next-case.ts';
 import type { Tuning } from './tuning.ts';
 import { short, STAGES, total } from './usage.ts';
 

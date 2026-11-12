@@ -3,18 +3,16 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// The meta layer's boundary
+// The meta package's boundary
 //
-// `src/meta/` reaches the rest of the CLI through `meta/host.ts` alone, and the
-// rest of the CLI reaches into `src/meta/` from a short, named list of places.
-// That is what keeps a later `@zenera/meta` a matter of moving files.
+// `@zenera/meta` reaches `zen` through `src/host.ts` alone, and only through
+// `@zenera/cli/lib`: never a path into the CLI's source, never another of its
+// entry points. That keeps what it needs of `zen` one list, and `zen` free to
+// rearrange everything else.
 // ---------------------------------------------------------------------------
 
 const SRC = resolve(import.meta.dirname, '..', 'src');
-const META = join(SRC, 'meta');
-
-/** Runtime files that may import from `src/meta/`, relative to `src/`. */
-const DOORS = new Set(['commands/meta.ts', 'commands/open.ts', 'scaffold.ts']);
+const HOST = join(SRC, 'host.ts');
 
 function sources(dir: string): string[] {
     return (readdirSync(dir, { recursive: true }) as string[])
@@ -22,36 +20,33 @@ function sources(dir: string): string[] {
         .map((f) => join(dir, f));
 }
 
-/** Every relative module a file imports, resolved to an absolute path. */
+/** Every module a file imports, statically or not, as written. */
 function imports(file: string): string[] {
     const text = readFileSync(file, 'utf8');
-    const found = [...text.matchAll(/(?:from|import)\s*\(?\s*'(\.{1,2}\/[^']+)'/g)];
-    return found.map((m) => resolve(dirname(file), m[1]));
+    return [...text.matchAll(/(?:from|import)\s*\(?\s*'([^']+)'/g)].map((m) => m[1]);
 }
 
-const inMeta = (path: string): boolean => path === META || path.startsWith(META + sep);
+const inside = (path: string): boolean => path === SRC || path.startsWith(SRC + sep);
 const rel = (path: string): string => relative(SRC, path).split(sep).join('/');
 
-describe('the meta layer', () => {
-    it('reaches the rest of the CLI only through host.ts', () => {
-        const strays = sources(META)
-            .filter((file) => file !== join(META, 'host.ts'))
-            .flatMap((file) =>
-                imports(file)
-                    .filter((target) => !inMeta(target))
-                    .map((target) => `${rel(file)} -> ${rel(target)}`),
-            );
+describe('the meta package', () => {
+    it('never imports a path outside its own source', () => {
+        const strays = sources(SRC).flatMap((file) =>
+            imports(file)
+                .filter((spec) => spec.startsWith('.'))
+                .filter((spec) => !inside(resolve(dirname(file), spec)))
+                .map((spec) => `${rel(file)} -> ${spec}`),
+        );
         expect(strays).toEqual([]);
     });
 
-    it('is reached from the rest of the CLI only through its named doors', () => {
-        const strays = sources(SRC)
-            .filter((file) => !inMeta(file) && !DOORS.has(rel(file)))
-            .flatMap((file) =>
-                imports(file)
-                    .filter(inMeta)
-                    .map((target) => `${rel(file)} -> ${rel(target)}`),
-            );
+    it('reaches zen only through host.ts, and only through @zenera/cli/lib', () => {
+        const strays = sources(SRC).flatMap((file) =>
+            imports(file)
+                .filter((spec) => spec === '@zenera/cli' || spec.startsWith('@zenera/cli/'))
+                .filter((spec) => file !== HOST || spec !== '@zenera/cli/lib')
+                .map((spec) => `${rel(file)} -> ${spec}`),
+        );
         expect(strays).toEqual([]);
     });
 });

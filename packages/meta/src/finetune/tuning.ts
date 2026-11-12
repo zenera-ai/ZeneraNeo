@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { CliError, EXIT } from '../host.ts';
 import { forget, remember } from './children.ts';
-import type { Case } from './dataset/types.ts';
+import type { Case } from '../dataset/types.ts';
 import type { Phase } from './feedback.ts';
 import { Improvements } from './improvements.ts';
 import { Journal } from './journal.ts';

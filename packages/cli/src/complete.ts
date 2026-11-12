@@ -1,7 +1,14 @@
+// packages/cli/src/complete.ts
+//
+// Shell tab completion: turns the words typed so far into candidates, the same way for zsh, bash and fish.
+// Main: `complete(words, cwd)` and `render()` (the `value<TAB>description` wire format). A command with its own
+// `complete` hook answers for itself; a sibling package (e.g. `@zenera/meta`) is loaded for that only if installed.
+// Used by: `main.ts`, for the hidden `zen __complete` the shell scripts from `zen completion` call.
+
 import { resolve } from 'node:path';
 import { matching, projectNames, type Candidate } from './candidates.ts';
 import { ALIASES, COMMANDS, EXTERNAL } from './commands/index.ts';
-import { completeMeta } from './commands/meta.ts';
+import { hasExternal, loadExternal } from './external.ts';
 
 // ---------------------------------------------------------------------------
 // Shell completion
@@ -82,8 +89,13 @@ export async function complete(words: readonly string[], cwd: string): Promise<C
     if (name === 'help') {
         return args.length === 0 ? await complete([cur], at) : [];
     }
-    if (name === 'meta') {
-        return await completeMeta(args, cur, at);
+    // A command whose words the usage line cannot describe answers for itself.
+    // One in another package is loaded for it only if it is there to load.
+    const ext = COMMANDS[name] ? undefined : EXTERNAL[name];
+    const own =
+        COMMANDS[name] ?? (ext && hasExternal(ext) ? await loadExternal(name, ext) : undefined);
+    if (own?.complete) {
+        return await own.complete(args, cur, at);
     }
     if (cur.startsWith('-') || args.some((a) => !a.startsWith('-'))) {
         return [];

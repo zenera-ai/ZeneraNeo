@@ -1,8 +1,15 @@
-import { spawn as nodeSpawn } from 'node:child_process';
+// packages/meta/src/launch.ts
+//
+// Running GitHub Copilot CLI: finding it, launching it, and reading its JSONL into an answer and a narration.
+// Main: `launch(opts)`; also `locate`, `copilotVersion`, `absorb`, `openLog`, `recordSession`/`lastSession`,
+// and the resume policy (`transient`, `resumeDelayMs`, `RESUME_PROMPT`).
+// Used by: `command.ts` (`go()` for `zen meta run|resume`, and the `subsystems` hook for `zen version`).
+
+import { execFile, spawn as nodeSpawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { cut, dim, duration, formatInline, plain } from './host.ts';
-import { FRAME_MS, windowSink, type Sink } from './window.ts';
+import { FRAME_MS, windowSink, type Sink } from './sink.ts';
 
 // ---------------------------------------------------------------------------
 // The meta agent
@@ -34,6 +41,27 @@ export function locate(has = (cmd: string): boolean => onPath(cmd)): Binary {
     return has('copilot')
         ? { command: 'copilot', args: [], from: 'path' }
         : { command: 'npx', args: ['--yes', '@github/copilot'], from: 'npx' };
+}
+
+/**
+ * What `zen version` says of copilot: the one on `PATH` is asked, and the
+ * `npx` fallback is only described — asking it would mean fetching it.
+ */
+export async function copilotVersion(
+    binary = locate(),
+): Promise<{ name: string; version?: string; detail?: string }> {
+    if (binary.from === 'npx') {
+        return { name: 'copilot', detail: 'not on PATH — zen meta fetches it with npx' };
+    }
+    const said = await new Promise<string>((done) => {
+        execFile(binary.command, ['--version'], { timeout: 10_000 }, (err, stdout) =>
+            done(err ? '' : stdout),
+        );
+    });
+    const version = /\d+\.\d+\.\d+(?:-[\w.]+)?/.exec(said)?.[0];
+    return version
+        ? { name: 'copilot', version }
+        : { name: 'copilot', detail: 'on PATH, but did not say its version' };
 }
 
 function onPath(cmd: string): boolean {

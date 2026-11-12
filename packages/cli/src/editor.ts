@@ -1,6 +1,13 @@
+// packages/cli/src/editor.ts
+//
+// The editor brief a project carries: the `.github/` tree (instructions and skills) and the `.vscode/` settings.
+// Main: `editorFiles(dir)`, which rewrites them from `templates/editor` and retires prompt files `zen` used to ship.
+// Used by: `scaffold.ts` (`zen init`), `commands/open.ts` (`zen open`), and through `lib.ts` by `@zenera/meta`,
+// which refreshes them before `zen meta run` and before a fine-tuning loop.
+
 import { existsSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { copyTree, TEMPLATES } from './host.ts';
+import { copyTree, TEMPLATES } from './scaffold.ts';
 
 // ---------------------------------------------------------------------------
 // Telling the editor which instructions are not for it

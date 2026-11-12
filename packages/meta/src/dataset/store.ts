@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { CliError, EXIT, META_PROMPT_ENV, META_SESSION_ENV } from '../../host.ts';
+import { CliError, EXIT, META_PROMPT_ENV, META_SESSION_ENV } from '../host.ts';
 import {
     type By,
     type Case,

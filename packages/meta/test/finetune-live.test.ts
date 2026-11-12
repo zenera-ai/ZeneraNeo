@@ -1,10 +1,10 @@
+import { THEMES } from '@zenera/cli/lib';
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Snapshot, Tails } from '../src/meta/finetune/live.ts';
-import { followLines, type Line, mainLines } from '../src/meta/finetune/tui.tsx';
-import { THEMES } from '../src/tui/theme.ts';
+import { type Snapshot, Tails } from '../src/finetune/live.ts';
+import { followLines, type Line, mainLines } from '../src/finetune/tui.tsx';
 
 let root: string;
 beforeEach(() => {

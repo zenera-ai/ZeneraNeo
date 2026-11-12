@@ -1,0 +1,55 @@
+{
+    "name": "@zenera/meta",
+    "version": "1.2.9",
+    "description": "The meta agent for zen: GitHub Copilot over a zen project on your own keys, plus the dataset and fine-tuning loop.",
+    "keywords": [
+        "agents",
+        "ai-agents",
+        "copilot",
+        "llm",
+        "finetuning",
+        "cli"
+    ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "author": "Andrey Ryabov",
+    "homepage": "https://github.com/zenera-ai/ZeneraNeo#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zenera-ai/ZeneraNeo.git",
+        "directory": "packages/meta"
+    },
+    "bugs": "https://github.com/zenera-ai/ZeneraNeo/issues",
+    "type": "module",
+    "exports": {
+        "./command": {
+            "types": "./dist/command.d.ts",
+            "default": "./dist/command.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "!dist/**/*.map"
+    ],
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "clean": "tsc -b --clean && rm -rf dist",
+        "prepack": "tsc -b"
+    },
+    "dependencies": {
+        "@zenera/cli": "^1.2.9",
+        "@zenera/engine": "^1.2.9",
+        "@zenera/neo": "^1.2.9",
+        "@zenera/view": "^1.2.9",
+        "google-auth-library": "^10.0.0",
+        "ink": "^7.1.1",
+        "react": "^19.2.8",
+        "yaml": "^2.9.1"
+    }
+}

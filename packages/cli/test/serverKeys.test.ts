@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../src/commands/server.ts';
-import { complete } from '../src/completion.ts';
+import { complete } from '../src/complete.ts';
 import { generateServerKeys } from '../src/serverKeys.ts';
 import { EXIT } from '../src/term.ts';
 

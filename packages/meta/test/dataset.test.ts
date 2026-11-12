@@ -1,3 +1,4 @@
+import { CliError, EXIT, META_PROMPT_ENV, META_SESSION_ENV } from '@zenera/cli/lib';
 import {
     existsSync,
     mkdirSync,
@@ -10,9 +11,7 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runDataset } from '../src/meta/finetune/dataset/command.ts';
-import { CliError, EXIT } from '../src/term.ts';
-import { META_PROMPT_ENV, META_SESSION_ENV } from '../src/usage.ts';
+import { runDataset } from '../src/dataset/command.ts';
 
 let root: string;
 

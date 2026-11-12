@@ -1,54 +1,86 @@
-// ---------------------------------------------------------------------------
-// The meta layer's one door into the rest of the CLI
+// packages/meta/src/host.ts
 //
-// Everything under `src/meta/` imports the runtime through this file and no
-// other, so the layer can leave for a package of its own by turning this into
-// a dependency. `test/meta-boundary.test.ts` holds the line.
+// The meta package's only import of `zen`: everything it needs from `@zenera/cli/lib`, re-exported in one list.
+// Main: re-exports (terminal styling, errors, keyring types, project resolution, usage ledger, editor brief, theme).
+// Used by: every file under `packages/meta/src/` that needs the CLI; `test/meta-boundary.test.ts` enforces it.
+
+// ---------------------------------------------------------------------------
+// The meta package's one door into `zen`
+//
+// Everything under `src/` reaches the CLI through this file and no other, so
+// what `@zenera/meta` needs of `@zenera/cli/lib` is one list, read in one place.
+// `test/meta-boundary.test.ts` holds the line.
 // ---------------------------------------------------------------------------
 
 export {
-    envOf,
-    paths,
-    PROVIDERS,
-    readJson,
-    writeJson,
-    type KeyEntry,
-    type KeyStore,
-    type Provider,
-} from '@zenera/engine';
-export { invokedAs, parse } from '../args.ts';
-export { loadCatalogs } from '../catalog.ts';
-export type { EventLine } from '../eventlog.ts';
-export { PROVIDER_NAMES, splitRef } from '../modelref.ts';
-export { duration } from '../narrate.ts';
-export { rankModels } from '../rank.ts';
-export { copyTree, SHARED_RULES, TEMPLATES } from '../scaffold.ts';
-export {
+    appendUsage,
     bold,
+    boxWidth,
+    browseModels,
+    choose,
     CliError,
     confirm,
+    copilotEventLog,
+    copyTree,
     credentialError,
     cut,
     cyan,
     dim,
+    duration,
+    editorFiles,
+    envOf,
     EXIT,
+    formatInline,
+    formatMarkdown,
     green,
     invalidError,
+    invokedAs,
+    isInteractive,
     json,
+    LEDGER_ENV,
+    ledgerPath,
+    loadCatalogs,
+    matching,
+    META_PROMPT_ENV,
+    META_SESSION_ENV,
     note,
     pad,
+    parse,
+    paths,
     plain,
+    probeChat,
+    probeModel,
+    progress,
+    projectNames,
+    PROVIDER_NAMES,
+    PROVIDERS,
+    rankModels,
+    readJson,
+    readStdin,
     red,
+    resolveProject,
+    resolveTheme,
+    safe,
+    SHARED_RULES,
+    splitRef,
     styled,
     table,
+    TEMPLATES,
     usageError,
+    validateProject,
+    warn,
+    wrap,
     write,
     writeAll,
+    writeJson,
     yellow,
-} from '../term.ts';
-export { safe } from '../trace.ts';
-export { formatInline, formatMarkdown } from '../tui/markdown.ts';
-export { resolveTheme, type Theme } from '../tui/theme.ts';
-export { boxWidth } from '../tui/wrap.ts';
-export { META_PROMPT_ENV, META_SESSION_ENV } from '../usage.ts';
-export { validateProject, type Report as ProjectReport } from '../validate.ts';
+    type Candidate,
+    type Command,
+    type Context,
+    type EventLine,
+    type KeyEntry,
+    type KeyStore,
+    type ProjectReport,
+    type Provider,
+    type Theme,
+} from '@zenera/cli/lib';

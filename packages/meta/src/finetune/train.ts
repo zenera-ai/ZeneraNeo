@@ -16,9 +16,9 @@ import { basename, dirname, join } from 'node:path';
 import { EXIT } from '../host.ts';
 import { sessionKept } from '../tokens.ts';
 import { writeAnalyzeBrief } from './analyze-brief.ts';
-import { batchInput } from './dataset/export.ts';
-import { DatasetStore } from './dataset/store.ts';
-import type { Case } from './dataset/types.ts';
+import { batchInput } from '../dataset/export.ts';
+import { DatasetStore } from '../dataset/store.ts';
+import type { Case } from '../dataset/types.ts';
 import { errorIn, sizeOf, StepError } from './failure.ts';
 import {
     type Feedback,
@@ -30,7 +30,7 @@ import {
     readFeedback,
 } from './feedback.ts';
 import { attemptsOf, caseTokens, rubricScore, writeFeedback } from './report.ts';
-import type { Result } from './sampler.ts';
+import type { Result } from './next-case.ts';
 import { readJson, type Seat, type Tuning } from './tuning.ts';
 import {
     type ByModel,

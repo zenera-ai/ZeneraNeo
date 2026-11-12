@@ -58,7 +58,7 @@ const GLOBAL = {
  */
 async function completing(words: readonly string[]): Promise<number> {
     try {
-        const { complete, render } = await import('./completion.ts');
+        const { complete, render } = await import('./complete.ts');
         const found = render(await complete(words, process.cwd()));
         if (found) {
             process.stdout.write(`${found}\n`);

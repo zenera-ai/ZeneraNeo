@@ -16,15 +16,15 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { remember } from '../src/meta/finetune/children.ts';
-import { readConfig, runFinetune } from '../src/meta/finetune/command.ts';
-import { measure, overLimits } from '../src/meta/finetune/cost.ts';
-import { runDataset } from '../src/meta/finetune/dataset/command.ts';
-import { readFeedback } from '../src/meta/finetune/feedback.ts';
-import { Journal } from '../src/meta/finetune/journal.ts';
-import { SystemVersions } from '../src/meta/finetune/system.ts';
-import { FAILURES_IN_A_ROW, type Zen } from '../src/meta/finetune/tuning.ts';
-import { runMetrics } from '../src/meta/finetune/usage.ts';
+import { remember } from '../src/finetune/children.ts';
+import { readConfig, runFinetune } from '../src/finetune/command.ts';
+import { measure, overLimits } from '../src/finetune/cost.ts';
+import { runDataset } from '../src/dataset/command.ts';
+import { readFeedback } from '../src/finetune/feedback.ts';
+import { Journal } from '../src/finetune/journal.ts';
+import { SystemVersions } from '../src/finetune/system.ts';
+import { FAILURES_IN_A_ROW, type Zen } from '../src/finetune/tuning.ts';
+import { runMetrics } from '../src/finetune/usage.ts';
 
 /** A real memory of this size, which is all the tuning reads of one. */
 async function fakeMemory(dir: string, nodes: number, edges: number): Promise<void> {

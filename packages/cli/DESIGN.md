@@ -182,6 +182,19 @@ already named it.
 exit `2` and the line to run, in the same shape the library uses for a missing
 vendor SDK.
 
+**It is installed apart, so it brings its own copies.** A global
+`npm i -g @zenera/meta` has its own `@zenera/cli` and `@zenera/engine` under it,
+so a class from one copy is not the class of the other. `EngineError` - which is
+`CliError` - is therefore recognised by a registry symbol, not by its prototype:
+an error the sibling throws still reaches the top as a usage or credential
+error, with its exit code and hint.
+
+Two optional members exist for siblings, though any command may have them:
+`complete` answers tab completion past the command's name (`zen meta` reads its
+own verbs and a project's `/commands`), loaded only when the package is there;
+`subsystems` names the programs outside Node it runs on (`copilot` for
+`zen meta`), which `zen version` lists under the packages it resolves.
+
 It is a known list rather than a scan of `node_modules`. These packages are
 released in lockstep by one author, so discovery would buy nothing and cost a
 manifest format, an API version, and a public contract with strangers. When
@@ -822,15 +835,19 @@ the repository ships.
 
 Which coding agent is an implementation detail, and the CLI surface is written
 so it can be replaced: today it drives GitHub Copilot CLI, and nothing above
-[meta/launch.ts](packages/cli/src/meta/launch.ts) and
-[meta/wire.ts](packages/cli/src/meta/wire.ts) names it.
+[launch.ts](packages/meta/src/launch.ts) and
+[wire.ts](packages/meta/src/wire.ts) names it.
 
-Everything the meta agent is given lives under
-[src/meta/](packages/cli/src/meta/): the launcher, the model choice, the key
-wiring, stored commands, the window and the `.github/` editor tree. It reaches
-the rest of the CLI only through [meta/host.ts](packages/cli/src/meta/host.ts),
-and `test/meta-boundary.test.ts` fails on any other import - so the layer can
-become a package of its own by turning that file into a dependency.
+Everything the meta agent is given is its own package,
+[@zenera/meta](packages/meta/): the launcher, the model choice, the key wiring,
+stored commands, the window, the dataset and the fine-tuning loop. `zen` loads
+it by name like `zen gym` and `zen rag` (§4.1), so a
+machine without it is told what to install. It reaches the CLI only through
+[host.ts](packages/meta/src/host.ts), which imports `@zenera/cli/lib` and
+nothing else, and `packages/meta/test/meta-boundary.test.ts` fails on any other
+import. The `.github/` editor tree stays in the CLI
+([editor.ts](packages/cli/src/editor.ts)): `zen init` and `zen open` write it
+too.
 
 ```
 zen meta run [project] "<question>"      ask it something
@@ -937,7 +954,7 @@ a flag nobody would know to set.
 
 The queries a project is evaluated on, each with its rubric, kept in
 `dataset/` at the project root and written only by this command
-([meta/finetune/dataset/](packages/cli/src/meta/finetune/dataset/)). It sits
+([dataset/](packages/meta/src/dataset/)). It sits
 under `meta` because its writer is the meta agent - a project's own agents
 never see it, and must not: the rubric is the answer key.
 
@@ -977,7 +994,7 @@ flags, and it never touches the keyring, the editor tree or copilot.
 #### Tuning - `zen meta finetune`
 
 N workers each take a case and train it to the end with one plain sequential
-function ([meta/finetune/train.ts](packages/cli/src/meta/finetune/train.ts)):
+function ([finetune/train.ts](packages/meta/src/finetune/train.ts)):
 tries without memory - `zen run`, then `/analyze` - until the analysis says
 `done`, then tries with the memory the passing run wrote, the same way. A try
 that is not done parks its case until an apply has taken its feedback; a parked
@@ -996,7 +1013,7 @@ takes the next free worker ahead of any new case.
   optimiser with no regulariser and no holdout: each failing case buys a
   sentence, the sentence fixes that case, and every later call reads it. One
   run grew three files from 27 KB to 97 KB over 96 applies. So an apply passes
-  gates ([meta/finetune/cost.ts](packages/cli/src/meta/finetune/cost.ts)) or is
+  gates ([finetune/cost.ts](packages/meta/src/finetune/cost.ts)) or is
   undone: what every call reads - house rules, prompts, preloaded skills, the
   skill index - may grow by a fixed budget, and by nothing past a ceiling over
   the start. Skill bodies are counted apart, because they are paid only once
@@ -1007,7 +1024,7 @@ takes the next free worker ahead of any new case.
   failed at that size and paused every worker while it ran.
 - **Regressions are repaired forward, not undone.** After each apply a few
   completed cases run again on it
-  ([meta/finetune/recheck.ts](packages/cli/src/meta/finetune/recheck.ts)) - as
+  ([finetune/recheck.ts](packages/meta/src/finetune/recheck.ts)) - as
   ordinary work on a worker, so nothing waits. One that fails both tries sends
   its feedback to the next apply like any parked case. The guard this replaced
   ran the same cases inside the apply, with every worker idle, and undid the
@@ -1338,7 +1355,7 @@ its exit code answers the repaired project.
 
 This is the other half of `keep: true` in
 [scaffold.ts](packages/cli/src/scaffold.ts) (the editor tree itself is
-[meta/editor.ts](packages/cli/src/meta/editor.ts)). A scaffold never overwrites, which
+[editor.ts](packages/cli/src/editor.ts)). A scaffold never overwrites, which
 is right for `agents.yaml`, the prompts, the specification and
 `agents/instructions.md` - the project's own house rules, whose template says
 "replace this with yours" - and wrong for the four that only restate how the

@@ -1,5 +1,5 @@
 import type { Matcher } from '@zenera/neo';
-import { usageError } from '../../host.ts';
+import { usageError } from '../host.ts';
 import {
     anchorText,
     type Case,

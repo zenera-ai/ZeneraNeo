@@ -1,4 +1,4 @@
-import { invalidError } from '../../host.ts';
+import { invalidError } from '../host.ts';
 import { canonical, Sources } from './anchors.ts';
 import type { Proposed, ProposedRubric } from './schema.ts';
 import type { Commit, DatasetStore } from './store.ts';

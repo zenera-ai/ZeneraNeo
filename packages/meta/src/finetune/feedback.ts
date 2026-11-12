@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { type Grade, VERDICTS, type Verdict } from './dataset/types.ts';
+import { type Grade, VERDICTS, type Verdict } from '../dataset/types.ts';
 
 // ---------------------------------------------------------------------------
 // What an analysis hands back to the loop

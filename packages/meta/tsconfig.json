@@ -1,0 +1,18 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "rootDir": "src",
+        "outDir": "dist",
+        // The fine-tuning watch screen is the one JSX file.
+        "jsx": "react-jsx",
+        "jsxImportSource": "react",
+        "types": ["node", "react"]
+    },
+    "include": ["src/**/*.ts", "src/**/*.tsx"],
+    "references": [
+        { "path": "../neo" },
+        { "path": "../engine" },
+        { "path": "../view" },
+        { "path": "../cli" }
+    ]
+}

@@ -9,6 +9,9 @@ zen meta model [ref]                       show or set the model it uses
 zen meta dataset <verb>                    see dataset.md
 ```
 
+Provided by `@zenera/meta` - `npm i -g @zenera/meta` if `zen meta` says it is
+not installed. `zen meta dataset` and `zen meta finetune` come with it.
+
 `zen meta --help` has every option.
 
 ## `--json`

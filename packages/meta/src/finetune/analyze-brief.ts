@@ -14,7 +14,7 @@ import {
     STEP_MAX,
     word,
 } from './brief.ts';
-import type { Case } from './dataset/types.ts';
+import type { Case } from '../dataset/types.ts';
 import { feedbackId, type Phase } from './feedback.ts';
 import { type Attempt, fence, rubricScore, since } from './report.ts';
 import type { Run } from './train.ts';

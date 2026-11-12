@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import { invalidError } from '../../host.ts';
+import { invalidError } from '../host.ts';
 import {
     type Anchor,
     CASE_ID,

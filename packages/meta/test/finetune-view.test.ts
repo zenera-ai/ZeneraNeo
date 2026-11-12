@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { liveView, startView } from '../src/meta/finetune/view.ts';
+import { liveView, startView } from '../src/finetune/view.ts';
 
 describe('the tuning in a browser', () => {
     let dir: string;
