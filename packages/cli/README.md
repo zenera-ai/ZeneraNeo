@@ -82,9 +82,10 @@ token usage are available to inspect.
 Requires **Node.js 24 or newer**.
 
 ```sh
-npm install --global @zenera/cli
+npm install --global @zenera/cli @zenera/meta
 ```
 
+`@zenera/meta` adds `zen meta`, the meta-agent the quickstart below relies on.
 The CLI is available as `zen`, `zn`, and `zenera`. To try it without a global
 install:
 
@@ -233,16 +234,22 @@ for secure callers, storage, and common options.
 
 The CLI can expose commands supplied by sibling Zenera packages:
 
+- **`@zenera/meta`** adds `zen meta`: the meta-agent, its dataset and the
+  fine-tuning loop, driven through GitHub Copilot on your own keys.
 - **`@zenera/rag`** adds `zen rag` for indexing and searching documents and API
   schemas.
 - **`@zenera/gym`** adds `zen gym` for building and serving mock APIs from
   OpenAPI or Swagger specifications.
 
-Install either package separately to use its command:
+Install each package separately to use its command:
 
 ```sh
-npm install --global @zenera/rag @zenera/gym
+npm install --global @zenera/meta @zenera/rag @zenera/gym
 ```
+
+`zen version` lists every `@zenera/*` package this `zen` resolves, flags one
+out of step with the CLI, and names the programs they run on (Node, Podman,
+Copilot).
 
 ## The rest of the family
 

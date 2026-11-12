@@ -1,8 +1,8 @@
 import { isMemory, MemoryStore } from '@zenera/neo';
 import { appendFileSync, cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { DatasetStore } from './dataset/store.ts';
-import type { Case } from './dataset/types.ts';
+import { DatasetStore } from '../dataset/store.ts';
+import type { Case } from '../dataset/types.ts';
 import { errorIn, sizeOf } from './failure.ts';
 import { writeFeedback } from './report.ts';
 import type { Run } from './train.ts';

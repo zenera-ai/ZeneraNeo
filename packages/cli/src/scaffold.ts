@@ -1,3 +1,10 @@
+// packages/cli/src/scaffold.ts
+//
+// Creating a project from `templates/`: `agents.yaml`, prompts, specification, house rules and the editor brief.
+// Main: `scaffold(opts)`; also `TEMPLATES`, `copyTree`, `SHARED_RULES`, `refreshShared`/`staleShared`, `ownVersion`.
+// Used by: `commands/init.ts`, `commands/check.ts` (`--fix`), `commands/export.ts`, `commands/completion.ts`,
+// `validate.ts`, `editor.ts`, and through `lib.ts` by `@zenera/meta`.
+
 import {
     chmodSync,
     existsSync,
@@ -8,7 +15,7 @@ import {
 } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { editorFiles } from './meta/editor.ts';
+import { editorFiles } from './editor.ts';
 
 // ---------------------------------------------------------------------------
 // Scaffolding

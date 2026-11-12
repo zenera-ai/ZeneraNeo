@@ -1,9 +1,9 @@
 import { anyOf, wildcard } from '@zenera/neo';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { sample } from './dataset/sample.ts';
-import { DatasetStore } from './dataset/store.ts';
-import type { Case } from './dataset/types.ts';
+import { sample } from '../dataset/sample.ts';
+import { DatasetStore } from '../dataset/store.ts';
+import type { Case } from '../dataset/types.ts';
 import { readJson, type Tuning } from './tuning.ts';
 import type { ByStage } from './usage.ts';
 

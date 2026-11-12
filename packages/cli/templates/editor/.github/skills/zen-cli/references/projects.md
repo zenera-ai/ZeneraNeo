@@ -130,5 +130,10 @@ window immediately rather than after a prompt.
 zen version
 ```
 
-The CLI version, the library version and the Node version. `zen --version`
-prints the CLI version alone and returns before anything else loads.
+Every `@zenera/*` package this `zen` resolves - what it is built on, then the
+ones it loads by name (`@zenera/meta`, `@zenera/gym`, `@zenera/rag`), each with
+its install line when missing - and the programs they run on: Node, Podman and,
+with `@zenera/meta`, Copilot CLI. A package whose version is not the CLI's is
+marked; they ship in lockstep, so that is the first thing to fix when a command
+misbehaves. `--json` gives `{ packages, subsystems }`. `zen --version` prints
+the CLI version alone and returns before anything else loads.

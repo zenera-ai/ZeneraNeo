@@ -1,3 +1,11 @@
+// packages/meta/src/command.ts
+//
+// `zen meta`: the meta agent's command - a coding agent (GitHub Copilot CLI) run over a zen project on your keys.
+// Main: `command: Command`, which routes `run`, `prompts`, `resume`, `model`, `dataset` and `finetune`; the run
+// itself is `go()` (choose the model, wire the key, log, launch, resume after transient failures).
+// Also `completeMeta` (tab completion) and the `subsystems` hook reporting copilot to `zen version`.
+// Used by: `@zenera/cli`, which loads it by name as `@zenera/meta/command` (`EXTERNAL.meta` in its commands/index.ts).
+
 import * as Projects from '@zenera/engine';
 import {
     assertOwner,
@@ -15,20 +23,57 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { ParseArgsConfig } from 'node:util';
-import { parse } from '../args.ts';
-import { matching, projectNames, type Candidate } from '../candidates.ts';
-import type { Command, Context } from '../command.ts';
-import { copilotEventLog } from '../eventlog.ts';
-import { probeChat, probeModel } from '../liveness.ts';
+import {
+    appendUsage,
+    bold,
+    browseModels,
+    choose,
+    CliError,
+    copilotEventLog,
+    credentialError,
+    cyan,
+    dim,
+    duration,
+    editorFiles,
+    EXIT,
+    green,
+    isInteractive,
+    json,
+    LEDGER_ENV,
+    ledgerPath,
+    matching,
+    META_PROMPT_ENV,
+    META_SESSION_ENV,
+    note,
+    pad,
+    parse,
+    probeChat,
+    probeModel,
+    progress,
+    projectNames,
+    readStdin,
+    resolveProject,
+    splitRef,
+    table,
+    TEMPLATES,
+    usageError,
+    warn,
+    wrap,
+    write,
+    writeAll,
+    type Candidate,
+    type Command,
+    type Context,
+} from './host.ts';
 import {
     answerBox,
     chooseModel,
+    copilotVersion,
     DATASET_DETAILS,
     DATASET_SUMMARY,
     DATASET_USAGE,
     datasetProjectFlag,
     DEFAULT_RESUMES,
-    editorFiles,
     fallbackRef,
     FINETUNE_DETAILS,
     FINETUNE_SUMMARY,
@@ -66,40 +111,7 @@ import {
     wireGateway,
     writeMeta,
     type ModelSources,
-} from '../meta/index.ts';
-import { splitRef } from '../modelref.ts';
-import { duration } from '../narrate.ts';
-import { project as resolveProject } from '../resolve.ts';
-import { TEMPLATES } from '../scaffold.ts';
-import {
-    bold,
-    choose,
-    CliError,
-    credentialError,
-    cyan,
-    dim,
-    EXIT,
-    green,
-    isInteractive,
-    json,
-    note,
-    pad,
-    progress,
-    readStdin,
-    table,
-    usageError,
-    warn,
-    write,
-    writeAll,
-} from '../term.ts';
-import { wrap } from '../tui/wrap.ts';
-import {
-    appendUsage,
-    LEDGER_ENV,
-    ledgerPath,
-    META_PROMPT_ENV,
-    META_SESSION_ENV,
-} from '../usage.ts';
+} from './index.ts';
 
 const USAGE = 'zen meta run [project] [prompt] [options]';
 
@@ -239,7 +251,7 @@ const RUN_OPTIONS = [
     '  --json                 Print one object: answer, answerFile, sessionId, exitCode, tokens.',
 ];
 
-export const meta: Command = {
+export const command: Command = {
     summary: 'Run the meta agent over this project, on your own keys.',
     usage: USAGE,
     banner: { head: 'Zenera', accent: 'Meta', subtitle: 'Meta Agent', hue: 'cyan' },
@@ -320,8 +332,10 @@ export const meta: Command = {
         if (words[0] === 'run' || words[1] === 'run') {
             return await runHelp(ctx, words);
         }
-        page({ ...meta, details: meta.details ?? [] });
+        page({ ...command, details: command.details ?? [] });
     },
+    complete: (args, cur, cwd) => completeMeta(args, cur, cwd),
+    subsystems: async () => [await copilotVersion()],
     run: async (ctx) => {
         // These own their flags, so they are routed before the meta agent's are parsed.
         const sub = subcommand(ctx.args);
@@ -1329,7 +1343,6 @@ async function pickModel(ctx: Context): Promise<string> {
         throw credentialError('no keys to choose from', 'add one: zen key add openai');
     }
     const held = gatewayOf() ? [] : [...new Set(known)];
-    const { browseModels } = await import('./models.ts');
     const chosen = await browseModels({
         initial: held.length === 1 ? held[0] : undefined,
         role: 'chat',

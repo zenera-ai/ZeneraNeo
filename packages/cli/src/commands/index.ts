@@ -1,3 +1,9 @@
+// packages/cli/src/commands/index.ts
+//
+// The table of `zen`'s commands: the built-in ones, their hidden aliases, and the ones that live in sibling packages.
+// Main: `COMMANDS`, `ALIASES`, and `EXTERNAL` (meta, gym, rag: package, usage, install line, banner).
+// Used by: `main.ts` (dispatch and help), `complete.ts`, `commands/version.ts` (which packages to report).
+
 import type { BannerText } from '../banner.ts';
 import type { Command } from '../command.ts';
 import { cache } from './cache.ts';
@@ -10,7 +16,6 @@ import { inspect } from './inspect.ts';
 import { key } from './key.ts';
 import { list } from './list.ts';
 import { memory } from './memory.ts';
-import { meta } from './meta.ts';
 import { models } from './models.ts';
 import { open } from './open.ts';
 import { run } from './run.ts';
@@ -20,7 +25,7 @@ import { version } from './version.ts';
 import { view } from './view.ts';
 
 /**
- * Insertion order is the order help prints in, and it is deliberate: the four
+ * Insertion order is the order help prints in, and it is deliberate: the ones
  * a new user needs first, then the credentials-and-models pair, then the two
  * reports on a project, then the pair that moves a project between machines,
  * then the ones that are only ever run on purpose.
@@ -32,7 +37,6 @@ export const COMMANDS: Record<string, Command> = {
     init,
     list,
     run,
-    meta,
     open,
     key,
     models,
@@ -94,6 +98,13 @@ export interface External {
 }
 
 export const EXTERNAL: Record<string, External> = {
+    meta: {
+        package: '@zenera/meta',
+        summary: 'Run the meta agent over this project, on your own keys.',
+        usage: 'zen meta <run|prompts|resume|model|dataset|finetune> [project] [args...]',
+        install: 'npm i -g @zenera/meta',
+        banner: { head: 'Zenera', accent: 'Meta', subtitle: 'Meta Agent', hue: 'cyan' },
+    },
     gym: {
         package: '@zenera/gym',
         summary: 'Simulated API environments for agent training and evaluation.',

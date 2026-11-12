@@ -16,8 +16,8 @@ import {
     write,
     writeAll,
     yellow,
-} from '../../host.ts';
-import { sessionKept } from '../../tokens.ts';
+} from '../host.ts';
+import { sessionKept } from '../tokens.ts';
 import { type Plan, planApply, planEdit, planIgnored, planStatus } from './changes.ts';
 import { drift } from './drift.ts';
 import { batchInput, dump } from './export.ts';

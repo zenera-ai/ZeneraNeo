@@ -49,7 +49,7 @@ you can run, inspect, improve, review and share.
 Install the packages:
 
 ```sh
-npm i -g @zenera/cli @zenera/neo @zenera/rag @zenera/gym
+npm i -g @zenera/cli @zenera/neo @zenera/meta @zenera/rag @zenera/gym
 ```
 
 ### 2. Add a model key and pick the meta-agent model

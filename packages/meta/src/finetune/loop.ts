@@ -6,7 +6,7 @@ import { StepError } from './failure.ts';
 import { recover } from './journal.ts';
 import { publish } from './live.ts';
 import type { Recheck } from './recheck.ts';
-import { nextCase, resultOf } from './sampler.ts';
+import { nextCase, resultOf } from './next-case.ts';
 import { markFailed, SandboxDown, train, VoidRun } from './train.ts';
 import { Stopped, type Seat, type Tuning } from './tuning.ts';
 

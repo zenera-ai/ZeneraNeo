@@ -1,3 +1,9 @@
+// packages/meta/src/finetune/command.ts
+//
+// `zen meta finetune <verb>`: start, watch, stop and report the loop that tunes a project's prose on its dataset.
+// Main: `runFinetune(ctx, project)`; also `finetuneProjectFlag`, `readConfig`, and the help text (`FINETUNE_*`).
+// Used by: `../command.ts`, which routes `zen meta finetune` here (through `finetune/index.ts`).
+
 import { liveHolder } from '@zenera/neo';
 import { type ChildProcess, spawnSync } from 'node:child_process';
 import {
@@ -10,12 +16,12 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { editorFiles } from '../editor.ts';
 import {
     bold,
     CliError,
     cyan,
     dim,
+    editorFiles,
     EXIT,
     green,
     invalidError,
@@ -28,12 +34,12 @@ import {
     yellow,
 } from '../host.ts';
 import { costChanges, type Gate, measure, overLimits } from './cost.ts';
-import { drift } from './dataset/drift.ts';
-import { DatasetStore } from './dataset/store.ts';
+import { drift } from '../dataset/drift.ts';
+import { DatasetStore } from '../dataset/store.ts';
 import { runLoop } from './loop.ts';
 import { analyzeSession, attemptsOf } from './report.ts';
 import { retry } from './retry.ts';
-import { resultOf, selection } from './sampler.ts';
+import { resultOf, selection } from './next-case.ts';
 import {
     type Config,
     DEFAULTS,

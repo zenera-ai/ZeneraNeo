@@ -2,10 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type AnalyzeBrief, renderAnalyzeBrief } from '../src/meta/finetune/analyze-brief.ts';
-import { editorSkills } from '../src/meta/finetune/apply-brief.ts';
-import { BRIEF_MAX, files, type Step } from '../src/meta/finetune/brief.ts';
-import type { Tuning } from '../src/meta/finetune/tuning.ts';
+import { type AnalyzeBrief, renderAnalyzeBrief } from '../src/finetune/analyze-brief.ts';
+import { editorSkills } from '../src/finetune/apply-brief.ts';
+import { BRIEF_MAX, files, type Step } from '../src/finetune/brief.ts';
+import type { Tuning } from '../src/finetune/tuning.ts';
 
 let root: string;
 const calls: string[][] = [];

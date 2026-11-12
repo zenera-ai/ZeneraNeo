@@ -9,8 +9,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { safe } from '../host.ts';
-import { DatasetStore } from './dataset/store.ts';
-import { type Case, DATASET_DIR } from './dataset/types.ts';
+import { DatasetStore } from '../dataset/store.ts';
+import { type Case, DATASET_DIR } from '../dataset/types.ts';
 import {
     type Feedback,
     feedbackId,
@@ -22,7 +22,7 @@ import {
 import type { AppliedFile, Decisions, Deferred } from './improvements.ts';
 import type { NowRow } from './live.ts';
 import { type Recheck, RECHECK_TRIES } from './recheck.ts';
-import { resultOf, selection } from './sampler.ts';
+import { resultOf, selection } from './next-case.ts';
 import type { Run } from './train.ts';
 import { readJson, type Tuning, type Worker } from './tuning.ts';
 import {

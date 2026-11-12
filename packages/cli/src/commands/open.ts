@@ -1,10 +1,16 @@
+// packages/cli/src/commands/open.ts
+//
+// `zen open [project]`: refreshes a project's editor files, then opens it in VS Code or `$EDITOR`.
+// Main: `open: Command`. It calls `editorFiles()` from `editor.ts` before opening.
+// Used by: `commands/index.ts`, which registers it as `zen open` (aliases `edit`, `code`).
+
 import { spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve, sep } from 'node:path';
 import { one, parse } from '../args.ts';
 import type { Command } from '../command.ts';
-import { editorFiles } from '../meta/editor.ts';
+import { editorFiles } from '../editor.ts';
 import { project as resolveProject } from '../resolve.ts';
 import { CliError, cyan, dim, EXIT, isInteractive, json, note, usageError } from '../term.ts';
 

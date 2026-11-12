@@ -36,7 +36,7 @@ vi.mock('../src/container.ts', async (original) => ({
 
 import { runProcess } from '@zenera/sandbox';
 import { server } from '../src/commands/server.ts';
-import { complete } from '../src/completion.ts';
+import { complete } from '../src/complete.ts';
 import { buildAgentImage } from '../src/container.ts';
 import {
     buildReleaseImage,

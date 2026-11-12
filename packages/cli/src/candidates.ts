@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 // ---------------------------------------------------------------------------
 // What a completion offers
 //
-// Shared by the engine in `completion.ts` and by a command that knows more
+// Shared by the engine in `complete.ts` and by a command that knows more
 // about its own words than the engine can, so neither has to import the other.
 // ---------------------------------------------------------------------------
 

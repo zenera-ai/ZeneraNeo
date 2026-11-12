@@ -63,6 +63,26 @@ describe('errors and issues', () => {
         expect(err.hint).toBe('try again');
     });
 
+    // A package installed apart from `zen` throws from its own copy of this module.
+    it('is recognised when thrown by another copy of the engine', () => {
+        const elsewhere = Object.defineProperty(
+            new Error('bad'),
+            Symbol.for('zenera.EngineError'),
+            {
+                value: true,
+            },
+        );
+        expect(elsewhere).toBeInstanceOf(EngineError);
+        expect(new Error('bad')).not.toBeInstanceOf(EngineError);
+    });
+
+    it('still checks a subclass by its prototype', () => {
+        class Narrower extends EngineError {}
+        expect(new Narrower('bad')).toBeInstanceOf(Narrower);
+        expect(new Narrower('bad')).toBeInstanceOf(EngineError);
+        expect(usageError('bad')).not.toBeInstanceOf(Narrower);
+    });
+
     it('describes an issue in plain text unless the host styles it', () => {
         const issue: ModelIssue = {
             name: 'main',
