@@ -120,21 +120,21 @@ function bump(spec, { dryRun, tag }) {
     if (to === from) die(`already at ${from}`);
     if (git('tag', '--list', `v${to}`)) die(`tag v${to} already exists`);
 
-    for (const dir of PACKAGES) {
+    const updates = PACKAGES.map((dir) => {
         const pkg = read(dir);
         pkg.version = to;
         // Keep each package pinned to the siblings it was built against.
         for (const name of internalDeps(pkg)) pkg.dependencies[name] = `^${to}`;
-        write(dir, pkg);
         console.log(`release: ${pkg.name} ${from} -> ${to}`);
-    }
+        return { dir, pkg };
+    });
 
     if (dryRun) {
-        console.log('release: --dry-run, restoring package.json files');
-        git('checkout', '--', ...PACKAGES.map((dir) => join(dir, 'package.json')));
+        console.log('release: --dry-run, no files changed');
         return;
     }
 
+    for (const { dir, pkg } of updates) write(dir, pkg);
     npm('install', '--package-lock-only', '--silent');
     git('add', 'package-lock.json', ...PACKAGES.map((dir) => join(dir, 'package.json')));
     git('commit', '-m', `release: v${to}`);
