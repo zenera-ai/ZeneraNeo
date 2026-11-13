@@ -1,13 +1,13 @@
 import { ENV_FILE } from '@zenera/engine';
 import { MEMORY_DB } from '@zenera/neo';
 import { createWriteStream, lstatSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as yauzl from 'yauzl';
 import * as yazl from 'yazl';
-import { invalidError, usageError } from './term.ts';
+import { CliError, EXIT, invalidError, usageError } from './term.ts';
 
 // ---------------------------------------------------------------------------
 // Archives
@@ -253,17 +253,21 @@ export function envExample(text: string): string {
 /**
  * What a name may be once this tool turns it into a path segment or a registry
  * key. Deliberately permissive — a project is whatever someone called their
- * directory — and closed on the three things that are not names: a traversal,
- * a separator, and a leading dash that some later command would read as a flag.
+ * directory — and closed on what is not a name: a traversal, a separator, a
+ * leading dash that some later command would read as a flag, and a control
+ * character that would rewrite the terminal line reporting it.
  */
 export function safeName(value: unknown): string | undefined {
     if (typeof value !== 'string' || value.length === 0 || value.length > 128) {
         return undefined;
     }
+    if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) {
+        return undefined;
+    }
     if (value === '.' || value === '..' || value.startsWith('-')) {
         return undefined;
     }
-    return /[/\\\0]/.test(value) ? undefined : value;
+    return /[/\\]/.test(value) ? undefined : value;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,18 +328,37 @@ export async function writeArchive(opts: WriteOptions): Promise<number> {
 // which is how an unpacker is talked into writing outside the tree it checked.
 // ---------------------------------------------------------------------------
 
-/** No project has this many files, and no archive this tool wrote does. */
-const MAX_ENTRIES = 200_000;
+/**
+ * What an archive may claim before this tool writes anything. Both bounds
+ * exist to stop a zip bomb; the entry count also bounds the work a central
+ * directory can ask for before the first file is opened.
+ *
+ * The values are a policy, not a property of the format. Tests shrink them so
+ * that a flood or a bomb can be built in a few kilobytes rather than a few
+ * gigabytes.
+ */
+export interface ArchiveLimits {
+    entries: number;
+    bytes: number;
+}
 
-/** Nor this many bytes once unpacked. Both bounds exist to stop a zip bomb. */
-const MAX_BYTES = 8 * 1024 ** 3;
+export const ARCHIVE_LIMITS: ArchiveLimits = {
+    entries: 200_000,
+    bytes: 8 * 1024 ** 3,
+};
 
 /** A manifest is a small json file; anything larger is not one. */
 const MAX_MANIFEST = 64 * 1024;
 
-/** The file-type bits of a unix mode, and the value that means "symlink". */
+/** The file-type bits of a unix mode, and the values that mean something. */
 const S_IFMT = 0o170000;
 const S_IFLNK = 0o120000;
+const S_IFREG = 0o100000;
+const S_IFDIR = 0o040000;
+
+/** A path longer or deeper than this is not a path this tool wrote. */
+const MAX_PATH = 4 * 1024;
+const MAX_SEGMENTS = 64;
 
 /**
  * The absolute path an entry may be written to, or `undefined` to refuse it.
@@ -344,13 +367,21 @@ const S_IFLNK = 0o120000;
  * a guard nobody knows the shape of.
  */
 export function safePath(name: string, root: string, into: string): string | undefined {
-    if (name.length === 0 || name.includes('\\') || name.includes('\0')) {
+    if (name.length === 0 || name.length > MAX_PATH) {
+        return undefined;
+    }
+    // Control characters are legal in a zip name but not in a project path.
+    // They also let a name rewrite the terminal line that reports it.
+    if (/[\u0000-\u001f\u007f-\u009f]/.test(name) || name.includes('\\')) {
         return undefined;
     }
     if (name.startsWith('/') || /^[A-Za-z]:/.test(name)) {
         return undefined;
     }
     const parts = name.split('/');
+    if (parts.length > MAX_SEGMENTS) {
+        return undefined;
+    }
     if (parts.some((part) => part === '' || part === '.' || part === '..')) {
         return undefined;
     }
@@ -365,6 +396,299 @@ export function safePath(name: string, root: string, into: string): string | und
     return at.startsWith(base + sep) ? at : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// What an entry claims
+//
+// A zip entry carries a name, a size and a unix mode. The name is checked by
+// `safePath`; the mode decides whether the entry is a file, a directory, a
+// symbolic link or something else entirely. The checks below are shared by the
+// preflight pass and the pass that writes, so a file swapped between the two
+// passes still meets the same guard.
+// ---------------------------------------------------------------------------
+
+type EntryKind = 'manifest' | 'directory' | 'file';
+
+/**
+ * What this entry may become, or the error explaining why it may not become
+ * anything. The manifest is special: it is read before extraction and never
+ * written into the project.
+ */
+function classify(entry: yauzl.Entry, root: string, into: string): EntryKind {
+    const name = entry.fileName;
+    if (entry.isEncrypted()) {
+        throw invalidError(`${name} is encrypted`, 'zen does not write those');
+    }
+    if (name === MANIFEST_FILE) {
+        return 'manifest';
+    }
+
+    const type = (entry.externalFileAttributes >>> 16) & S_IFMT;
+    if (type === S_IFLNK) {
+        throw invalidError(
+            `${name} is a symbolic link`,
+            'a link can point out of the directory being written to',
+        );
+    }
+    if (type !== 0 && type !== S_IFREG && type !== S_IFDIR) {
+        throw invalidError(
+            `${name} is not a regular file`,
+            'this archive was not written by `zen export`',
+        );
+    }
+
+    const directory = name.endsWith('/');
+    if (type === S_IFDIR && !directory) {
+        throw invalidError(
+            `${name} is a directory entry without a trailing slash`,
+            'this archive was not written by `zen export`',
+        );
+    }
+    if (type === S_IFREG && directory) {
+        throw invalidError(
+            `${name} is a file entry with a trailing slash`,
+            'this archive was not written by `zen export`',
+        );
+    }
+
+    if (directory) {
+        const path = name.slice(0, -1);
+        // A zip may carry an entry for the project directory itself. It is the
+        // one directory entry that does not have a parent under the root.
+        if (path !== root && !safePath(path, root, into)) {
+            throw notUnderRoot(name, root);
+        }
+        return 'directory';
+    }
+    if (!safePath(name, root, into)) {
+        throw notUnderRoot(name, root);
+    }
+    return 'file';
+}
+
+function notUnderRoot(name: string, root: string) {
+    return invalidError(
+        `${name} does not belong under ${root}/`,
+        'this archive was not written by `zen export`',
+    );
+}
+
+/** What a filesystem that ignores case and normalisation would see. */
+const folded = (path: string): string => path.normalize('NFC').toLowerCase();
+
+/** `proj/a/b` -> `['proj', 'proj/a']`; the root is a directory too. */
+function ancestors(path: string): string[] {
+    const parts = path.split('/');
+    const out: string[] = [];
+    for (let i = 1; i < parts.length; i += 1) {
+        out.push(parts.slice(0, i).join('/'));
+    }
+    return out;
+}
+
+/**
+ * The paths an archive claims, folded the way a case-insensitive filesystem
+ * would fold them. Two entries that differ only in case are a collision on
+ * macOS and Windows: one silently replaces the other. A path that is both a
+ * file and a directory is a collision everywhere, and an entry claimed twice
+ * makes the result depend on the order the archive happens to use.
+ */
+class PathClaims {
+    private readonly claimed = new Map<string, string>();
+    private readonly files = new Set<string>();
+    private readonly dirs = new Set<string>();
+
+    add(name: string, kind: 'file' | 'directory'): void {
+        const path = kind === 'directory' ? name.slice(0, -1) : name;
+        const key = folded(path);
+        const prior = this.claimed.get(key);
+        if (prior !== undefined) {
+            throw invalidError(
+                prior === path
+                    ? `this archive holds ${path} twice`
+                    : `${prior} and ${path} differ only in case`,
+                'a case-insensitive filesystem would overwrite one with the other',
+            );
+        }
+        this.claimed.set(key, path);
+
+        if (kind === 'file') {
+            if (this.dirs.has(key)) {
+                throw fileAndDirectory(path);
+            }
+            for (const parent of ancestors(key)) {
+                if (this.files.has(parent)) {
+                    throw fileAndDirectory(path);
+                }
+            }
+            this.files.add(key);
+            for (const parent of ancestors(key)) {
+                this.dirs.add(parent);
+            }
+            return;
+        }
+
+        if (this.files.has(key)) {
+            throw fileAndDirectory(path);
+        }
+        this.dirs.add(key);
+        for (const parent of ancestors(key)) {
+            this.dirs.add(parent);
+        }
+    }
+}
+
+function fileAndDirectory(path: string) {
+    return invalidError(`${path} is both a file and a directory in this archive`);
+}
+
+/** A count or a size, said the way a person would say it. */
+function label(bytes: number): string {
+    const units = [
+        ['GiB', 1024 ** 3],
+        ['MiB', 1024 ** 2],
+        ['KiB', 1024],
+    ] as const;
+    for (const [unit, size] of units) {
+        if (bytes >= size) {
+            return `${Number((bytes / size).toFixed(1))} ${unit}`;
+        }
+    }
+    return `${bytes} bytes`;
+}
+
+function tooManyEntries(limit: number) {
+    return invalidError(`this archive holds more than ${limit} entries`);
+}
+
+function tooManyBytes(limit: number) {
+    return invalidError(`this archive unpacks to more than ${label(limit)}`);
+}
+
+/**
+ * yauzl refuses some names (`..`, an absolute path) while reading the central
+ * directory, before this tool sees the entry. That is the same refusal; it
+ * only needs one exit code and one sentence.
+ */
+function archiveError(file: string, err: unknown): Error {
+    if (err instanceof CliError) {
+        return err;
+    }
+    return invalidError(
+        `${file} is not a zip archive zen can unpack`,
+        err instanceof Error ? err.message : undefined,
+    );
+}
+
+/** A failure to create the destination, not a failure to read the archive. */
+const FS_ERRORS = new Set([
+    'EACCES',
+    'EPERM',
+    'ENOSPC',
+    'EROFS',
+    'EMFILE',
+    'ENFILE',
+    'EIO',
+    'EDQUOT',
+    'ENAMETOOLONG',
+    'ENOENT',
+    'ENOTDIR',
+    'EISDIR',
+    'ELOOP',
+]);
+
+function isFsError(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null || !('code' in err)) {
+        return false;
+    }
+    const code = (err as { code?: unknown }).code;
+    return typeof code === 'string' && FS_ERRORS.has(code);
+}
+
+function writeError(to: string, err: unknown): Error {
+    return new CliError(
+        `could not write ${to}`,
+        EXIT.failed,
+        err instanceof Error ? err.message : undefined,
+    );
+}
+
+/**
+ * yauzl's entry iterator, with its reader errors translated once. Errors from
+ * the body of the loop do not pass through here, so a failed write is not
+ * reported as a bad archive.
+ */
+async function* zipEntries(zip: yauzl.ZipFile, file: string): AsyncGenerator<yauzl.Entry> {
+    try {
+        for await (const entry of zip.eachEntry()) {
+            yield entry;
+        }
+    } catch (err) {
+        throw archiveError(file, err);
+    }
+}
+
+async function openEntry(zip: yauzl.ZipFile, entry: yauzl.Entry, file: string): Promise<Readable> {
+    try {
+        return await zip.openReadStreamPromise(entry);
+    } catch (err) {
+        throw archiveError(file, err);
+    }
+}
+
+/**
+ * Reads the central directory once and answers whether the archive is worth
+ * writing at all. Nothing is opened for reading and nothing touches the disk:
+ * everything here is a claim in the central directory, checked before the
+ * first file is created.
+ */
+async function inspectArchive(
+    file: string,
+    root: string,
+    into: string,
+    limits: ArchiveLimits,
+): Promise<{ entries: number; files: number; bytes: number }> {
+    const zip = await yauzl.openPromise(file, { lazyEntries: true }).catch((err: unknown) => {
+        throw archiveError(file, err);
+    });
+    const claims = new PathClaims();
+    let entries = 0;
+    let files = 0;
+    let bytes = 0;
+    try {
+        // The end-of-central-directory record knows this before the first
+        // entry is read, so an absurd archive is refused without walking it.
+        if (zip.entryCount > limits.entries) {
+            throw tooManyEntries(limits.entries);
+        }
+        for await (const entry of zipEntries(zip, file)) {
+            entries += 1;
+            if (entries > limits.entries) {
+                throw tooManyEntries(limits.entries);
+            }
+            const kind = classify(entry, root, into);
+            if (kind === 'manifest') {
+                continue;
+            }
+            claims.add(entry.fileName, kind);
+            if (kind !== 'file') {
+                continue;
+            }
+            const size = entry.uncompressedSize;
+            if (!Number.isSafeInteger(size) || size < 0) {
+                throw invalidError(`${entry.fileName} declares an impossible size`);
+            }
+            bytes += size;
+            if (bytes > limits.bytes) {
+                throw tooManyBytes(limits.bytes);
+            }
+            files += 1;
+        }
+    } finally {
+        zip.close();
+    }
+    return { entries, files, bytes };
+}
+
 /**
  * Reads the manifest, and nothing else. Opening is cheap — it reads the
  * central directory and no file data — so `import` can describe what it is
@@ -377,18 +701,31 @@ export async function readManifest(file: string): Promise<ArchiveManifest> {
             err instanceof Error ? err.message : undefined,
         );
     });
-    let found: string | undefined;
-    for await (const entry of zip.eachEntry()) {
-        if (entry.fileName !== MANIFEST_FILE) {
-            continue;
-        }
-        if (entry.uncompressedSize > MAX_MANIFEST) {
-            zip.close();
-            throw invalidError(`${MANIFEST_FILE} is implausibly large`);
-        }
-        found = await read(await zip.openReadStreamPromise(entry));
+    if (zip.entryCount > ARCHIVE_LIMITS.entries) {
         zip.close();
-        break;
+        throw tooManyEntries(ARCHIVE_LIMITS.entries);
+    }
+    let found: string | undefined;
+    try {
+        for await (const entry of zip.eachEntry()) {
+            if (entry.fileName !== MANIFEST_FILE) {
+                continue;
+            }
+            if (entry.isEncrypted()) {
+                zip.close();
+                throw invalidError(`${MANIFEST_FILE} is encrypted`, 'zen does not write those');
+            }
+            if (entry.uncompressedSize > MAX_MANIFEST) {
+                zip.close();
+                throw invalidError(`${MANIFEST_FILE} is implausibly large`);
+            }
+            found = await read(await zip.openReadStreamPromise(entry));
+            zip.close();
+            break;
+        }
+    } catch (err) {
+        zip.close();
+        throw archiveError(file, err);
     }
     if (found === undefined) {
         throw usageError(
@@ -438,6 +775,8 @@ export interface ExtractOptions {
     into: string;
     /** the directory inside the archive they are expected to come from */
     root: string;
+    /** lower than the defaults only in tests that build a flood or a bomb */
+    limits?: Partial<ArchiveLimits>;
     onFile?: (rel: string) => void;
 }
 
@@ -451,60 +790,77 @@ export interface Extracted {
  * this tool would not have written. Nothing is executed, then or afterwards:
  * an archive carries `scripts/` and a `.github/` tree, and the only safe thing
  * to do with a stranger's script is to leave it on disk and say where it is.
+ *
+ * The archive is inspected once before the target is touched, so a refusal
+ * leaves no half-unpacked tree. The same checks run again while writing: a
+ * file replaced between the two passes must still meet the guard, and the
+ * cost of reading the central directory twice is small next to writing it.
  */
 export async function extractArchive(opts: ExtractOptions): Promise<Extracted> {
-    const zip = await yauzl.openPromise(opts.file, {
-        lazyEntries: true,
-        validateEntrySizes: true,
-    });
+    const limits: ArchiveLimits = { ...ARCHIVE_LIMITS, ...opts.limits };
+    await inspectArchive(opts.file, opts.root, opts.into, limits);
+
+    const zip = await yauzl
+        .openPromise(opts.file, {
+            lazyEntries: true,
+            validateEntrySizes: true,
+        })
+        .catch((err: unknown) => {
+            throw archiveError(opts.file, err);
+        });
+    const claims = new PathClaims();
     let files = 0;
     let bytes = 0;
-    let drained = false;
     try {
-        for await (const entry of zip.eachEntry()) {
-            // Directories arrive as their own entries; the tree is made from
-            // the file paths instead, so an empty one simply does not travel.
-            if (entry.fileName === MANIFEST_FILE || entry.fileName.endsWith('/')) {
+        for await (const entry of zipEntries(zip, opts.file)) {
+            const kind = classify(entry, opts.root, opts.into);
+            // The manifest is read before this point and is not part of the
+            // project. Directories arrive as their own entries; the tree is
+            // made from the file paths instead, so an empty one does not
+            // travel.
+            if (kind === 'manifest') {
                 continue;
             }
-            if (entry.isEncrypted()) {
-                throw invalidError(`${entry.fileName} is encrypted`, 'zen does not write those');
+            claims.add(entry.fileName, kind);
+            if (kind !== 'file') {
+                continue;
             }
-            if (++files > MAX_ENTRIES) {
-                throw invalidError(`this archive holds more than ${MAX_ENTRIES} files`);
+            files += 1;
+            if (files > limits.entries) {
+                throw tooManyEntries(limits.entries);
             }
             bytes += entry.uncompressedSize;
-            if (bytes > MAX_BYTES) {
-                throw invalidError('this archive unpacks to more than 8 GiB');
-            }
-            if (((entry.externalFileAttributes >>> 16) & S_IFMT) === S_IFLNK) {
-                throw invalidError(
-                    `${entry.fileName} is a symbolic link`,
-                    'a link can point out of the directory being written to',
-                );
+            if (bytes > limits.bytes) {
+                throw tooManyBytes(limits.bytes);
             }
             const to = safePath(entry.fileName, opts.root, opts.into);
             if (!to) {
-                throw invalidError(
-                    `${entry.fileName} does not belong under ${opts.root}/`,
-                    'this archive was not written by `zen export`',
-                );
+                throw notUnderRoot(entry.fileName, opts.root);
             }
-            await mkdir(dirname(to), { recursive: true });
-            const stream = await zip.openReadStreamPromise(entry);
-            // The mode is the archive's claim, so it is replaced rather than
-            // honoured. A shell script has to be runnable to be useful; there
-            // is no other reason for anything here to carry a bit.
-            const mode = entry.fileName.endsWith('.sh') ? 0o755 : 0o644;
-            await pipeline(stream, createWriteStream(to, { mode }));
+            try {
+                await mkdir(dirname(to), { recursive: true });
+                const stream = await openEntry(zip, entry, opts.file);
+                // The mode is the archive's claim, so it is replaced rather
+                // than honoured. A shell script has to be runnable to be
+                // useful; there is no other reason for anything here to carry
+                // a bit. chmod, not the create mode, because an existing file
+                // keeps its old mode and a new one is filtered by umask.
+                const mode = entry.fileName.endsWith('.sh') ? 0o755 : 0o644;
+                await pipeline(stream, createWriteStream(to, { mode }));
+                await chmod(to, mode);
+            } catch (err) {
+                if (err instanceof CliError) {
+                    throw err;
+                }
+                // A bad deflate stream is still an archive problem; a full
+                // disk is not, and should not be reported as a bad zip.
+                throw isFsError(err) ? writeError(to, err) : archiveError(opts.file, err);
+            }
             opts.onFile?.(entry.fileName.slice(opts.root.length + 1));
         }
-        drained = true;
     } finally {
         // Reaching the end closes it; leaving early does not.
-        if (!drained) {
-            zip.close();
-        }
+        zip.close();
     }
     return { files, bytes };
 }
