@@ -132,6 +132,7 @@ cache.ensure(op) ── miss ──▶ lease build:<key> (machine-wide; another 
           search_docs, grep_docs, list_docs, read_docs, test_handler
                                  │ test_handler(source)
                                  ▼
+          write it under a candidate key of its own, never the live one
           snapshot the world → scratch copy; run probes there (probe: true → fake.ts content)
           judge: runs? a body, not ctx.fail? response schema? echo rule? page walk?
           placement: every (collection, type, idField) the runs touched —
@@ -140,7 +141,8 @@ cache.ensure(op) ── miss ──▶ lease build:<key> (machine-wide; another 
                                  │
               pass ──────────────┴────────────── fail
        bind new types; keep the source        problems back to the agent;
-       with the bindings it used              after --attempts: BuildFailed + report
+       with the bindings it used; write       after --attempts: BuildFailed + report
+       it to the live handler.ts              (the candidate file is deleted either way)
 ```
 
 ## 7. Writing the world
@@ -257,6 +259,7 @@ costs anyone the whole lease.
 │   ├── vectors/, docs-parse/         @zenera/rag's shared caches (docs embeddings, parses)
 └── gym/                              --cache (default)
     ├── handlers/<key>/handler.ts     what the worker runs (a copy of the cache)
+    ├── handlers/<key>-…-candidate/   a candidate while it is judged, deleted after
     ├── indexes/docs-<digest>-<model>/  the docs index
     ├── worlds/<name>.sqlite          worlds (data: `cache clear` keeps them)
     ├── scratch/                      judging snapshots, deleted after each test
