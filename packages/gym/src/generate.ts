@@ -53,7 +53,8 @@ export interface BuildOptions {
     attempts?: number;
     /** where HTML reports of agent runs go */
     reportDir?: string;
-    // Awaited: the next test overwrites the file this one was judged on.
+    // Awaited: the source is the only record of a rejected attempt, since its
+    // file is deleted once it is judged.
     onAttempt?: (
         attempt: number,
         diagnostics: readonly string[],
@@ -187,6 +188,9 @@ export async function build(
     }
 
     if (state.passed) {
+        // Candidates are judged under keys of their own, so this is the one
+        // write that puts a handler where live requests run it.
+        await opts.box.write(operation.key, state.passed);
         return {
             source: state.passed,
             attempts: Math.max(1, state.failures + 1),
@@ -370,22 +374,25 @@ function tools(
     ];
 }
 
-/** Writes the module and judges it in a copy of the world nobody else can see. */
+/**
+ * Judges the module in a copy of the world nobody else can see, under a box
+ * key of its own: live requests run `operation.key`, and a candidate must never
+ * be what they find there. The key is unique per attempt so that two builds of
+ * one operation running at once cannot judge each other's code.
+ */
 async function test(
     operation: Operation,
     source: string,
     opts: BuildOptions,
 ): Promise<{ problems: string[]; placed: Record<string, Binding> }> {
-    await opts.box.write(operation.key, source);
-    const scratch = join(
-        opts.box.root,
-        'scratch',
-        `${operation.key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sqlite`,
-    );
-    opts.world.store.snapshot(scratch);
+    const attempt = `${operation.key}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const candidate = `${attempt}-candidate`;
+    const scratch = join(opts.box.root, 'scratch', `${attempt}.sqlite`);
     try {
+        await opts.box.write(candidate, source);
+        opts.world.store.snapshot(scratch);
         const used: Use[] = [];
-        const problems = await judge(operation, opts, scratch, used);
+        const problems = await judge(operation, candidate, opts, scratch, used);
         const { problems: misplaced, placed } = placement(used, opts);
         return { problems: [...problems, ...misplaced], placed };
     } finally {
@@ -394,11 +401,14 @@ async function test(
         for (const suffix of ['', '-wal', '-shm']) {
             rmSync(`${scratch}${suffix}`, { force: true });
         }
+        // Last, so a file that cannot be deleted never keeps the scratch world open.
+        await opts.box.remove(candidate);
     }
 }
 
 async function judge(
     operation: Operation,
+    candidate: string,
     opts: BuildOptions,
     db: string,
     used: Use[],
@@ -407,7 +417,7 @@ async function judge(
     const out: string[] = [];
 
     for (const probe of fitted(operation, probesFor(operation))) {
-        const outcome = await opts.box.run(operation.key, probe, { db, probe: true });
+        const outcome = await opts.box.run(candidate, probe, { db, probe: true });
         used.push(...(outcome.used ?? []));
         const what = `request ${JSON.stringify({ pathParams: probe.pathParams, query: probe.query, ...(probe.body !== undefined ? { body: probe.body } : {}) }).slice(0, 600)}`;
         if (!outcome.ok) {
@@ -436,7 +446,7 @@ async function judge(
         }
     }
     if (out.length === 0 && operation.paging?.next) {
-        out.push(...(await walk(operation, operation.paging, opts, db, used)));
+        out.push(...(await walk(operation, operation.paging, candidate, opts, db, used)));
     }
     return out;
 }
@@ -548,6 +558,7 @@ const MAX_PAGES = 8;
 async function walk(
     operation: Operation,
     paging: Paging,
+    candidate: string,
     opts: BuildOptions,
     db: string,
     used: Use[],
@@ -561,7 +572,7 @@ async function walk(
     }
 
     for (let page = 1; page <= MAX_PAGES; page++) {
-        const outcome = await opts.box.run(operation.key, input, { db, probe: true });
+        const outcome = await opts.box.run(candidate, input, { db, probe: true });
         used.push(...(outcome.used ?? []));
         const what = `page ${page} of ${operation.method.toUpperCase()} ${called(operation)}`;
         if (!outcome.ok) {

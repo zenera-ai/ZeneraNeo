@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type { Bindings, HandlerRequest, SynthesisRequest, Use } from './runtime.ts';
@@ -132,6 +132,12 @@ export class Box {
         mkdirSync(join(this.root, HANDLERS, key), { recursive: true });
         await writeFile(this.sourceOf(key), source, 'utf8');
         this.#versions.set(key, hash(source));
+    }
+
+    /** Deletes a handler's file and forgets its version. */
+    async remove(key: string): Promise<void> {
+        this.#versions.delete(key);
+        await rm(join(this.root, HANDLERS, key), { recursive: true, force: true });
     }
 
     run(key: string, input: HandlerRequest, opts: RunOptions = {}): Promise<Outcome> {

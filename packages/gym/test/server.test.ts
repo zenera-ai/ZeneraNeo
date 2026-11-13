@@ -446,6 +446,53 @@ export default async function handle(req: any, ctx: any) {
         expect(b.log.join('\n')).toContain('[REGENERATED]');
     });
 
+    // A request that arrives while a repair is being judged must be answered by
+    // the handler already kept, never by a candidate the judge threw out — and
+    // that candidate must not reach the live world through it either.
+    it('answers with the kept handler while a repair is judged, never with a rejected candidate', async () => {
+        const FAILS_ON_5 = `
+export default (req: any) => {
+    if (req.pathParams.user_id === '5') { throw new RangeError('no user 5'); }
+    return { user_id: Number(req.pathParams.user_id), email: 'kept@northwind.io' };
+};`;
+        const REJECTED = `
+export default (req: any, ctx: any) => {
+    ctx.db.collection('leaks').put('rejected', { id: 'rejected' });
+    return { user_id: 999, email: 'rejected@northwind.io' };
+};`;
+        let verdict = '';
+        let during: { status: number; body: unknown } | undefined;
+        const builder: Script = async (turn) => {
+            const tested = turn.results.filter((r) => r.name === 'test_handler');
+            if (tested.length === 0) {
+                return call('test_handler', { source: REJECTED });
+            }
+            if (tested.length === 1) {
+                verdict = tested[0]!.content;
+                const res = await fetch(`${b!.base}/users/7`);
+                during = { status: res.status, body: await res.json() };
+                return call('test_handler', { source: GET_USER });
+            }
+            return say('done');
+        };
+        b = await boot(
+            'petstore.yaml',
+            { ...PETSTORE, getUserById: FAILS_ON_5 },
+            { builder, attempts: 3 },
+        );
+
+        const res = await fetch(`${b.base}/users/5`);
+        expect(res.headers.get('x-gym-cache')).toBe('regenerated');
+        expect(await res.json()).toEqual({ user_id: 5, email: 'user5@northwind.io' });
+        expect(verdict).toContain('"ok":false');
+        // Soft, so a leak through the body and a leak into the world are reported apart.
+        expect.soft(during).toEqual({
+            status: 200,
+            body: { user_id: 7, email: 'kept@northwind.io' },
+        });
+        expect.soft(b.r.store.collection('leaks').has('rejected')).toBe(false);
+    });
+
     it('limits regenerations per url and says so', async () => {
         b = await start(writes(FAILS_ON_999, FAILS_ON_999, FAILS_ON_999, FAILS_ON_999), 1);
         expect((await fetch(`${b.base}/users/999`)).status).toBe(502);
