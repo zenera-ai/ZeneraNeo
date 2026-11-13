@@ -202,7 +202,26 @@ export function exactKeys(calendars: unknown, asked: readonly string[]): Verdict
     return pass(`keys = {${got.join(', ')}}`);
 }
 
+// --- Settings ----------------------------------------------------------------
+
+/**
+ * A positive whole number from an environment variable, or the fallback when it
+ * is unset. Anything else throws: `ORACLE_REPEATS=0` would otherwise run every
+ * case zero times and pass with an empty report.
+ */
+export function positiveInt(name: string, raw: string | undefined, fallback: number): number {
+    if (raw === undefined) return fallback;
+    const n = Number(raw);
+    if (raw.trim() === '' || !Number.isInteger(n) || n < 1) {
+        throw new Error(`${name} must be a positive integer, got "${raw}"`);
+    }
+    return n;
+}
+
 // --- Report ------------------------------------------------------------------
+
+/** One markdown table cell: pipes escaped, line breaks flattened, so a row never splits. */
+export const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 
 export interface Trial {
     relation: string;
@@ -230,7 +249,7 @@ export function report(trials: readonly Trial[], meta: Record<string, string>): 
         const first = ts.find((t) => !t.verdict.ok);
         const rate = ts.length ? `${Math.round((100 * passed) / ts.length)}%` : '-';
         const failure = first
-            ? `\`${first.case}\` #${first.run}: ${first.verdict.detail.replace(/\|/g, '\\|')}`
+            ? `\`${cell(first.case)}\` #${first.run}: ${cell(first.verdict.detail)}`
             : '';
         lines.push(
             `| ${relation} | ${ts.length} | ${passed} | ${rate} | ${vacuous} | ${failure} |`,
@@ -241,7 +260,7 @@ export function report(trials: readonly Trial[], meta: Record<string, string>): 
     for (const t of trials) {
         const result = t.verdict.ok ? (t.verdict.vacuous ? 'pass (vacuous)' : 'pass') : 'FAIL';
         lines.push(
-            `| ${t.relation} | \`${t.case}\` | ${t.run} | ${result} | ${t.verdict.detail.replace(/\|/g, '\\|')} |`,
+            `| ${t.relation} | \`${cell(t.case)}\` | ${t.run} | ${result} | ${cell(t.verdict.detail)} |`,
         );
     }
     return lines.join('\n') + '\n';

@@ -4,6 +4,7 @@ import {
     exactKeys,
     notGrowing,
     overlapsWindow,
+    positiveInt,
     report,
     sameSet,
     walk,
@@ -195,5 +196,40 @@ describe('report', () => {
         );
         expect(md).toContain('| R1 | 2 | 1 | 50% | 0 |');
         expect(md).toContain('got 2');
+    });
+});
+
+describe('positiveInt', () => {
+    it('uses the fallback when unset and accepts a positive integer', () => {
+        expect(positiveInt('N', undefined, 3)).toBe(3);
+        expect(positiveInt('N', '5', 3)).toBe(5);
+    });
+    it('rejects values that would run a case zero times or never stop', () => {
+        for (const raw of ['', ' ', '0', '-1', '2.5', 'abc', 'Infinity', 'NaN']) {
+            expect(() => positiveInt('N', raw, 3), raw).toThrow(/positive integer/);
+        }
+    });
+});
+
+describe('report table cells', () => {
+    it('keeps a detail with line breaks on one table row', () => {
+        const md = report(
+            [
+                {
+                    relation: 'R1',
+                    case: 'n=1',
+                    run: 1,
+                    verdict: {
+                        ok: false,
+                        vacuous: false,
+                        detail: 'error: 500\n<html>\r\nboom</html>',
+                    },
+                },
+            ],
+            {},
+        );
+        const rows = md.split('\n').filter((l) => l.startsWith('| R1 '));
+        expect(rows).toHaveLength(2); // summary row + every-trial row, each on one line
+        expect(rows.every((r) => r.includes('error: 500 <html> boom</html>'))).toBe(true);
     });
 });
