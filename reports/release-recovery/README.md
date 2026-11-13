@@ -14,20 +14,28 @@ The current implementation already has several useful safeguards:
 - the image matrix runs after the npm publishing job and skips an image tag that already exists.
 - `RELEASE.md` documents retrying a partially published release with the same tag, and dispatching from `main` so a workflow fix can run against the tagged source tree.
 
-These safeguards are valuable, but the overall result is represented mainly by GitHub Actions job status and registry lookups. There is no single durable release record that reconciles intended artifacts, confirmed registry artifacts, and image artifacts. The `npm view` predicate also treats any unsuccessful query as absence unless the shell command is refined: authentication failures, rate limits, network errors, and actual 404s must not all lead to a publish attempt.
+These safeguards are valuable, but several edge cases remain:
+
+- The npm publish predicate treats any unsuccessful `npm view` as absence unless it is refined. Authentication failures, rate limits, network errors, and actual 404s must not all lead to a publish attempt.
+- The image readiness step checks only the explicitly listed packages: `@zenera/cli` for the agent runtime, and `@zenera/cli` plus `@zenera/rag` for the sandbox. The Dockerfiles install packages with internal transitive dependencies too, so this gate can pass while another internal package is not yet visible.
+- The publish job invokes `gh release create` unconditionally. A retry after the GitHub Release was already created must verify and reuse that entry rather than blindly creating it again; otherwise the publish job can fail before the image jobs are reached.
+- The workflow uses `concurrency.group: release` with `cancel-in-progress: false`, which prevents simultaneous runs in the group. However, GitHub Actions' default concurrency queue keeps only one pending run; a newer queued run replaces the older pending run. This protects the active publisher but does not guarantee every queued tag gets processed.
+
+There is no single durable release record that reconciles intended artifacts, confirmed npm artifacts, GitHub Release metadata, and image artifacts.
 
 ## Proposed improvement
 
 Introduce a per-release manifest and a reconciliation-oriented recovery procedure. The manifest is an audit record, not the source of truth for artifact existence. npm and GHCR remain authoritative for whether an exact version or image digest exists. On every run, the release controller should:
 
 1. Validate the exact tag, peeled commit SHA, and package versions before acquiring publishing credentials.
-2. Acquire one repository-wide release lock and re-check the tag/commit identity while holding it.
+2. Serialize release runs with one static repository-wide concurrency group. Configure `queue: max` (up to 100 pending runs) if every pushed tag must be retained; use a durable lease with a fencing token if any supported publisher can run outside this workflow. Re-check the tag/commit identity after acquiring the publishing lock.
 3. Build and validate every package before the first external publication.
 4. Create or load a manifest keyed by immutable release identity (`repository`, tag, source commit SHA).
 5. Reconcile every expected npm package against the registry. Publish only on a confirmed not-found response; fail closed on auth, rate-limit, server, network, or ambiguous outcomes.
 6. After each publish, poll the exact `name@version` until visible, then verify metadata and record the result.
-7. Build and push images only after their declared npm dependencies are verified. Verify the pushed manifest list and record its digest.
-8. Mark the release `COMPLETE` only when all required npm packages, GitHub Release metadata, and required images are verified.
+7. Reconcile the GitHub Release entry idempotently: verify an existing release for the same tag and target commit, and create it only when absent.
+8. Build and push images only after the full internal dependency closure required by each image is visible and verified—not merely the immediate packages named in the current matrix. Verify the pushed manifest list and record its digest.
+9. Mark the npm/GitHub release `RELEASED` once all required npm packages and GitHub Release metadata are verified. Track image readiness independently. The current release documentation says the product can build these images locally when prebuilt images are unavailable, so an image failure should be recorded as `IMAGE_DEGRADED`, not misreported as an unpublished npm release.
 
 A re-run starts by reconciling external state. It does not trust only the last recorded status, because the process may have crashed between a successful publish and writing the manifest.
 
@@ -57,6 +65,10 @@ A release is safely re-runnable when all of the following hold:
 - A retry does not republish any already-published immutable package version.
 - A registry timeout never causes a blind second publish.
 - Conflicting version metadata or tag identity stops the release before additional side effects.
-- Two release attempts cannot publish concurrently under the supported release entry point.
-- Successful npm publication is not repeated just because an image build failed.
+- Two release attempts cannot publish concurrently under the supported release entry point, and queued release tags are not silently discarded by the scheduler.
+- A retry after successful GitHub Release creation verifies the existing entry instead of failing on a duplicate create.
+- Image readiness checks cover required internal transitive dependencies, and GHCR errors are not all interpreted as a missing image.
+- Successful npm publication is not repeated just because an optional image build failed.
 - The manifest and logs explain what happened, what was verified, and what action is required next.
+
+GitHub Actions concurrency queue semantics: [Control the concurrency of workflows and jobs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).

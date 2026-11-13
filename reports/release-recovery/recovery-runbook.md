@@ -18,7 +18,7 @@ Compare the peeled tag commit with the release manifest. If it differs, stop. Ne
 
 - **Validation failed before publication:** fix the cause in the workflow or source. Re-run the same release only after confirming the tag still points to the intended commit.
 - **npm publication is partial or ambiguous:** reconcile every expected package version against npm. Do not assume that a failed step means the registry did not accept the publish.
-- **npm packages verified, image job failed:** retry the image stage only. Do not re-publish packages.
+- **npm packages verified, image job failed:** retry the image stage only. Do not re-publish packages. The repository documents that the product can build either image locally, so classify this as degraded prebuilt-image availability rather than an unpublished npm release.
 - **GitHub Release creation failed:** reconcile/create release metadata for the same tag; package publication is already complete.
 
 ## 3. Reconcile npm packages
@@ -38,7 +38,11 @@ Interpret results carefully:
 
 The current workflow's simple `npm view ... || npm publish` branch should be hardened in an implementation so only confirmed not-found permits publishing.
 
-## 4. Retry policy
+## 4. Reconcile GitHub Release metadata
+
+Before creating a GitHub Release, query it by tag (for example, `gh release view "$TAG"`). If it already exists, verify that it targets the expected tag/commit and reuse it. Create it only when absent. The existing workflow's unconditional `gh release create` step should be made idempotent so a full workflow retry after successful npm/GitHub Release publication but failed image distribution can reach the image jobs.
+
+## 5. Retry policy
 
 Use the repository's documented `workflow_dispatch` path with the original tag, and dispatch from `main` when the purpose is to run a corrected workflow against the immutable tagged source tree. Confirm the workflow checks out the requested tag for package contents while using the dispatch ref for the workflow definition. The existing `RELEASE.md` documents this distinction.
 
@@ -50,13 +54,13 @@ A future workflow implementation should expose separate recovery targets:
 
 Do not add a manual “force publish” switch. Force should never bypass identity, immutability, or registry reconciliation checks.
 
-## 5. Image recovery
+## 6. Image recovery
 
-Before building an image, verify all npm versions declared as dependencies for that image. The current release workflow already waits for relevant npm packages, but a simple success check should be upgraded to verify expected metadata and distinguish not-yet-visible from registry errors.
+Before building an image, verify the complete internal dependency closure that the Dockerfile will install, not only the short top-level `needs` list in the current matrix. For example, the agent runtime installs `@zenera/cli`, whose dependencies include other internal packages such as `@zenera/server`. Poll exact versions until visible. A confirmed 404 can be treated as not-yet-visible during a bounded wait; 401/403/429/5xx/network errors must fail with their own diagnosis rather than being treated as absence. The v1.3.2 logs show why this matters: `npm publish` returned success for `@zenera/server@1.3.2`, but the later image build still received `ETARGET` for that version.
 
-After push, inspect the image manifest list and record its digest and platform set (`linux/amd64`, `linux/arm64`). If the image exists and matches, mark it verified and skip it on retry. If it exists but differs from the expected build, block for operator review; do not overwrite a release tag casually.
+After push, inspect the image manifest list and record its digest and platform set (`linux/amd64`, `linux/arm64`). If the image exists and matches, mark it verified and skip it on retry. If it exists but differs from the expected build, block for operator review; do not overwrite a release tag casually. Apply the same fail-closed distinction to GHCR inspection: authentication, throttling, and network errors are not evidence that an image tag is absent. Because prebuilt images are optional performance optimizations in this repository, an image failure should leave the npm release marked `RELEASED` while the image substate remains `IMAGE_DEGRADED` until recovered.
 
-## 6. Bad published version
+## 7. Bad published version
 
 npm versions are immutable. If a package is defective:
 
@@ -68,12 +72,12 @@ npm versions are immutable. If a package is defective:
 
 Unpublishing is exceptional, constrained by npm policy and dependent usage, and must be a deliberate maintainer decision—not the normal rollback mechanism.
 
-## 7. Completion checklist
+## 8. Completion checklist
 
 - [ ] Tag still resolves to the expected immutable commit.
 - [ ] Release lock is held by this run and no stale run can publish.
 - [ ] Every npm package is confirmed and verified at the expected version.
 - [ ] GitHub Release entry exists for the same tag.
-- [ ] Every required image is verified by digest and platforms.
-- [ ] Manifest says `COMPLETE` only after all checks pass.
+- [ ] Image status is independently recorded as `IMAGES_VERIFIED` or `IMAGE_DEGRADED`.
+- [ ] Manifest says `RELEASED` only after all npm packages and GitHub Release metadata are verified.
 - [ ] Logs contain enough sanitized evidence for another operator to explain the recovery.
