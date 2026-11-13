@@ -1,6 +1,6 @@
 {
     "name": "@zenera/gym",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "description": "Simulated API environments for agent training and evaluation, powered by OpenAPI and model-written generators.",
     "keywords": [
         "openapi",
@@ -46,9 +46,9 @@
     },
     "dependencies": {
         "@apidevtools/swagger-parser": "^12.0.0",
-        "@zenera/cli": "^1.3.2",
-        "@zenera/neo": "^1.3.2",
-        "@zenera/rag": "^1.3.2",
+        "@zenera/cli": "^1.3.3",
+        "@zenera/neo": "^1.3.3",
+        "@zenera/rag": "^1.3.3",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "randexp": "^0.5.3"
