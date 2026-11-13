@@ -16,6 +16,7 @@ import {
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { editorFiles } from './editor.ts';
+import { splitRef } from './modelref.ts';
 
 // ---------------------------------------------------------------------------
 // Scaffolding
@@ -140,15 +141,11 @@ function part(name: string, vars: Vars = {}): string {
  * configuration a name to be referred to by.
  */
 function modelSection(ref: string, options?: string): string {
-    const colon = ref.indexOf(':');
-    if (!options || colon < 0) {
+    const { provider, id } = splitRef(ref);
+    if (!options || !provider) {
         return part('model.yaml', { ref });
     }
-    return part('models.yaml', {
-        provider: ref.slice(0, colon),
-        id: ref.slice(colon + 1),
-        options,
-    });
+    return part('models.yaml', { provider, id, options });
 }
 
 export interface CopyOptions {

@@ -66,7 +66,7 @@ zen key mode direct                                    # back to vendor keys
 In `bifrost` mode a run exports `BIFROST_API_KEY` and `BIFROST_BASE_URL` and
 **withholds every vendor key**. The runtime then sends every model and every
 embedding through the gateway, each in its own vendor's protocol, and
-`agents.yaml` does not change: `vertex:gemini-3.5-flash` reaches
+`agents.yaml` does not change: `vertex/gemini-3.5-flash` reaches
 `<url>/genai` as `vertex/gemini-3.5-flash`, `anthropic:*` reaches
 `<url>/anthropic`, `openai:*` and `openrouter:*` reach `<url>/openai`.
 Declared providers are rerouted too. `zen check` then reports

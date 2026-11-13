@@ -1583,6 +1583,27 @@ describe('the project check', () => {
         expect(report.models[0].credential).toBe('unknown');
     });
 
+    it('asks for a ref that reads two ways to be written out', async () => {
+        const dir = project({
+            'agents.yaml':
+                'version: 1\nprovider: openrouter\nmodel: anthropic/claude-sonnet-5\n' +
+                'agents:\n  - name: solo\n    model: openrouter:openai/gpt-4o\n',
+            'agents/prompts/solo.md': 'Be useful.\n',
+        });
+        const report = await validateProject({ dir });
+        const about = (code: string) => report.findings.find((f) => f.code === code);
+
+        expect(report.ok).toBe(true);
+        expect(about('model.ref.ambiguous')).toMatchObject({
+            severity: 'warning',
+            fix: expect.stringContaining('openrouter/anthropic/claude-sonnet-5'),
+        });
+        expect(about('model.ref.colon')).toMatchObject({
+            severity: 'note',
+            fix: expect.stringContaining('openrouter/openai/gpt-4o'),
+        });
+    });
+
     /**
      * Every agent reads every one of them, so the check has to name every one
      * of them: an instruction file nothing lists is one nobody knows is live.
@@ -3275,7 +3296,7 @@ describe('reading a provider listing', () => {
             'dall-e-3': ['image'],
             'chatgpt-image-latest': ['image'],
         });
-        expect(rows[0]!.ref).toBe('openai:gpt-4o');
+        expect(rows[0]!.ref).toBe('openai/gpt-4o');
     });
 
     // OpenAI's listing has no dimensions field at all, and a blank there sends
@@ -3594,14 +3615,14 @@ describe('listing through a gateway', () => {
         expect(asked).toBe(1);
         expect(seen).toMatchObject({ path: '/v1/models', 'x-bf-vk': 'sk-bf-1' });
         expect(vertex!.entries.map((e) => [e.ref, e.publisher])).toEqual([
-            ['vertex:gemini-3.5-flash', 'google'],
-            ['vertex:claude-sonnet-5', 'anthropic'],
+            ['vertex/gemini-3.5-flash', 'google'],
+            ['vertex/anthropic/claude-sonnet-5', 'anthropic'],
         ]);
         expect(vertex!.via).toMatchObject({ name: 'bifrost' });
         expect(google!.entries).toMatchObject([
-            { ref: 'google:gemini-embedding-2', roles: ['embedding'] },
+            { ref: 'google/gemini-embedding-2', roles: ['embedding'] },
         ]);
-        expect(openai!.entries.map((e) => e.ref)).toEqual(['openai:gpt-5.6-luna']);
+        expect(openai!.entries.map((e) => e.ref)).toEqual(['openai/gpt-5.6-luna']);
         // Served by nothing a ref could name, and the vendor's own list is not what runs reach.
         expect(anthropic!.entries).toEqual([]);
     });
@@ -3622,7 +3643,7 @@ describe('listing through a gateway', () => {
         const cat = await loadCatalog('openai', { offline: true });
         expect(asked).toBe(2);
         expect(cat).toMatchObject({ origin: 'live' });
-        expect(cat.entries.map((e) => e.ref)).toEqual(['openai:gpt-5.6-luna']);
+        expect(cat.entries.map((e) => e.ref)).toEqual(['openai/gpt-5.6-luna']);
     });
 
     it('ignores a cached vendor listing', async () => {
@@ -3641,7 +3662,7 @@ describe('listing through a gateway', () => {
         });
         answer = { status: 200, body: LISTING };
         const cat = await loadCatalog('openai');
-        expect(cat.entries.map((e) => e.ref)).toEqual(['openai:gpt-5.6-luna']);
+        expect(cat.entries.map((e) => e.ref)).toEqual(['openai/gpt-5.6-luna']);
     });
 });
 

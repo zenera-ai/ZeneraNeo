@@ -52,7 +52,7 @@ it was - `--json` carries `source` per model and `origin` per provider.
 After `zen key mode bifrost`, every listing is **what the gateway serves**,
 not what the vendors do: one `GET <url>/v1/models`, split by its
 `<upstream>/<id>` names back into refs (`vertex/gemini-3.5-flash` lists as
-`vertex:gemini-3.5-flash`). Upstreams no zen provider names (bedrock, groq, ...)
+`vertex/gemini-3.5-flash`). Upstreams no zen provider names (bedrock, groq, ...)
 are left out, and there is no built-in fallback list. Each command says so on
 stderr with a `⇄ bifrost mode` line, `browse` carries the same badge on every
 screen, and `--json` adds a `gateway` field. `zen models` then does go to the
@@ -63,8 +63,8 @@ gateway too. The full guide is
 ## Testing a model
 
 ```
-zen models test openai:gpt-4o-mini
-zen models test vertex:gemini-embedding-001 --embedding
+zen models test openai/gpt-4o-mini
+zen models test vertex/gemini-embedding-001 --embedding
 ```
 
 The role is taken from the flag, else from what the provider says the model is
@@ -90,9 +90,9 @@ not parse.
 This is what the command is for.
 
 ```
-$ zen models test vertex:gemini-embedding-001
-vertex:gemini-embedding-001  blocked  Vertex AI API has not been used in project my-proj …
-fix vertex:gemini-embedding-001 gcloud services enable aiplatform.googleapis.com --project my-proj
+$ zen models test vertex/gemini-embedding-001
+vertex/gemini-embedding-001  blocked  Vertex AI API has not been used in project my-proj …
+fix vertex/gemini-embedding-001 gcloud services enable aiplatform.googleapis.com --project my-proj
 error 1 of 1 did not answer
         see what else there is: zen models ls --embeddings
 ```
@@ -102,8 +102,8 @@ account serves, test the one you want, and put its ref where the old one was.
 
 ```
 $ zen models ls --embeddings
-$ zen models test openai:text-embedding-3-small
-openai:text-embedding-3-small  answers 412ms  1536 dims
+$ zen models test openai/text-embedding-3-small
+openai/text-embedding-3-small  answers 412ms  1536 dims
 ```
 
 Test one model, not the whole list - each test is a billable call.

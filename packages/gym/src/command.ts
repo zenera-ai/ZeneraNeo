@@ -485,7 +485,7 @@ async function model(args: readonly string[], ctx: Context): Promise<void> {
             ),
     );
     if (chosen.from === 'default') {
-        note(dim(`set one: zen gym model <provider>:<id>`));
+        note(dim(`set one: zen gym model <provider>/<id>`));
     }
 }
 

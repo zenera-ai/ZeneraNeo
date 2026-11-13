@@ -814,6 +814,7 @@ function factsOf(n: TrajectoryNode): Record<string, string> {
         case 'llm_call':
             return {
                 model: n.model,
+                ...(n.ref && n.ref !== n.model ? { ref: n.ref } : {}),
                 stopReason: n.stopReason,
                 tokens:
                     `${n.usage.inputTokens} in, ${n.usage.outputTokens} out` +

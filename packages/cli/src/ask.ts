@@ -1,8 +1,10 @@
 import {
+    projectRegistry,
     text,
     type LlmCallNode,
     type Message,
     type ModelRef,
+    type ModelRegistry,
     type ModelRequest,
     type ProjectConfig,
     type ToolSchema,
@@ -169,29 +171,63 @@ function question(input: AskInput): string {
 // ---------------------------------------------------------------------------
 // Which model answers
 //
-// A node records the wire id it used (`claude-opus-5`), not a reference that
-// can be built again: the provider is the project's to say. So the id is
-// matched back against what `agents.yaml` declares, which is also the only way
-// a project-declared provider — a gateway, a custom base url — is honoured.
+// A node records the ref of the model that answered (`openai/gpt-5-mini`) as
+// well as its wire id. The ref is matched against what `agents.yaml` declares
+// first, because a declaration carries what a ref cannot — reasoning knobs, a
+// custom base url — and only then built from on its own.
+//
+// A run recorded before refs were has the wire id alone (`claude-opus-5`), and
+// that is matched back against every reading a declared ref has ever had.
 // ---------------------------------------------------------------------------
 
 export interface PickedModel {
     ref: ModelRef;
     /** how to name it to a reader */
     label: string;
-    /** the wire id, to compare against the one the run answered with */
-    id: string;
-    from: 'flag' | 'agent' | 'project';
+    /** the model the run answered with, rather than a second opinion */
+    same: boolean;
+    from: 'flag' | 'agent' | 'project' | 'run';
 }
 
 type Declared = NonNullable<ProjectConfig['models']>[string];
 
-function wireId(entry: Declared): string {
-    return typeof entry === 'string' ? splitRef(entry).id : entry.model;
+/** The ref a declaration is written as today; undefined when it does not resolve. */
+function refOf(registry: ModelRegistry, entry: Declared): string | undefined {
+    try {
+        return registry.refOf(typeof entry === 'string' ? registry.parse(entry) : entry);
+    } catch {
+        return undefined;
+    }
 }
 
-function labelOf(entry: Declared): string {
-    return typeof entry === 'string' ? entry : `${entry.provider ?? 'default'}/${entry.model}`;
+/**
+ * The wire ids a declaration can have been recorded under by an older run: the
+ * library once read only a colon as a provider, so `openai/gpt-5-mini` went out
+ * whole; `splitRef` has always split it; and Claude on Vertex is sent without
+ * its publisher.
+ */
+function wireIds(registry: ModelRegistry, entry: Declared): string[] {
+    const ids = new Set<string>();
+    if (typeof entry === 'string') {
+        const colon = entry.indexOf(':');
+        ids.add(colon > 0 ? entry.slice(colon + 1) : entry);
+        ids.add(splitRef(entry).id);
+        try {
+            ids.add(registry.parse(entry).model);
+        } catch {
+            // a ref that no longer resolves can still be what an old run used
+        }
+    } else {
+        ids.add(entry.model);
+    }
+    for (const id of [...ids]) {
+        ids.add(id.replace(/^anthropic\/(?=claude-)/, ''));
+    }
+    return [...ids];
+}
+
+function labelOf(registry: ModelRegistry, entry: Declared): string {
+    return typeof entry === 'string' ? entry : (refOf(registry, entry) ?? entry.model);
 }
 
 /** A `model:` value is either a ref or a name in the `models:` map. */
@@ -201,16 +237,20 @@ function declared(config: ProjectConfig, ref: string): Declared {
 
 export function pickModel(
     config: ProjectConfig,
-    node: Pick<LlmCallNode, 'agent' | 'model'>,
+    node: Pick<LlmCallNode, 'agent' | 'model' | 'ref'>,
     flag: string | undefined,
+    registry: ModelRegistry = projectRegistry(config),
 ): PickedModel {
+    const answered = (entry: Declared): boolean =>
+        node.ref
+            ? refOf(registry, entry) === node.ref
+            : wireIds(registry, entry).includes(node.model);
     if (flag) {
-        return { ref: flag, label: flag, id: splitRef(flag).id, from: 'flag' };
+        return { ref: flag, label: flag, same: answered(flag), from: 'flag' };
     }
     const own = config.agents.find((a) => a.name === node.agent)?.model;
     // The agent's own declaration first, then anything else the project names:
-    // a run made with `zen run --model` used something its agent never declared,
-    // and the wire id is the only witness of which it was.
+    // a run made with `zen run --model` used something its agent never declared.
     const candidates: { entry: Declared; from: PickedModel['from'] }[] = [
         ...(own ? [{ entry: declared(config, own), from: 'agent' as const }] : []),
         ...config.agents
@@ -225,17 +265,20 @@ export function pickModel(
             from: 'project' as const,
         })),
     ];
-    const found = candidates.find((c) => wireId(c.entry) === node.model);
-    if (!found) {
-        throw invalidError(
-            `the run answered with "${node.model}", which this project does not declare`,
-            'name the model to ask: --model anthropic/claude-opus-5',
-        );
+    const found = candidates.find((c) => answered(c.entry));
+    if (found) {
+        return {
+            ref: found.entry as ModelRef,
+            label: labelOf(registry, found.entry),
+            same: true,
+            from: found.from,
+        };
     }
-    return {
-        ref: found.entry as ModelRef,
-        label: labelOf(found.entry),
-        id: wireId(found.entry),
-        from: found.from,
-    };
+    if (node.ref) {
+        return { ref: node.ref, label: node.ref, same: true, from: 'run' };
+    }
+    throw invalidError(
+        `the run answered with "${node.model}", which this project does not declare`,
+        'name the model to ask: --model anthropic/claude-opus-5',
+    );
 }

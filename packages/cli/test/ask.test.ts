@@ -120,9 +120,19 @@ describe('which model answers', () => {
         expect(picked).toEqual({
             ref: 'vertex/gemini-3.8-flash',
             label: 'vertex/gemini-3.8-flash',
-            id: 'gemini-3.8-flash',
+            same: false,
             from: 'flag',
         });
+    });
+
+    it('knows a flag naming the model the run used', () => {
+        const picked = pickModel(
+            config({}),
+            { agent: 'default', model: 'gpt-5-mini', ref: 'openai/gpt-5-mini' },
+            'openai:gpt-5-mini',
+        );
+
+        expect(picked.same).toBe(true);
     });
 
     it('resolves the wire id through the agent that made the call', () => {
@@ -140,20 +150,19 @@ describe('which model answers', () => {
         expect(picked).toMatchObject({ ref: 'anthropic/claude-opus-5', from: 'agent' });
     });
 
-    it('follows the models: alias the agent named', () => {
+    it('follows the models: alias the agent named, knobs and all', () => {
+        const deep = { provider: 'anthropic', model: 'claude-opus-5', maxTokens: 9000 };
         const picked = pickModel(
-            config({
-                models: { deep: { provider: 'anthropic', model: 'claude-opus-5' } },
-                agents: [{ name: 'lead', model: 'deep' }],
-            }),
-            node,
+            config({ models: { deep }, agents: [{ name: 'lead', model: 'deep' }] }),
+            { ...node, ref: 'anthropic/claude-opus-5' },
             undefined,
         );
 
-        expect(picked).toMatchObject({
-            ref: { provider: 'anthropic', model: 'claude-opus-5' },
+        expect(picked).toEqual({
+            ref: deep,
             label: 'anthropic/claude-opus-5',
-            id: 'claude-opus-5',
+            same: true,
+            from: 'agent',
         });
     });
 
@@ -172,7 +181,42 @@ describe('which model answers', () => {
         expect(picked).toMatchObject({ ref: 'anthropic/claude-opus-5', from: 'project' });
     });
 
-    it('asks for --model when the project no longer declares what the run used', () => {
+    it('matches an old run that sent a slash ref out whole', () => {
+        const picked = pickModel(
+            config({ model: 'openai/gpt-5-mini', agents: [{ name: 'default' }] }),
+            { agent: 'default', model: 'openai/gpt-5-mini' },
+            undefined,
+        );
+
+        expect(picked).toMatchObject({ ref: 'openai/gpt-5-mini', same: true, from: 'project' });
+    });
+
+    it('matches Claude on Vertex, which went out without its publisher', () => {
+        const picked = pickModel(
+            config({ model: 'vertex:anthropic/claude-opus-5', agents: [{ name: 'lead' }] }),
+            node,
+            undefined,
+        );
+
+        expect(picked).toMatchObject({ ref: 'vertex:anthropic/claude-opus-5', same: true });
+    });
+
+    it('builds the recorded ref when the project no longer declares it', () => {
+        const picked = pickModel(
+            config({ agents: [{ name: 'lead', model: 'openai/gpt-5.6-sol' }] }),
+            { ...node, ref: 'anthropic/claude-opus-5' },
+            undefined,
+        );
+
+        expect(picked).toEqual({
+            ref: 'anthropic/claude-opus-5',
+            label: 'anthropic/claude-opus-5',
+            same: true,
+            from: 'run',
+        });
+    });
+
+    it('asks for --model when an old run used what the project no longer declares', () => {
         expect(() =>
             pickModel(
                 config({ agents: [{ name: 'lead', model: 'openai/gpt-5.6-sol' }] }),

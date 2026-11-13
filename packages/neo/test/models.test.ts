@@ -119,6 +119,81 @@ describe('shorthand', () => {
         const reg = new ModelRegistry().provider('openai-eu', { baseURL: 'https://eu/v1' });
         expect(reg.parse('openai-eu:o3').provider).toBe('openai-eu');
     });
+
+    it('reads provider/id, the id keeping its own slashes and colons', () => {
+        expect(models.parse('openai/gpt-5-mini')).toEqual({
+            provider: 'openai',
+            model: 'gpt-5-mini',
+        });
+        expect(models.parse('vertex/anthropic/claude-opus-5')).toEqual({
+            provider: 'vertex',
+            model: 'anthropic/claude-opus-5',
+        });
+        expect(models.parse('openrouter/inclusionai/ling-3.0-flash-fin:free')).toEqual({
+            provider: 'openrouter',
+            model: 'inclusionai/ling-3.0-flash-fin:free',
+        });
+        // not a provider, so the whole thing is an id on the default one
+        expect(models.parse('meta-llama/Llama-3-8B')).toEqual({ model: 'meta-llama/Llama-3-8B' });
+    });
+
+    it('keeps the old meaning of a slash on a default whose ids have slashes', () => {
+        const router = new ModelRegistry().setDefault('openrouter');
+        expect(router.parse('anthropic/claude-sonnet-5')).toEqual({
+            model: 'anthropic/claude-sonnet-5',
+        });
+        expect(router.parse('openrouter/anthropic/claude-sonnet-5')).toEqual({
+            provider: 'openrouter',
+            model: 'anthropic/claude-sonnet-5',
+        });
+        const proxy = new ModelRegistry()
+            .provider('house', { baseURL: 'https://litellm/v1' })
+            .setDefault('house');
+        expect(proxy.parse('house/gpt-4o')).toEqual({ model: 'house/gpt-4o' });
+    });
+
+    it('writes refs as provider/id, and the colon form only when the slash would not read back', () => {
+        expect(models.refOf({ model: 'gpt-4o' })).toBe('openai/gpt-4o');
+        expect(models.refOf({ provider: 'vertex', model: 'claude-opus-5' })).toBe(
+            'vertex/anthropic/claude-opus-5',
+        );
+        expect(models.refOf({ provider: 'openai', api: 'responses', model: 'o3' })).toBe(
+            'openai/responses:o3',
+        );
+        expect(models.refOf({ provider: 'openai', model: 'ft:gpt-4o:acme::a1b2' })).toBe(
+            'openai:ft:gpt-4o:acme::a1b2',
+        );
+        const router = new ModelRegistry().setDefault('openrouter');
+        expect(router.refOf(router.parse('anthropic/claude-sonnet-5'))).toBe(
+            'openrouter/anthropic/claude-sonnet-5',
+        );
+    });
+
+    it('says how an older ref is written today, without changing what it means', () => {
+        expect(models.refStyle('openai/gpt-5-mini')).toBeUndefined();
+        expect(models.refStyle('openai/responses:o3')).toBeUndefined();
+        expect(models.refStyle('openai:gpt-4o')).toEqual({
+            issue: 'colon',
+            canonical: 'openai/gpt-4o',
+        });
+        expect(models.refStyle('gpt-4o')).toEqual({ issue: 'bare', canonical: 'openai/gpt-4o' });
+        expect(models.refStyle('vertex/claude-opus-5')).toEqual({
+            issue: 'publisher',
+            canonical: 'vertex/anthropic/claude-opus-5',
+        });
+        const router = new ModelRegistry().setDefault('openrouter');
+        expect(router.refStyle('anthropic/claude-sonnet-5')).toEqual({
+            issue: 'ambiguous',
+            canonical: 'openrouter/anthropic/claude-sonnet-5',
+        });
+    });
+
+    it('records the ref on the model it builds', () => {
+        const reg = new ModelRegistry().provider('openai', { apiKey: 'sk-test' });
+        const model = reg.model('openai:gpt-4o');
+        expect(model.id).toBe('gpt-4o');
+        expect(model.ref).toBe('openai/gpt-4o');
+    });
 });
 
 describe('providers', () => {

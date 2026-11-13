@@ -20,7 +20,7 @@ npm i -g @zenera/cli @zenera/rag
 
 ```sh
 zen rag schema index ./assets/openapi.yaml \
-    --embedding openai:text-embedding-3-small -o assets/schema-db
+    --embedding openai/text-embedding-3-small -o assets/schema-db
 ```
 
 Several documents can go into one index; each entity remembers which document it
@@ -100,7 +100,7 @@ import { SchemaIndex, schemaTools } from '@zenera/rag';
 
 const index = await SchemaIndex.open(
     './assets/schema-db',
-    createEmbedder('openai:text-embedding-3-small'),
+    createEmbedder('openai/text-embedding-3-small'),
 );
 const project = await loadProject('./my-project', { tools: schemaTools(index) });
 ```

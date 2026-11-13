@@ -12,8 +12,8 @@ so what you copy is the intent, not the code.
 
 - Node.js 24+ and `npm i -g @zenera/cli`
 - Podman, which is what `zen run` runs the agent in
-- An OpenAI key - the specification names `openai:gpt-5.6-luna` for chat and
-  `openai:text-embedding-3-small` for the vectors
+- An OpenAI key - the specification names `openai/gpt-5.6-luna` for chat and
+  `openai/text-embedding-3-small` for the vectors
 
 ## 1. Add a key
 

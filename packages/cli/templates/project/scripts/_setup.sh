@@ -89,7 +89,7 @@ LOGS=.tmp/logs
 #   fi
 #   rm -rf .tmp/docs-db
 #   zen rag docs index assets/docs \
-#       --embedding openai:text-embedding-3-small --out .tmp/docs-db
+#       --embedding openai/text-embedding-3-small --out .tmp/docs-db
 #   rm -rf "$OUT"
 #   mv .tmp/docs-db "$OUT"
 #

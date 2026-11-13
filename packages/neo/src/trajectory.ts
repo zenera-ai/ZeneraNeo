@@ -83,6 +83,11 @@ export interface LlmCallNode extends NodeBase {
     type: 'llm_call';
     /** exact model id used */
     model: string;
+    /**
+     * The ref that names the model again, `provider/id` — absent from runs
+     * recorded before it was, and for models not built by a registry.
+     */
+    ref?: string;
     /** sha256 of the projected request, for replay checks */
     requestDigest: string;
     request?: Payload;

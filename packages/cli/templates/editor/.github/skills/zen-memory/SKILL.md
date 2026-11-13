@@ -59,7 +59,7 @@ so choose it before the graph has anything in it.
 
 ```yaml
 embeddings:
-    main: openai:text-embedding-3-small
+    main: openai/text-embedding-3-small
 memory:
     embedding: main
 ```
@@ -709,7 +709,7 @@ wants `zen inspect --memory <dir>` to rebuild its report against the same graph.
 
 ```yaml
 embeddings:
-    main: openai:text-embedding-3-small
+    main: openai/text-embedding-3-small
 
 memory:
     dir: memory

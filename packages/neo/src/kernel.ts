@@ -638,6 +638,8 @@ export interface LlmCallOptions<TCtx = unknown> {
     request?: ModelRequest;
     /** needed to validate a `fork` call against the agent's declaration */
     registry?: AgentRegistry<TCtx>;
+    /** the model's `ref`, recorded beside its wire id */
+    ref?: string;
 }
 
 /**
@@ -665,6 +667,7 @@ export async function applyLlmResponse<TCtx>(
     b.add<LlmCallNode>({
         type: 'llm_call',
         model,
+        ...(opts.ref ? { ref: opts.ref } : {}),
         requestDigest: opts.digest ?? (opts.request ? requestDigest(opts.request) : ''),
         request: opts.request ? await put(env, serializeRequest(opts.request)) : undefined,
         text: await put(env, res.text),

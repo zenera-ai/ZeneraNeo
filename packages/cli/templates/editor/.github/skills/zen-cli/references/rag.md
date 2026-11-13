@@ -31,7 +31,7 @@ zen rag schema index <spec...> [--embedding <ref>] [-o <dir>] [--batch <n>]
 | `--quiet`           | -             | No narration                                                 |
 
 ```
-zen rag schema index openapi.yaml --embedding openai:text-embedding-3-small
+zen rag schema index openapi.yaml --embedding openai/text-embedding-3-small
 ```
 
 Unlike the gym, `$ref`s are **bundled, not dereferenced**: component names are

@@ -101,11 +101,11 @@ nothing.
 ### 3. Use a stronger model during population
 
 Day-to-day execution might use a fast, cost-effective model (e.g.
-`google:gemini-2.5-flash` or `anthropic:claude-3-5-haiku`). Warm up with a
+`google/gemini-2.5-flash` or `anthropic/claude-3-5-haiku`). Warm up with a
 flagship reasoning model instead:
 
 ```sh
---model anthropic:claude-sonnet-4-5
+--model anthropic/claude-sonnet-4-5
 ```
 
 It applies to every item in the batch.
@@ -306,7 +306,7 @@ The script should:
 # Examples:
 #   ./scripts/memory_warmup.sh --dry-run
 #   ./scripts/memory_warmup.sh --category integrations
-#   ./scripts/memory_warmup.sh --shuffle --limit 5 --model anthropic:claude-sonnet-4-5
+#   ./scripts/memory_warmup.sh --shuffle --limit 5 --model anthropic/claude-sonnet-4-5
 #   ./scripts/memory_warmup.sh --fresh -y
 #
 

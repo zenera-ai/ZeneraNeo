@@ -26,6 +26,12 @@ export interface ModelResponse {
 
 export interface Model {
     readonly id: string;
+    /**
+     * The ref that names this model again — `openai/gpt-5-mini` — when it was
+     * built from one. `id` is only what goes on the wire, and has lost which
+     * provider that was.
+     */
+    readonly ref?: string;
     generate(req: ModelRequest): Promise<ModelResponse>;
     /** optional: non-streaming models simply never produce deltas */
     stream?(req: ModelRequest, onDelta: (d: StreamDelta) => void): Promise<ModelResponse>;

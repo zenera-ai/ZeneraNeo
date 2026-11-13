@@ -34,6 +34,7 @@ import {
     type AnyTool,
     type EmbeddingRef,
     type ModelRef,
+    type ModelRegistry,
     type ProjectConfig,
     type Runner,
     type Sandbox,
@@ -2068,6 +2069,34 @@ function siblings(skillFile: string | undefined): string[] {
 // Models
 // ---------------------------------------------------------------------------
 
+/**
+ * A ref that resolves, but is not written the way a ref is written today. Only
+ * the ambiguous one is a warning: it means what it always meant, and the next
+ * reader will take it for something else.
+ */
+function refStyle(registry: ModelRegistry, ref: string, where: string, add: Add): void {
+    const style = registry.refStyle(ref);
+    if (!style) {
+        return;
+    }
+    const fallback = registry.defaultProvider;
+    const message = {
+        bare: `\`${ref}\` names no provider, so it goes to the default one, ${fallback}`,
+        colon: `\`${ref}\` is the older colon form`,
+        ambiguous:
+            `\`${ref}\` is read as a ${fallback} model id, not as a model of ` +
+            `${ref.slice(0, ref.indexOf('/'))}: ${fallback} names its models with slashes`,
+        publisher: `\`${ref}\` leaves out the model's publisher`,
+    }[style.issue];
+    add({
+        severity: style.issue === 'ambiguous' ? 'warning' : 'note',
+        code: `model.ref.${style.issue}`,
+        where,
+        message,
+        fix: `write \`${style.canonical}\` — the same model, from the same provider`,
+    });
+}
+
 function checkModels(
     root: string,
     config: ProjectConfig,
@@ -2172,10 +2201,12 @@ function checkModels(
             // report says what it stands for — otherwise `main was refused`
             // names nothing anyone can look up or retype.
             const spec = typeof ref === 'string' ? registry.parse(ref) : ref;
-            const api = 'api' in spec && spec.api ? `/${spec.api}` : '';
-            const resolved = `${need.provider}${api}:${spec.model}`;
+            const resolved = registry.refOf(spec);
             if (resolved !== name) {
                 report.ref = resolved;
+            }
+            if (typeof ref === 'string') {
+                refStyle(registry, ref, whereFor(config, role, name, usedBy), add);
             }
             // Reported here rather than left to the probe below: a knob for the
             // wrong vendor is a config mistake that wants naming whether or not
@@ -2199,10 +2230,7 @@ function checkModels(
                 code: `${role}.unresolvable`,
                 where: whereFor(config, role, name, usedBy),
                 message: err instanceof Error ? err.message : String(err),
-                fix:
-                    role === 'embedding'
-                        ? 'a reference is `[provider:]model`; see docs/agents-yaml.md'
-                        : 'a reference is `[provider[/api]:]model`; see docs/agents-yaml.md',
+                fix: 'a reference is `provider/model`; see docs/agents-yaml.md',
             });
             report.credential = 'unknown';
             models.push(report);

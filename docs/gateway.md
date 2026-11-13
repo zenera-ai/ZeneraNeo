@@ -63,7 +63,7 @@ gateway's matching drop-in endpoint instead of to the vendor:
 | `vertex` (Claude, `anthropic/…`) | Anthropic          | `/anthropic` | `vertex/claude-…`    |
 | `openrouter`                     | OpenAI             | `/openai`    | `openrouter/<id>`    |
 
-So `vertex:gemini-3.5-flash` goes out as a Gemini `generateContent` request to
+So `vertex/gemini-3.5-flash` goes out as a Gemini `generateContent` request to
 `<url>/genai/v1beta/models/vertex/gemini-3.5-flash:generateContent`, carrying the
 virtual key.
 
@@ -138,8 +138,8 @@ In gateway mode every listing is **what the gateway serves**, not what the
 vendors do - a run can reach nothing else:
 
 - One `GET <url>/v1/models` covers every provider. Its `<upstream>/<id>` names
-  are split back into refs: `vertex/gemini-3.5-flash` lists as
-  `vertex:gemini-3.5-flash`, `gemini/…` as `google:…`.
+  are split back into refs: `vertex/gemini-3.5-flash` lists as itself - a ref
+  _is_ the gateway's name for a model - and `gemini/…` as `google/…`.
 - Upstreams no zen provider names (`bedrock`, `groq`, `azure`, …) are left out:
   no ref in `agents.yaml` could reach them.
 - There is no built-in fallback list. If the gateway cannot be asked, the

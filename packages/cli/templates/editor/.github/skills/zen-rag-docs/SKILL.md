@@ -142,7 +142,7 @@ For a one-off, without installing anything, **both** packages must be in the
 same temporary install or `zen` will report `rag` as not installed:
 
 ```sh
-npx --package @zenera/cli --package @zenera/rag -- zen rag docs index ./docs --embedding openai:text-embedding-3-small
+npx --package @zenera/cli --package @zenera/rag -- zen rag docs index ./docs --embedding openai/text-embedding-3-small
 ```
 
 Every example below is spelled `zen …`; prefix it with that `npx` form if you
@@ -155,7 +155,7 @@ zen rag docs index <path...> [--embedding <ref>] [-o <dir>] [--batch <n>] [--chu
 ```
 
 ```sh
-zen rag docs index ./docs --embedding openai:text-embedding-3-small
+zen rag docs index ./docs --embedding openai/text-embedding-3-small
 ```
 
 That is the whole thing: point it at a directory and it walks it.
@@ -178,8 +178,8 @@ Several paths can go into one index, and usually should: one index over a whole
 documentation tree is what makes "which release says this?" answerable at all.
 
 ```sh
-zen rag docs index ./docs ./README.md ./packages/*/README.md --embedding openai:text-embedding-3-small
-zen rag docs index "releases/acme_4.*/**/*.md" --embedding google:gemini-embedding-001 -o .index/acme
+zen rag docs index ./docs ./README.md ./packages/*/README.md --embedding openai/text-embedding-3-small
+zen rag docs index "releases/acme_4.*/**/*.md" --embedding google/gemini-embedding-001 -o .index/acme
 ```
 
 ### The name is the identity
@@ -204,7 +204,7 @@ would land on the same name are deduped rather than merged.
 | `--chunk-tokens <n>` | `384`       | Target chunk size. Leave it alone unless you have a reason   |
 | `--quiet`            | -           | No narration                                                 |
 
-The embedding reference names a provider first - `openai:text-embedding-3-small`,
+The embedding reference names a provider first - `openai/text-embedding-3-small`,
 not a bare model id. Credentials come from the `zen` keyring (`zen key ls`), and
 a real environment variable always wins.
 
@@ -509,7 +509,7 @@ import { docs } from '@zenera/rag';
 
 const index = await docs.DocsIndex.open(
     './docs-db',
-    createEmbedder('openai:text-embedding-3-small'),
+    createEmbedder('openai/text-embedding-3-small'),
 );
 const project = await loadProject('./my-project', { tools: docs.docsTools(index) });
 ```

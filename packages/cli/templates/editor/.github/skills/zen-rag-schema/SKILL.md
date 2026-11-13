@@ -148,7 +148,7 @@ For a one-off, without installing anything, **both** packages must be in the
 same temporary install or `zen` will report `rag` as not installed:
 
 ```sh
-npx --package @zenera/cli --package @zenera/rag -- zen rag schema index openapi.yaml --embedding openai:text-embedding-3-small
+npx --package @zenera/cli --package @zenera/rag -- zen rag schema index openapi.yaml --embedding openai/text-embedding-3-small
 ```
 
 Every example below is spelled `zen …`; prefix it with that `npx` form if you
@@ -169,8 +169,8 @@ zen rag schema index <spec...> [--embedding <ref>] [-o <dir>] [--batch <n>]
 | `--quiet`           | -             | No narration                                                                                   |
 
 ```sh
-zen rag schema index openapi.yaml --embedding openai:text-embedding-3-small
-zen rag schema index specs/*.yaml --embedding google:gemini-embedding-001 -o .index/api
+zen rag schema index openapi.yaml --embedding openai/text-embedding-3-small
+zen rag schema index specs/*.yaml --embedding google/gemini-embedding-001 -o .index/api
 ```
 
 Several documents can go into one index; they share a graph, which is usually
@@ -182,7 +182,7 @@ operation, schema and field. It prints a per-document table (paths, operations,
 schemas, fields) and a progress line per batch, and **stdout is the output
 directory and nothing else** - so `DIR=$(zen rag schema index …)` works.
 
-The embedding reference names a provider first: `openai:text-embedding-3-small`,
+The embedding reference names a provider first: `openai/text-embedding-3-small`,
 not a bare model id. Credentials come from the `zen` keyring (`zen key ls`), and
 a real environment variable always wins.
 
@@ -562,7 +562,7 @@ import { SchemaIndex, schemaTools } from '@zenera/rag';
 
 const index = await SchemaIndex.open(
     './schema-db',
-    createEmbedder('openai:text-embedding-3-small'),
+    createEmbedder('openai/text-embedding-3-small'),
 );
 const project = await loadProject('./my-project', { tools: schemaTools(index) });
 ```

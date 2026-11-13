@@ -40,6 +40,7 @@ import {
 } from '../catalog.ts';
 import type { Command, Context } from '../command.ts';
 import { probeChat, probeModel, type ModelProbe, type ModelTarget } from '../liveness.ts';
+import { catalogRef } from '../modelref.ts';
 import { compareModels } from '../rank.ts';
 import {
     ago,
@@ -549,7 +550,7 @@ function split(ref: string): { provider: Provider; id: string } {
     } catch (err) {
         throw usageError(
             err instanceof Error ? err.message.split('\n')[0]! : `bad reference "${ref}"`,
-            'expected provider:model — see: zen models ls',
+            'expected provider/model — see: zen models ls',
         );
     }
     const provider = spec.provider ?? registry.defaultProvider;
@@ -559,14 +560,17 @@ function split(ref: string): { provider: Provider; id: string } {
             `known: ${PROVIDERS.join(', ')}`,
         );
     }
-    return { provider, id: spec.model };
+    // The catalog keeps Claude on Vertex under its wire id, without the publisher.
+    const id =
+        provider === 'vertex' ? spec.model.replace(/^anthropic\/(?=claude-)/, '') : spec.model;
+    return { provider, id };
 }
 
 const show: Sub = async (ctx, args) => {
     const { values, positionals } = parse<{ refresh?: boolean }>(
         args,
         { refresh: { type: 'boolean' } },
-        'zen models show <provider:model> [--refresh]',
+        'zen models show <provider/model> [--refresh]',
     );
     const ref = positionals[0];
     if (!ref) {
@@ -578,7 +582,7 @@ const show: Sub = async (ctx, args) => {
     const found = cat.entries.find((e) => e.id === id);
 
     if (ctx.json) {
-        json(found ?? { ref: `${provider}:${id}`, provider, id, known: false });
+        json(found ?? { ref: catalogRef(provider, id), provider, id, known: false });
         return;
     }
     announce(ctx, where);
@@ -587,7 +591,7 @@ const show: Sub = async (ctx, args) => {
         note(
             `${yellow('not listed')} ${where.gateway ? GATEWAY_NAME : provider} does not advertise ${bold(id)}`,
         );
-        note(dim(`it may still work — try: zen models test ${provider}:${id}`));
+        note(dim(`it may still work — try: zen models test ${catalogRef(provider, id)}`));
         note(dim(`or look: zen models search ${id} --provider ${provider}`));
         return;
     }
@@ -724,7 +728,7 @@ const test: Sub = async (ctx, args) => {
     const { values, positionals } = parse<RoleFlags>(
         args,
         ROLE_OPTIONS,
-        'zen models test <provider:model> … [--chat|--embedding]',
+        'zen models test <provider/model> … [--chat|--embedding]',
     );
     if (positionals.length === 0) {
         throw usageError('which model?', 'see: zen models ls');

@@ -93,7 +93,7 @@ const getWeather = tool<{ city: string }>({
     execute: ({ city }) => ({ city, tempC: 21, sky: 'clear' }),
 });
 
-const runner = new AgentRunner({ model: createModel('openai:gpt-5.4-mini') });
+const runner = new AgentRunner({ model: createModel('openai/gpt-5.4-mini') });
 
 const planner = runner.agent({
     name: 'planner',
@@ -141,7 +141,7 @@ The whole system is an `agents.yaml`:
 
 ```yaml
 default: intake
-model: anthropic:claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-5
 skills: agents/skills
 
 agents:
@@ -154,7 +154,7 @@ agents:
     - name: adjuster
       description: Weighs the written policy against the case and explains the outcome.
       system: agents/prompts/adjuster.md
-      model: openai:gpt-5.4
+      model: openai/gpt-5.4
       tools: [files:*, sandbox:*]
       skills:
           discovery: index # the model loads what the case needs

@@ -30,6 +30,7 @@ import {
 import { PROVIDERS, type KeyCheck, type Provider } from '@zenera/engine';
 import { Cache, cacheKey } from './cache.ts';
 import { classify } from './liveness.ts';
+import { catalogRef } from './modelref.ts';
 import { compareModels } from './rank.ts';
 
 /**
@@ -40,7 +41,7 @@ import { compareModels } from './rank.ts';
 export type Role = 'chat' | 'embedding' | 'image' | 'audio';
 
 export interface CatalogEntry {
-    /** `provider:id` — paste-able straight into `agents.yaml` */
+    /** `provider/id` — paste-able straight into `agents.yaml` */
     ref: string;
     /** the id that goes on the wire, with any resource prefix already stripped */
     id: string;
@@ -176,7 +177,7 @@ export const PREFERRED: Record<
 function curated(provider: Provider): CatalogEntry[] {
     return CURATED[provider].map((entry) => ({
         ...entry,
-        ref: `${provider}:${entry.id}`,
+        ref: catalogRef(provider, entry.id),
         provider,
         source: 'curated' as const,
     }));
@@ -212,7 +213,7 @@ function entry(
     const clean = Object.fromEntries(
         Object.entries(row).filter(([, v]) => v !== undefined && v !== null),
     ) as Omit<CatalogEntry, 'ref' | 'provider' | 'source'>;
-    return { ...clean, ref: `${provider}:${row.id}`, provider, source: 'live' };
+    return { ...clean, ref: catalogRef(provider, row.id), provider, source: 'live' };
 }
 
 interface OpenAIClient {
@@ -688,9 +689,14 @@ export const catalogKey = (provider: Provider): string => {
 
 function readCache(provider: Provider): CacheFile | undefined {
     const file = store().get<CacheFile>(catalogKey(provider));
-    return file && Array.isArray(file.entries) && typeof file.fetchedAt === 'string'
-        ? file
-        : undefined;
+    if (!file || !Array.isArray(file.entries) || typeof file.fetchedAt !== 'string') {
+        return undefined;
+    }
+    // Rows cached before refs were written `provider/id` say `provider:id`.
+    return {
+        ...file,
+        entries: file.entries.map((e) => ({ ...e, ref: catalogRef(e.provider, e.id) })),
+    };
 }
 
 export interface CatalogOptions {

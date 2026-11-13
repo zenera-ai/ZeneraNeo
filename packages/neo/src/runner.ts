@@ -410,6 +410,7 @@ export class AgentRunner<TCtx = unknown> {
                         digest,
                         request: this.#recordRequests ? req : undefined,
                         registry: this.registry,
+                        ref: model.ref,
                     });
                     const node = appended(before, state).find((n) => n.type === 'llm_call');
                     if (node) {

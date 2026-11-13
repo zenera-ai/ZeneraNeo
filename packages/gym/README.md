@@ -228,7 +228,7 @@ Useful options: `--schema`, `--story`, `--docs`, `--world`, `--reset`,
 `--cache <dir>`, `--quiet`. `zen help gym` prints the full table.
 
 The model is looked for in this order: `--model`, `ZENERA_GYM_MODEL`, what
-`zen gym model <provider>:<id>` stored, then the best one your keys can buy.
+`zen gym model <provider>/<id>` stored, then the best one your keys can buy.
 Both agents call tools; OpenAI's reasoning models take tools over the Responses
 API (`openai/responses:<id>`), which is what the default names.
 

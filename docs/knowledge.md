@@ -19,7 +19,7 @@ npm i -g @zenera/cli @zenera/rag
 ## Build the index
 
 ```sh
-zen rag docs index ./assets/docs --embedding openai:text-embedding-3-small -o assets/docs-db
+zen rag docs index ./assets/docs --embedding openai/text-embedding-3-small -o assets/docs-db
 ```
 
 Point it at a file, a directory or a glob. `.md`, `.markdown`, `.txt` and
@@ -126,7 +126,7 @@ import { docs } from '@zenera/rag';
 
 const index = await docs.DocsIndex.open(
     './assets/docs-db',
-    createEmbedder('openai:text-embedding-3-small'),
+    createEmbedder('openai/text-embedding-3-small'),
 );
 const project = await loadProject('./my-project', { tools: docs.docsTools(index) });
 ```
@@ -195,7 +195,7 @@ if [ "${FORCE:-0}" = 0 ] && [ -f "$OUT/manifest.json" ]; then
     exit 0
 fi
 rm -rf .tmp/docs-db
-zen rag docs index assets/docs --embedding openai:text-embedding-3-small --out .tmp/docs-db
+zen rag docs index assets/docs --embedding openai/text-embedding-3-small --out .tmp/docs-db
 rm -rf "$OUT"
 mv .tmp/docs-db "$OUT"
 ```

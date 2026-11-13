@@ -33,7 +33,7 @@ boundaries; it does not book real meetings or deliver real email.
 
 ## Models
 
-- `openai:gpt-5.6-luna` — one model for the whole project.
+- `openai/gpt-5.6-luna` — one model for the whole project.
 
 ## Agents
 

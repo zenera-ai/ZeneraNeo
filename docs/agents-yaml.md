@@ -142,8 +142,8 @@ swallows is one nothing can learn from. See [Embeddings](#embeddings).
 
 `openrouter` defaults its base url to `https://openrouter.ai/api/v1`, so a
 provider entry needs nothing but the kind. Model ids carry the vendor prefix
-(`anthropic/claude-sonnet-4.5`), which the shorthand handles because only the
-first colon separates: `openrouter:anthropic/claude-sonnet-4.5`.
+(`anthropic/claude-sonnet-4.5`), which the shorthand keeps whole, because only
+the first slash separates: `openrouter/anthropic/claude-sonnet-4.5`.
 
 `kind` selects a _protocol_, which picks the SDK and the adapter. Only the
 OpenAI protocol speaks more than one API, so naming `api:` on a Gemini or Claude
@@ -176,7 +176,7 @@ providers:
 
 agents:
     - name: triage
-      model: openrouter:anthropic/claude-sonnet-4.5
+      model: openrouter/anthropic/claude-sonnet-4.5
 ```
 
 `baseURL` defaults to `https://openrouter.ai/api/v1` and the key is read from
@@ -188,16 +188,16 @@ outright.
 
 Ids are `vendor/model`, and may carry a **variant suffix** after a colon -
 `:free`, `:nitro` (throughput-routed), `:floor` (price-routed), `:online` (web
-search). Both survive the shorthand, because only the _first_ colon separates:
+search). Both survive the shorthand, because only the _first_ slash separates:
 
 | Ref                              | Provider     | Model                 |
 | -------------------------------- | ------------ | --------------------- |
-| `openrouter:openai/gpt-5.4-nano` | `openrouter` | `openai/gpt-5.4-nano` |
-| `openrouter:z-ai/glm-5.2:free`   | `openrouter` | `z-ai/glm-5.2:free`   |
-| `openrouter:x-ai/grok-4:nitro`   | `openrouter` | `x-ai/grok-4:nitro`   |
+| `openrouter/openai/gpt-5.4-nano` | `openrouter` | `openai/gpt-5.4-nano` |
+| `openrouter/z-ai/glm-5.2:free`   | `openrouter` | `z-ai/glm-5.2:free`   |
+| `openrouter/x-ai/grok-4:nitro`   | `openrouter` | `x-ai/grok-4:nitro`   |
 
-A slash in the id is not ambiguous either: the slash that splits `provider/api`
-is only read inside the prefix, before the first colon.
+The `vendor/` after `openrouter/` is part of the _id_: what precedes the first
+slash is the provider, and nothing after it is read as one.
 
 #### No api to choose
 
@@ -457,19 +457,42 @@ models:
 ### Shorthand
 
 ```
-[provider[/api]:]model
+provider/id
 ```
 
-`gpt-4o` · `openai:gpt-4o` · `openai/responses:o3` · `vertex:gemini-3.5-flash`
+`openai/gpt-5-mini` · `vertex/gemini-3.5-flash` · `vertex/anthropic/claude-opus-5` ·
+`openrouter/anthropic/claude-sonnet-4.5`
 
-Only the **first** colon separates, so a fine-tuned id keeps its own - it just
-has to name its provider: `openai:ft:gpt-4o:acme::a1b2`.
+The first segment is a provider _name_ - a built-in kind or a `providers:`
+entry - and everything after the first slash is the id exactly as that provider
+spells it, slashes and colons included. It is also how a Bifrost gateway names a
+model, so the ref written here is the one the gateway logs.
+
+On Vertex a model from another publisher keeps its publisher:
+`vertex/anthropic/claude-opus-5`, `vertex/openai/gpt-oss-120b-maas`. Google's own
+models need none.
 
 **Always write the prefix.** The first segment is a provider _name_, not a vendor
 hint - nothing reads `gemini-3.5-flash` and infers Google. An unprefixed id goes
 to the default provider, which is `openai` unless a top-level `provider:` says
 otherwise, so a bare `gemini-3.5-flash` asks OpenAI for a Google model and fails
 with `OPENAI_API_KEY is not set`.
+
+Two older spellings are still read, and `zen validate` names the ref to write
+instead:
+
+- `provider[/api]:id` - `openai:gpt-4o`, `openai/responses:o3`. Still the only
+  shorthand that names an api, and the way to write an id the slash form would
+  misread: a fine-tuned `openai:ft:gpt-4o:acme::a1b2`.
+- a bare id, which goes to the default provider - see below.
+
+One ref reads two ways. On a default provider whose own ids contain slashes -
+OpenRouter, Vertex, `openai-compatible`, anything with a base url of its own -
+`anthropic/claude-sonnet-4.5` is that provider's id, as it always was, not a
+model of Anthropic's. `zen validate` warns, and asks for
+`openrouter/anthropic/claude-sonnet-4.5` so the next reader cannot take it the
+other way. To reach Anthropic itself from such a project, write
+`anthropic:claude-sonnet-4.5`: the colon form is never read two ways.
 
 Anything the shorthand cannot express (keys, base urls, reasoning knobs) needs
 the object form - which does **not** re-parse a shorthand: its `model:` is the
@@ -534,7 +557,7 @@ Vectorisers, named the same way models are, and reached through the same
 
 ```yaml
 embeddings:
-    main: vertex:gemini-embedding-001 # shorthand
+    main: vertex/gemini-embedding-001 # shorthand
     wide:
         provider: openai
         model: text-embedding-3-large

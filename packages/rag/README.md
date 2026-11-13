@@ -136,7 +136,7 @@ zen rag schema stats             What is in an index, and what built it.
 Index once, then ask:
 
 ```sh
-zen rag schema index --embedding openai:text-embedding-3-small ./specs/*.yaml
+zen rag schema index --embedding openai/text-embedding-3-small ./specs/*.yaml
 zen rag schema search --output-property "user billing history"
 zen rag schema search --input-property "password reset token" --format ts
 zen rag schema search --interactive
@@ -328,7 +328,7 @@ zen rag docs stats               What is in an index, and what built it.
 ```
 
 ```sh
-zen rag docs index --embedding openai:text-embedding-3-small ./docs
+zen rag docs index --embedding openai/text-embedding-3-small ./docs
 zen rag docs search "how are rate limits counted"
 ```
 
@@ -519,8 +519,8 @@ Choose an embedding provider with `--embedding <ref>` when creating an index.
 Run `index` without the flag to see the providers available in your environment.
 
 ```sh
-zen rag docs index --embedding openai:text-embedding-3-small ./docs
-zen rag schema index --embedding openai:text-embedding-3-small ./specs
+zen rag docs index --embedding openai/text-embedding-3-small ./docs
+zen rag schema index --embedding openai/text-embedding-3-small ./specs
 ```
 
 The selected provider stays associated with the index, ensuring search uses a
@@ -548,7 +548,7 @@ agent can call:
 import { createEmbedder, loadProject } from '@zenera/neo';
 import { docs, SchemaIndex, schemaTools } from '@zenera/rag';
 
-const embedder = createEmbedder('openai:text-embedding-3-small');
+const embedder = createEmbedder('openai/text-embedding-3-small');
 const api = await SchemaIndex.open('./schema-db', embedder);
 const handbook = await docs.DocsIndex.open('./docs-db', embedder);
 

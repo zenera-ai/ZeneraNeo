@@ -603,16 +603,17 @@ async function ask(
     loadProjectEnv(project);
     (await KeyStore.open()).materialize();
     const { config } = readProjectConfig(project);
-    const picked = pickModel(config, node, values.model);
-    if (picked.id !== node.model) {
+    const registry = projectRegistry(config);
+    const picked = pickModel(config, node, values.model, registry);
+    if (!picked.same) {
         note(
             yellow(
-                `${picked.label} is answering for ${node.model} — ` +
+                `${picked.label} is answering for ${node.ref ?? node.model} — ` +
                     'a second opinion, not the model looking at itself',
             ),
         );
     }
-    const model = projectRegistry(config).model(picked.ref);
+    const model = registry.model(picked.ref);
     const record = async (
         call: () => ReturnType<typeof model.generate>,
     ): ReturnType<typeof model.generate> => {
@@ -655,7 +656,13 @@ async function ask(
             session: session.id,
             run: run.id,
             dir: run.dir,
-            node: { id: entry.key, nodeId: node.id, agent: node.agent, model: node.model },
+            node: {
+                id: entry.key,
+                nodeId: node.id,
+                agent: node.agent,
+                model: node.model,
+                ...(node.ref ? { ref: node.ref } : {}),
+            },
             model: picked.label,
             query,
             answer: res.text,

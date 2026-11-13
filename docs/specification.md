@@ -201,7 +201,7 @@ use:
 
 ```yaml
 default: reader
-model: openai:gpt-5.4-mini
+model: openai/gpt-5.4-mini
 
 agents:
     - name: reader
@@ -291,7 +291,7 @@ written down that sounds right.
 | Instead of                  | Write                                                                   |
 | --------------------------- | ----------------------------------------------------------------------- |
 | "handles large inputs"      | "a request over 200 files is refused with a count, not truncated"       |
-| "uses a fast model"         | "`openai:gpt-5-mini`, with reasoning off"                               |
+| "uses a fast model"         | "`openai/gpt-5-mini`, with reasoning off"                               |
 | "asks the user when unsure" | "asks at most once per run, and only for a value nothing else supplies" |
 | "should be reliable"        | "a failed tool call is retried once, then reported"                     |
 

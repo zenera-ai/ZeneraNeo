@@ -19,6 +19,7 @@ import {
     type Model,
     type ProviderSpec,
 } from '@zenera/neo';
+import { splitRef } from './modelref.ts';
 
 // ---------------------------------------------------------------------------
 // Liveness
@@ -588,13 +589,13 @@ function limited(target: ModelTarget): string {
 }
 
 function responsesApi(target: ModelTarget): string {
-    const provider = target.ref.includes(':') ? target.ref.split(':')[0]!.split('/')[0] : 'openai';
+    const provider = splitRef(target.ref).provider ?? 'openai';
     return `use the responses API: \`api: responses\` on the model, or the ref ${provider}/responses:${targetId(target)}`;
 }
 
 /** The command that finds something this account can actually use. */
 function instead(target: ModelTarget): string {
-    const provider = target.ref.includes(':') ? target.ref.split(':')[0] : undefined;
+    const provider = splitRef(target.ref).provider;
     if (provider === 'vertex' && vertexRoute(targetId(target)) !== 'gemini') {
         return 'enable it for this project in Model Garden: https://console.cloud.google.com/vertex-ai/model-garden';
     }

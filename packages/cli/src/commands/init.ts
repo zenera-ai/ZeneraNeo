@@ -17,6 +17,7 @@ import { one, parse } from '../args.ts';
 import { PREFERRED } from '../catalog.ts';
 import type { Command } from '../command.ts';
 import { probeAll } from '../liveness.ts';
+import { catalogRef, splitRef } from '../modelref.ts';
 import { ensurePodmanReady } from '../podman.ts';
 import { scaffold } from '../scaffold.ts';
 import {
@@ -61,7 +62,7 @@ interface ModelChoice {
  */
 const DEFAULT_MODEL: Record<Provider, ModelChoice> = {
     openai: {
-        ref: 'openai:gpt-5.4-mini',
+        ref: 'openai/gpt-5.4-mini',
         options: [
             '# Reasoning and tools only meet on the responses API — chat',
             '# completions, which is the default, rejects the two together.',
@@ -73,10 +74,10 @@ const DEFAULT_MODEL: Record<Provider, ModelChoice> = {
             'reasoningSummary: auto',
         ].join('\n'),
     },
-    anthropic: { ref: 'anthropic:claude-sonnet-4-5' },
-    google: { ref: 'google:gemini-3.5-flash' },
-    vertex: { ref: 'vertex:gemini-3.5-flash' },
-    openrouter: { ref: 'openrouter:inclusionai/ling-3.0-flash-fin:free' },
+    anthropic: { ref: 'anthropic/claude-sonnet-4-5' },
+    google: { ref: 'google/gemini-3.5-flash' },
+    vertex: { ref: 'vertex/gemini-3.5-flash' },
+    openrouter: { ref: 'openrouter/inclusionai/ling-3.0-flash-fin:free' },
 };
 
 /**
@@ -95,7 +96,7 @@ function defaultEmbedding(provider: Provider | undefined): string | undefined {
         return undefined;
     }
     const id = PREFERRED[provider].embedding[0];
-    return id === undefined ? undefined : `${provider}:${id}`;
+    return id === undefined ? undefined : catalogRef(provider, id);
 }
 
 /**
@@ -106,9 +107,7 @@ function defaultEmbedding(provider: Provider | undefined): string | undefined {
  * for an explicit `--model`, where nothing else says which vendor was meant.
  */
 function providerOf(ref: string): Provider | undefined {
-    const colon = ref.indexOf(':');
-    const head = colon < 0 ? '' : ref.slice(0, colon);
-    return isProvider(head) ? head : undefined;
+    return splitRef(ref).provider;
 }
 
 /**

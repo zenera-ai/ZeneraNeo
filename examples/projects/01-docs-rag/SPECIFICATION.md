@@ -6,8 +6,8 @@ Answer questions about the Hugging Face Transformers documentation from an index
 
 ## Models
 
-- `openai:gpt-5.6-luna` — one model for the whole project.
-- `openai:text-embedding-3-small` — the vectors, for the index and memory both.
+- `openai/gpt-5.6-luna` — one model for the whole project.
+- `openai/text-embedding-3-small` — the vectors, for the index and memory both.
 
 ## Setup
 

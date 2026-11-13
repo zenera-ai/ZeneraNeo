@@ -554,7 +554,7 @@ providers:
         apiKey: ${ACME_OPENAI_KEY}
 
 embeddings:
-    small: openai:text-embedding-3-small # a shorthand string...
+    small: openai/text-embedding-3-small # a shorthand string...
     large: # ...or the object form
         provider: house
         model: text-embedding-3-large
@@ -576,7 +576,7 @@ embedding: small
 Four things differ from `models:` and are worth knowing before you write one:
 
 - **No `api:` field.** `/v1/responses` has no embeddings endpoint, so naming an
-  api means nothing on any protocol. The shorthand is `[provider:]model`.
+  api means nothing on any protocol. The shorthand is `provider/model`.
 - **`kind: anthropic` has no embeddings API at all.** Anthropic publishes none
   and points at third parties; an `embeddings:` entry on an Anthropic provider
   fails at load. Use another provider - the connection need not be the one the
@@ -1565,13 +1565,20 @@ agents:
 ### 7.3 Shorthand
 
 ```
-[provider[/api]:]model
+provider/id
 ```
 
-`gpt-4o` · `openai:gpt-4o` · `openai/responses:o3` · `vertex:gemini-3.5-flash`
+`openai/gpt-5-mini` · `vertex/gemini-3.5-flash` · `vertex/anthropic/claude-opus-5` ·
+`openrouter/anthropic/claude-sonnet-4.5`
 
-Only the **first** colon separates, so a fine-tuned id must name its provider:
-`openai:ft:gpt-4o:acme::a1b2`.
+The first segment is a provider _name_ - a built-in kind or a `providers:`
+entry - and everything after the first slash is the id exactly as that provider
+spells it, slashes and colons included. It is also how a Bifrost gateway names a
+model, so the ref written here is the one the gateway logs.
+
+On Vertex a model from another publisher keeps its publisher:
+`vertex/anthropic/claude-opus-5`, `vertex/openai/gpt-oss-120b-maas`. Google's own
+models need none.
 
 **Always write the prefix.** The first segment is a provider _name_, not a vendor
 hint - nothing reads `gemini-3.5-flash` and infers Google. An unprefixed id goes
@@ -1580,10 +1587,26 @@ otherwise, so a bare `gemini-3.5-flash` asks OpenAI for a Google model and fails
 with `OPENAI_API_KEY is not set`. The message names the provider it resolved to;
 read it as "the prefix is missing", not "the key is missing".
 
+Two older spellings are still read, and `zen validate` names the ref to write
+instead:
+
+- `provider[/api]:id` - `openai:gpt-4o`, `openai/responses:o3`. Still the only
+  shorthand that names an api, and the way to write an id the slash form would
+  misread: a fine-tuned `openai:ft:gpt-4o:acme::a1b2`.
+- a bare id, which goes to the default provider - see below.
+
+One ref reads two ways. On a default provider whose own ids contain slashes -
+OpenRouter, Vertex, `openai-compatible`, anything with a base url of its own -
+`anthropic/claude-sonnet-4.5` is that provider's id, as it always was, not a
+model of Anthropic's. `zen validate` warns, and asks for
+`openrouter/anthropic/claude-sonnet-4.5` so the next reader cannot take it the
+other way. To reach Anthropic itself from such a project, write
+`anthropic:claude-sonnet-4.5`: the colon form is never read two ways.
+
 Anything the shorthand cannot express (keys, base urls, `api:`, reasoning knobs)
 needs the object form. The object form does **not** re-parse a shorthand: its
 `model:` is the bare id and the provider goes in `provider:` beside it. Writing
-`model: openai:gpt-5.4-mini` there sends that whole string to the API.
+`model: openai/gpt-5.4-mini` there sends that whole string to the API.
 
 Resolution order for any `model:` value: `zen run --model` → this file's
 `models:` → the shorthand parser. Two agents naming `balanced` share one model
@@ -1629,20 +1652,20 @@ entry is only worth writing when it adds something:
 ```yaml
 agents:
     - name: triage
-      model: openrouter:anthropic/claude-sonnet-4.5
+      model: openrouter/anthropic/claude-sonnet-4.5
 ```
 
 **Model ids** are `vendor/model` and may carry a variant suffix after a colon -
 `:free`, `:nitro` (throughput-routed), `:floor` (price-routed), `:online` (web
-search). Both survive the shorthand, because only the _first_ colon separates:
+search). Both survive the shorthand, because only the _first_ slash separates:
 
 | Ref                              | Provider     | Model                 |
 | -------------------------------- | ------------ | --------------------- |
-| `openrouter:openai/gpt-5.4-nano` | `openrouter` | `openai/gpt-5.4-nano` |
-| `openrouter:z-ai/glm-5.2:free`   | `openrouter` | `z-ai/glm-5.2:free`   |
+| `openrouter/openai/gpt-5.4-nano` | `openrouter` | `openai/gpt-5.4-nano` |
+| `openrouter/z-ai/glm-5.2:free`   | `openrouter` | `z-ai/glm-5.2:free`   |
 
-The `vendor/` prefix is part of the _id_, not a provider name: what precedes the
-first colon is the provider, and the `provider/api` slash is only read there.
+The `vendor/` after `openrouter/` is part of the _id_, not a provider name: what
+precedes the first slash is the provider, and nothing after it is read as one.
 
 **No api to choose.** This kind speaks one protocol, its own, so `api: responses`
 and `openrouter/responses:…` are both a load error ("has one api, so … means
@@ -1802,7 +1825,7 @@ up (§7.8).
 
 - **A model id with no provider prefix** - `gemini-3.5-flash` resolves to the
   default provider, not to Google, and the failure reads as a missing OpenAI key.
-  Write `google:gemini-3.5-flash` - §7.3.
+  Write `google/gemini-3.5-flash` - §7.3.
 - **OpenAI reasoning without `api: responses`** - chat completions rejects
   `reasoningEffort` alongside function tools with a `400`, and exposes no
   reasoning summary even without tools - §7.6.

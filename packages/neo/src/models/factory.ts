@@ -29,6 +29,7 @@ import { GeminiModel, type GeminiModelOptions } from './gemini.ts';
 import { OpenAIModel } from './openai-chat.ts';
 import { OpenAIResponsesModel, type OpenAIResponsesModelOptions } from './openai-responses.ts';
 import { OpenRouterModel, type OpenRouterModelOptions } from './openrouter.ts';
+import { MODEL_APIS, splitModelRef } from './ref.ts';
 
 // ---------------------------------------------------------------------------
 // The vendor SDKs
@@ -201,15 +202,32 @@ export interface ModelSpec
 }
 
 /**
- * Shorthand: `[provider[/api]:]model`, e.g. `gpt-4o`, `openai:gpt-4o`,
- * `openai/responses:o3`, `gemini-eu:gemini-2.5-pro`.
- *
- * Only the *first* colon separates, so a fine-tuned id keeps its own — it just
- * has to name its provider: `openai:ft:gpt-4o:acme::a1b2`. Anything the
- * shorthand cannot express (keys, base urls, reasoning knobs) needs the object
- * form.
+ * Shorthand: `provider/id`, e.g. `openai/gpt-5-mini`,
+ * `vertex/anthropic/claude-opus-5`, `openrouter/anthropic/claude-sonnet-5` —
+ * see `ref.ts`. The older `[provider[/api]:]id` (`openai:gpt-4o`,
+ * `openai/responses:o3`, `openai:ft:gpt-4o:acme::a1b2`) and a bare id on the
+ * default provider are still read. Anything the shorthand cannot express
+ * (keys, base urls, reasoning knobs) needs the object form.
  */
 export type ModelRef = ModelSpec | string;
+
+/**
+ * How a ref is written, against how it would be written today.
+ *
+ * - `bare` — no provider: it goes to the default one
+ * - `colon` — the older `provider:id`
+ * - `ambiguous` — `anthropic/claude-…` on an OpenRouter-style default, which
+ *   still means the default provider's id, as it always has; written out, it
+ *   says so
+ * - `publisher` — Claude on Vertex without its `anthropic/`
+ *
+ * `canonical` keeps the meaning. A colon ref naming an api is already as
+ * written as it gets: no other shorthand carries one.
+ */
+export interface ModelRefStyle {
+    issue: 'bare' | 'colon' | 'ambiguous' | 'publisher';
+    canonical: string;
+}
 
 /**
  * The same idea one layer down: which vectoriser, and of whom.
@@ -228,7 +246,7 @@ export interface EmbeddingSpec
     client?: ProviderClient;
 }
 
-/** Shorthand: `[provider:]model`, e.g. `text-embedding-3-small`, `google:gemini-embedding-001`. */
+/** Shorthand: `provider/model`, e.g. `google/gemini-embedding-001` — read as `ModelRef` is, minus an api. */
 export type EmbeddingRef = EmbeddingSpec | string;
 
 /**
@@ -630,6 +648,14 @@ export class ModelRegistry {
     /** Turns a shorthand or a spec into a `Model`. */
     model(ref: ModelRef): Model {
         const spec = typeof ref === 'string' ? this.parse(ref) : ref;
+        const built = this.#build(spec);
+        // What the trace records beside the wire id: the id alone has lost
+        // which provider it went to.
+        Object.defineProperty(built, 'ref', { value: this.refOf(spec), enumerable: false });
+        return built;
+    }
+
+    #build(spec: ModelSpec): Model {
         const name = spec.provider ?? this.#default;
         const provider = this.#spec(name);
         const kind = this.kindOf(name);
@@ -791,33 +817,102 @@ export class ModelRegistry {
         };
     }
 
-    /** `[provider[/api]:]model` → spec. Exposed so a caller can validate a ref. */
+    /** A shorthand → spec; see `ModelRef`. Exposed so a caller can validate a ref. */
     parse(ref: string): ModelSpec {
-        // Only the first colon separates the prefix: model ids may contain colons.
-        const colon = ref.indexOf(':');
-        if (colon < 0) {
-            return { model: ref };
-        }
-        const [provider, api] = ref.slice(0, colon).split('/');
-        const model = ref.slice(colon + 1);
-        if (!model) {
-            throw new TypeError(`missing model id in "${ref}"`);
-        }
-        if (!provider || !this.has(provider)) {
-            throw new TypeError(
-                `unknown provider "${provider}" in "${ref}" ` +
-                    `(known: ${this.names().join(', ')}; a model id that itself contains a ` +
-                    `colon must name its provider, e.g. "openai:${ref}")`,
-            );
-        }
-        if (api !== undefined && api !== 'chat' && api !== 'responses') {
-            throw new TypeError(`unknown api "${api}" in "${ref}" (expected chat or responses)`);
-        }
-        return { provider, api, model };
+        return this.#read(ref).spec;
     }
 
     /**
-     * Splits `[provider:]model` into the spec it stands for, so a caller holding
+     * The ref a spec is written as: `provider/id`, with Claude on Vertex under
+     * its publisher. The colon form when that is the only one that reads back
+     * the same — an api to carry, or an id the slash would split differently.
+     */
+    refOf(spec: { provider?: string; api?: string; model: string }): string {
+        const name = spec.provider ?? this.#default;
+        if (spec.api) {
+            return `${name}/${spec.api}:${spec.model}`;
+        }
+        const model =
+            this.kindOf(name) === 'vertex' && /^claude-/.test(spec.model)
+                ? `anthropic/${spec.model}`
+                : spec.model;
+        const slash = `${name}/${model}`;
+        try {
+            const back = this.parse(slash);
+            if ((back.provider ?? this.#default) === name && back.model === model && !back.api) {
+                return slash;
+            }
+        } catch {
+            // falls through to the form that always reads back
+        }
+        return `${name}:${model}`;
+    }
+
+    /** How `ref` is written, when that is not the way it would be written today. */
+    refStyle(ref: string): ModelRefStyle | undefined {
+        const { spec, form } = this.#read(ref);
+        const canonical = this.refOf(spec);
+        if (canonical === ref) {
+            return undefined;
+        }
+        return { issue: form === 'slash' ? 'publisher' : form, canonical };
+    }
+
+    #read(ref: string): { spec: ModelSpec; form: 'slash' | 'colon' | 'bare' | 'ambiguous' } {
+        const parts = splitModelRef(ref, (name) => this.has(name));
+        if (parts.form === 'bare') {
+            return { spec: { model: ref }, form: 'bare' };
+        }
+        const { provider, api, model } = parts;
+        if (!model) {
+            throw new TypeError(`missing model id in "${ref}"`);
+        }
+        if (parts.form === 'colon') {
+            if (!provider || !this.has(provider)) {
+                throw new TypeError(
+                    `unknown provider "${provider}" in "${ref}" ` +
+                        `(known: ${this.names().join(', ')}; a model id that itself contains a ` +
+                        `colon must name its provider, e.g. "openai:${ref}")`,
+                );
+            }
+            if (api !== undefined && !(MODEL_APIS as readonly string[]).includes(api)) {
+                throw new TypeError(
+                    `unknown api "${api}" in "${ref}" (expected chat or responses; an id ` +
+                        'with a colon in it goes in the object form)',
+                );
+            }
+            return { spec: { provider, api: api as OpenAIApi | undefined, model }, form: 'colon' };
+        }
+        // Before a slash named a provider, it was part of an id on the default
+        // one — and on a default whose own ids have slashes (OpenRouter's
+        // `anthropic/claude-…`, an endpoint of somebody's) that reading may be
+        // the one that was meant. It is kept; `refStyle` asks for it written out.
+        const fallback = this.#default;
+        if (this.#slashIds(fallback) && (provider !== fallback || this.#repointed(fallback))) {
+            return { spec: { model: ref }, form: 'ambiguous' };
+        }
+        return { spec: { provider, model }, form: 'slash' };
+    }
+
+    /** A provider whose own model ids may contain a slash. */
+    #slashIds(name: string): boolean {
+        const kind = this.kindOf(name);
+        return (
+            kind === 'openrouter' ||
+            kind === 'vertex' ||
+            kind === 'openai-compatible' ||
+            this.#repointed(name)
+        );
+    }
+
+    /** Declared at a base url of its own: a proxy may name its models any way it likes. */
+    #repointed(name: string): boolean {
+        const spec = this.#providers.get(name);
+        return Boolean(spec?.baseURL || spec?.baseURLEnv);
+    }
+
+    /**
+     * Splits a shorthand into the spec it stands for, so a caller holding
      * a shorthand can still set the knobs a shorthand has no room for.
      */
     parseEmbedding(ref: string): EmbeddingSpec {
