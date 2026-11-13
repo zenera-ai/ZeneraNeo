@@ -7,6 +7,7 @@ import {
     fetchJson,
     notGrowing,
     overlapsWindow,
+    positiveInt,
     report,
     sameSet,
     walk,
@@ -32,7 +33,7 @@ import {
 
 const MAIL = process.env.GYM_MAIL_URL?.replace(/\/$/, '');
 const CAL = process.env.GYM_CALENDAR_URL?.replace(/\/$/, '');
-const REPEATS = Number(process.env.ORACLE_REPEATS ?? 3);
+const REPEATS = positiveInt('ORACLE_REPEATS', process.env.ORACLE_REPEATS, 3);
 const REPORT = process.env.ORACLE_REPORT ?? join(import.meta.dirname, 'oracle-report.md');
 const QUARANTINE = new Set(
     (process.env.ORACLE_QUARANTINE ?? '')
@@ -45,8 +46,8 @@ const COLD = 600_000; // a first call can cost a model turn per operation
 
 const trials: Trial[] = [];
 
-/** Run one case REPEATS times, record each run, then fail loudly with every bad run. */
-async function trial(relation: string, name: string, run: () => Promise<Verdict>) {
+/** Run one case REPEATS times and record each run; return the bad runs. */
+async function runCase(relation: string, name: string, run: () => Promise<Verdict>) {
     const bad: string[] = [];
     for (let i = 1; i <= REPEATS; i++) {
         let verdict: Verdict;
@@ -58,6 +59,12 @@ async function trial(relation: string, name: string, run: () => Promise<Verdict>
         trials.push({ relation, case: name, run: i, verdict });
         if (!verdict.ok) bad.push(`run ${i}: ${verdict.detail}`);
     }
+    return bad;
+}
+
+/** Run one case, then fail loudly with every bad run (unless the relation is quarantined). */
+async function trial(relation: string, name: string, run: () => Promise<Verdict>) {
+    const bad = await runCase(relation, name, run);
     if (QUARANTINE.has(relation)) return;
     expect(
         bad,
@@ -164,6 +171,15 @@ describe.runIf(Boolean(MAIL && CAL))('oracles against a live Gym', () => {
                     () =>
                         trial('R3 union of pages', `${op} q="${q}"`, async () => {
                             const whole = await fetchJson(withQuery(list(q), { maxResults: max }));
+                            // The baseline is only "everything" if it is a single page. A
+                            // paged baseline would turn real omissions into noise.
+                            if (whole.nextPageToken) {
+                                return {
+                                    ok: false,
+                                    vacuous: false,
+                                    detail: `baseline at maxResults=${max} is itself paged; cannot judge the union`,
+                                };
+                            }
                             const paged = await walk(withQuery(list(q), { maxResults: 3 }), key);
                             const v = sameSet(paged.items, (whole[key] as unknown[]) ?? []);
                             // The stop reason is the evidence for classifying a failure.
@@ -227,15 +243,30 @@ describe.runIf(Boolean(MAIL && CAL))('oracles against a live Gym', () => {
         it(
             'each window',
             async () => {
+                // Every window runs and is recorded, even after one fails.
+                const bad: string[] = [];
                 for (const [name, timeMin, timeMax] of windows) {
-                    await trial('R4 time window', name, async () => {
+                    const runs = await runCase('R4 time window', name, async () => {
                         const w = await walk(
                             events({ timeMin, timeMax, maxResults: '50' }),
                             'items',
                         );
                         return overlapsWindow(w.items, timeMin, timeMax);
                     });
+                    bad.push(...runs.map((r) => `${name}: ${r}`));
                 }
+                const judged = trials.filter(
+                    (t) => t.relation === 'R4 time window' && t.verdict.ok && !t.verdict.vacuous,
+                ).length;
+                if (QUARANTINE.has('R4 time window')) return;
+                expect(
+                    bad,
+                    `[R4 time window] ${bad.length} bad run(s):\n${bad.join('\n')}`,
+                ).toEqual([]);
+                expect(
+                    judged,
+                    'no R4 window returned any events; the relation was never judged',
+                ).toBeGreaterThan(0);
             },
             COLD,
         );
