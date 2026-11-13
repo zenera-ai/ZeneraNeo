@@ -133,6 +133,9 @@ export function editorSkills(root: string, inputs: { phase: string }[]): [string
     if (prose.includes('run_command')) {
         out.push(['zen-code-python', '`run_command` in agents/']);
     }
+    if (/\bmcp:/.test(yaml) || /\bmcp_(servers|tools|describe|call)\b/.test(prose)) {
+        out.push(['zen-mcp', '`mcp:*` in agents.yaml, or an `mcp_*` tool in agents/']);
+    }
     return out;
 }
 

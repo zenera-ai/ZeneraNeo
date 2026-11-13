@@ -137,4 +137,13 @@ describe('editorSkills', () => {
             'zen-code-python',
         ]);
     });
+
+    it('names zen-mcp for an mcp:* grant or an mcp_* tool in agents/', () => {
+        writeFileSync(join(root, 'agents.yaml'), 'agents:\n  - name: a\n    tools: [mcp:*]\n');
+        expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).toContain('zen-mcp');
+        writeFileSync(join(root, 'agents.yaml'), 'agents:\n  - name: a\n');
+        expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).not.toContain('zen-mcp');
+        writeFileSync(join(root, 'agents', 'prompts', 'b.md'), 'Call mcp_describe first.\n');
+        expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).toContain('zen-mcp');
+    });
 });
