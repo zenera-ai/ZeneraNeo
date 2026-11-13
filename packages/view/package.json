@@ -1,6 +1,6 @@
 {
     "name": "@zenera/view",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "description": "A live local viewer for a folder: markdown with mermaid, highlighted code, updated in place as the files change.",
     "keywords": [
         "markdown",

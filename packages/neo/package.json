@@ -1,6 +1,6 @@
 {
     "name": "@zenera/neo",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "description": "A multi-agent runtime for Node.js: agents, models, tools, skills, memory and an append-only trajectory.",
     "keywords": [
         "agents",
@@ -62,7 +62,7 @@
         "prepack": "tsc -b"
     },
     "dependencies": {
-        "@zenera/sandbox": "^1.3.3",
+        "@zenera/sandbox": "^1.3.4",
         "graphology": "^0.26.0",
         "yaml": "^2.9.1",
         "zod": "^4.6.7"
