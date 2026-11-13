@@ -1,6 +1,6 @@
 {
     "name": "@zenera/meta",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "description": "The meta agent for zen: GitHub Copilot over a zen project on your own keys, plus the dataset and fine-tuning loop.",
     "keywords": [
         "agents",
@@ -45,10 +45,10 @@
     "dependencies": {
         "@github/copilot-sdk": "^1.0.32",
         "@inkjs/ui": "^2.0.0",
-        "@zenera/cli": "^1.3.1",
-        "@zenera/engine": "^1.3.1",
-        "@zenera/neo": "^1.3.1",
-        "@zenera/view": "^1.3.1",
+        "@zenera/cli": "^1.3.2",
+        "@zenera/engine": "^1.3.2",
+        "@zenera/neo": "^1.3.2",
+        "@zenera/view": "^1.3.2",
         "google-auth-library": "^10.0.0",
         "ink": "^7.1.1",
         "react": "^19.2.8",
