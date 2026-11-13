@@ -41,7 +41,13 @@ A re-run starts by reconciling external state. It does not trust only the last r
 
 ## Proposed manifest
 
-See `release-state-machine.md` for the schema and state transitions. Store one append-only run record per attempt, or retain a monotonic `attempts` history in the manifest. Avoid overwriting evidence of earlier attempts.
+See `release-state-machine.md` for the schema and state transitions. Store one append-only run record per attempt, or retain a monotonic `attempts` history in the manifest. Avoid overwriting evidence of earlier attempts. The manifest records GitHub Release state and the expected immutable image digest/build identity, so a recovery run can verify release metadata and distinguish this release's image from an unrelated artifact sharing the same version tag.
+
+For npm packages, keep the locally computed SHA-256 and SRI of the retained tarball separate from npm's registry `dist.integrity` (SRI) and legacy `dist.shasum` (SHA-1). These use different algorithms and encodings and must not be stored under one ambiguous checksum field.
+
+## First implementation step
+
+Implement and test a small npm registry reconciliation helper before changing the publication workflow. It should return exactly one of `PRESENT_AND_MATCHING`, `CONFIRMED_NOT_FOUND`, or `ERROR_OR_AMBIGUOUS`. Only the confirmed-not-found result may authorize publishing. Tests should cover an already-published matching version, mismatched metadata, a true 404, 401/403, 429, 5xx, DNS/network errors, and timeouts. After publishing or an ambiguous timeout, query the exact version again and compare npm's registry SRI with the retained tarball's SRI before advancing the manifest. This isolates the highest-risk decision and gives the team a small, reviewable first change.
 
 ## Failure and recovery rules
 

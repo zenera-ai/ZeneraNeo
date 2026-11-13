@@ -20,14 +20,18 @@ stateDiagram-v2
     PUBLISHING --> PARTIAL: publish or verification interrupted
     PARTIAL --> RECONCILING: retry same release identity
     RECONCILING --> PUBLISHING: confirmed missing packages remain
+    RECONCILING --> PACKAGES_VERIFIED: all packages already match
     RECONCILING --> BLOCKED: conflict / ambiguous registry state
     PUBLISHING --> PACKAGES_VERIFIED: all npm packages verified
-    PACKAGES_VERIFIED --> RELEASED: GitHub Release metadata verified
+    PACKAGES_VERIFIED --> GITHUB_RELEASE_PENDING
+    GITHUB_RELEASE_PENDING --> RELEASED: GitHub Release metadata verified
+    GITHUB_RELEASE_PENDING --> BLOCKED: release metadata conflict
     RELEASED --> IMAGES_PENDING
     IMAGES_PENDING --> DISTRIBUTING
     DISTRIBUTING --> PARTIAL_IMAGES: image build or push fails
     PARTIAL_IMAGES --> RECONCILING_IMAGES: retry image stage
-    RECONCILING_IMAGES --> DISTRIBUTING: required image absent
+    RECONCILING_IMAGES --> DISTRIBUTING: expected image absent
+    RECONCILING_IMAGES --> IMAGES_VERIFIED: all images already match
     RECONCILING_IMAGES --> BLOCKED: image identity conflict
     DISTRIBUTING --> IMAGES_VERIFIED: all configured images verified
     PARTIAL_IMAGES --> IMAGE_DEGRADED: optional image retry deferred
@@ -57,11 +61,22 @@ The following is illustrative JSON. Store it as a CI artifact or durable release
             "version": "X.Y.Z",
             "directory": "packages/neo",
             "status": "VERIFIED",
-            "registryDistSha256": "<integrity-or-dist-verification-value>",
+            "tarballSha256": "<hex-sha256-of-retained-tgz>",
+            "tarballIntegrity": "sha512-<base64-sri-of-retained-tgz>",
+            "registryDistIntegrity": "sha512-<base64-sri-from-npm-dist-integrity>",
+            "registryDistShasum": "<hex-sha1-from-npm-dist-shasum>",
             "attempts": 1,
             "lastObservedAt": "<ISO-8601-UTC>"
         }
     ],
+    "githubRelease": {
+        "status": "VERIFIED",
+        "tag": "vX.Y.Z",
+        "targetCommit": "<peeled-tag-commit-sha>",
+        "releaseId": "<github-release-id>",
+        "url": "<github-release-url>",
+        "lastObservedAt": "<ISO-8601-UTC>"
+    },
     "images": [
         {
             "name": "ghcr.io/zenera-ai/zenera-agent-runtime",
@@ -69,8 +84,12 @@ The following is illustrative JSON. Store it as a CI artifact or durable release
             "platforms": ["linux/amd64", "linux/arm64"],
             "status": "PENDING",
             "required": false,
+            "sourceCommit": "<peeled-tag-commit-sha>",
+            "buildDefinitionSha256": "<sha256-of-dockerfile-and-build-inputs>",
+            "expectedDigest": null,
             "digest": null,
-            "attempts": 0
+            "attempts": 0,
+            "lastObservedAt": null
         }
     ],
     "attemptHistory": []
@@ -89,6 +108,17 @@ Use explicit image statuses:
 
 - `PENDING`, `BUILDING`, `PUSHED_UNVERIFIED`, `VERIFIED`, `BLOCKED`.
 
+Track the GitHub Release as a separate required child record with statuses `PENDING`, `CREATING`, `VERIFIED`, and `BLOCKED`. For a `VERIFIED` record, persist the GitHub release ID, URL, tag, target commit, and observation time. A matching existing release can be reused; an entry pointing to a different target commit is a conflict.
+
+The package checksum fields have deliberately different meanings:
+
+- `tarballSha256`: lowercase hexadecimal SHA-256 computed locally over the exact retained `.tgz` selected for publication.
+- `tarballIntegrity`: SRI string computed locally over that same tarball, normally using SHA-512 (for example, `sha512-<base64>`).
+- `registryDistIntegrity`: npm's `dist.integrity` SRI value. Compare it with `tarballIntegrity` using the same algorithm; do not label it SHA-256.
+- `registryDistShasum`: npm's `dist.shasum` hexadecimal SHA-1 value, when supplied. It is a compatibility/metadata field, not the preferred strong checksum.
+
+For images, create and retain an immutable multi-platform OCI artifact before the registry push. Persist its manifest/index digest as `expectedDigest`, together with the source commit and build-input identity, before starting the push. Push that exact OCI artifact rather than rebuilding during retry. After push (or an ambiguous timeout), resolve the mutable version tag to its registry digest and compare it with `expectedDigest`; then verify the platform descriptors. The OCI artifact and manifest/index digest must be computed from the same artifact being pushed. If the runner loses the push response and no expected digest or immutable artifact was persisted, mark the image `BLOCKED` for controlled investigation; do not infer that a tag with the right version belongs to this release.
+
 Top-level package-release statuses should be derived from package and GitHub Release states, not updated independently by hand. `RELEASED` is valid when every required npm package is `VERIFIED` and the GitHub Release entry is present and tied to the same tag. Image state is independent: use `IMAGES_VERIFIED` or `IMAGE_DEGRADED`. Do not make optional image availability a condition for saying the npm release itself succeeded. The manifest must identify which image outputs are required versus optional.
 
 ## Idempotent reconciliation algorithm
@@ -101,8 +131,10 @@ For each package in dependency order:
 4. After a successful publish response, poll for registry visibility with bounded exponential backoff and jitter. Record each observation.
 5. If the publish request timed out or returned an ambiguous response, do not publish again immediately. Query the exact version until the outcome is resolved or the run is marked `BLOCKED` for operator review.
 6. If a version exists but its metadata does not match the release record, stop. Never attempt to overwrite or silently skip it.
-7. Before creating GitHub Release metadata, query the tag's release entry. If it exists, verify that it targets the expected tag/commit and reuse it; create only when absent. A repeated create is not an idempotent operation.
-8. For each image, wait for and verify every internal package in that image's transitive dependency closure. The current matrix's short `needs` lists are not a complete dependency-closure check.
+7. If all packages already exist and match, transition directly to `PACKAGES_VERIFIED`; a retry with nothing to publish is a successful reconciliation, not an error.
+8. Reconcile the GitHub Release record. Query by tag; if an entry exists, verify its target commit and record its release ID/URL. Create only when absent, then read it back and verify before setting `VERIFIED`.
+9. For each image, wait for and verify every internal package in that image's transitive dependency closure. The current matrix's short `needs` lists are not a complete dependency-closure check.
+10. Persist the expected immutable image digest and source/build-input identity with the OCI artifact before pushing. After push or an ambiguous timeout, resolve the version tag to a registry digest and compare it with `expectedDigest` before marking `VERIFIED`. If the expected digest or immutable artifact is unavailable after an ambiguous push, mark `BLOCKED` for operator investigation.
 
 Build tarballs once before publishing and retain them as workflow artifacts with SHA-256 hashes. Publishing those exact tarballs prevents a retry from rebuilding different bytes under the same version. A build can be repeated before the first publish, but after any package version is published the release artifact set must be frozen.
 
