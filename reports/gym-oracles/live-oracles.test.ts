@@ -271,4 +271,17 @@ describe.runIf(Boolean(MAIL && CAL))('oracles against a live Gym', () => {
             );
         }
     });
+
+    // resultSizeEstimate ---------------------------------------------------------
+    describe('resultSizeEstimate equals the number of items walked', () => {
+        it(
+            'listMessages',
+            async () => {
+                const first = await fetchJson(withQuery(messages(), { maxResults: 3 }));
+                const w = await walk(withQuery(messages(), { maxResults: 3 }), 'messages');
+                expect(w.items.length).toBe(first.resultSizeEstimate);
+            },
+            COLD,
+        );
+    });
 });
