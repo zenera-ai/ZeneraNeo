@@ -178,14 +178,14 @@ describe('spec-sync snapshot helpers', () => {
 });
 
 describe('review check receipts', () => {
-    it('reuses one successful model probe while still sweeping paths and the record', () => {
+    it('reuses one successful model probe while still sweeping paths', () => {
         const { root, review } = project();
         expect(review(['check', 'no-sandbox']).status).toBe(0);
         const result = review(['--skip-check', 'no-sandbox']);
         expect(result.status, result.stderr).toBe(0);
         expect(result.stdout).toContain('reusing successful no-sandbox check');
-        expect(result.stdout).toContain('--- paths ---');
-        expect(result.stdout).toContain('--- spec-sync ---');
+        expect(result.stdout).toContain('--- paths (check-paths.sh) ---');
+        expect(result.stdout).not.toContain('spec-sync');
         expect(readFileSync(join(root, '.tmp/calls'), 'utf8')).toBe('check --no-sandbox\n');
         expect(review(['--skip-check']).status).toBe(1);
         expect(review(['--skip-check', 'fast']).status).toBe(0);
@@ -263,6 +263,45 @@ describe('review check receipts', () => {
         expect(readFileSync(join(root, '.tmp/calls'), 'utf8')).toBe(
             'check\ncheck --no-models --no-sandbox\n',
         );
+    });
+
+    it('runs the slow half as one full check, warns, and leaves a reusable receipt', () => {
+        const { root, review } = project();
+        const slow = review(['slow', '--fix']);
+        expect(slow.status, slow.stderr).toBe(0);
+        expect(slow.stderr).toContain('several minutes');
+        expect(slow.stdout).not.toContain('--- paths (check-paths.sh) ---');
+        expect(readFileSync(join(root, '.tmp/calls'), 'utf8')).toBe('check --fix\n');
+        expect(review(['--skip-check']).status).toBe(0);
+        expect(review(['slow', 'fast']).status).toBe(2);
+    });
+
+    it('names the exact fast check and suggests the setup run when setup is not done', () => {
+        const { root, review } = project();
+        mkdirSync(join(root, 'scripts'));
+        writeFileSync(join(root, 'scripts/_setup.sh'), 'echo "docs_index: needs setup"\nexit 1\n');
+        const result = review(['fast']);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toContain('--- zen check --no-models --no-sandbox ---');
+        expect(result.stdout).toContain('docs_index: needs setup');
+        expect(result.stdout).toContain('setup: not done - run scripts/_setup.sh');
+    });
+
+    it('hints at a sandbox rebuild when sandbox/ changed since the last commit, without failing', () => {
+        const { root, review } = project();
+        const git = (...args: string[]) =>
+            spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root });
+        mkdirSync(join(root, 'sandbox'));
+        writeFileSync(join(root, 'sandbox/Dockerfile'), 'FROM scratch\n');
+        git('init', '-q');
+        git('add', 'sandbox');
+        git('commit', '-qm', 'init');
+        expect(review(['fast']).stdout).toContain('sandbox: unchanged');
+
+        writeFileSync(join(root, 'sandbox/Dockerfile'), 'FROM alpine\n');
+        const changed = review(['fast']);
+        expect(changed.status).toBe(0);
+        expect(changed.stdout).toContain('zen sandbox pull');
     });
 });
 

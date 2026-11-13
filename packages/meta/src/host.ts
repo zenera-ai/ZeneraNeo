@@ -33,6 +33,7 @@ export {
     formatInline,
     formatMarkdown,
     green,
+    History,
     invalidError,
     invokedAs,
     isInteractive,

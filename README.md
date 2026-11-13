@@ -172,7 +172,9 @@ The meta-agent is the agent that builds your system. It ships as `@zenera/meta`,
 - asks questions in `SPECIFICATION-FEEDBACK.md` when the specification is
   unclear, instead of guessing;
 - reads the trajectories of your runs and proposes improvements to the
-  specification.
+  specification;
+- talks any of it through with you in the terminal, turn by turn
+  (`zen meta chat`).
 
 ![How The Meta Agent Works](docs/imgs/meta-agent-works.webp)
 

@@ -853,6 +853,7 @@ too.
 zen meta run [project] "<question>"      ask it something
 zen meta run [project] /<name> [words]   run .github/skills/<name>/SKILL.md
 zen meta run [project]                   pick one of those commands
+zen meta chat [project] [question]       talk it through, turn by turn
 zen meta prompts [project]               list those commands
 zen meta resume [project] [session]      carry on a session that stopped
 zen meta model [ref]                     show or set the model it uses
@@ -949,6 +950,29 @@ One sharp edge: copilot offers its tools as OpenAI _custom_ tools, which the
 completions API rejects outright - `400 Invalid value: 'custom'`. Only the
 responses API accepts them, so the wire API follows the model rather than being
 a flag nobody would know to set.
+
+**A chat goes through the SDK, not `-p`.** `zen meta chat`
+([chat/](packages/meta/src/chat/)) needs what a one-shot run does not: the
+answer as it is written, a turn that can be stopped, and a tool call that can
+stop to ask. `copilot -p` offers none of those, so the chat runs on
+`@github/copilot-sdk` and its bundled runtime, loaded only when a chat opens.
+Everything before the session is shared with `run` -
+[prepare.ts](packages/meta/src/prepare.ts) chooses the model, wires the key and
+settles the session id for both - and the wiring's `COPILOT_PROVIDER_*` become
+the SDK's typed `provider` on the session, while the rest of that environment
+(a service account's key file, the ledger) still goes to the runtime. A
+service account's access token is minted in-process through the SDK's
+`bearerTokenProvider` - cached until it nears expiry, a failed exchange retried -
+rather than by `zen key token`, which asked Google afresh before every call and
+let one network blip end the turn. Tokens
+come from the SDK's `assistant.usage` events rather than the span file, into the
+same ledger rows. `--allow-tool` and `--ask` are answered in-process by
+[permissions.ts](packages/meta/src/chat/permissions.ts) with `run`'s defaults:
+every tool, the named ones, or ask. The session is copilot's either way, so a
+chat and a run resume each other. The screen
+([tui.tsx](packages/meta/src/chat/tui.tsx)) draws a transcript that
+[transcript.ts](packages/meta/src/chat/transcript.ts) folds from the session's
+events, so its logic is tested without a terminal.
 
 #### The dataset - `zen meta dataset`
 

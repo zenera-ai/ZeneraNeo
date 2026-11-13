@@ -27,8 +27,9 @@
 the project to change it - generate it from its specification, review it,
 build its evaluation dataset and fine-tune its prompts against that dataset.**
 
-It drives [GitHub Copilot CLI](https://github.com/github/copilot-cli) with your
-provider keys, never a Copilot subscription.
+It drives [GitHub Copilot CLI](https://github.com/github/copilot-cli) - and, for
+a conversation, the [Copilot SDK](https://github.com/github/copilot-sdk) - with
+your provider keys, never a Copilot subscription.
 
 > Part of [ZeneraNeo](https://github.com/zenera-ai/ZeneraNeo). It ships no
 > binary of its own: installing it adds a `meta` **subcommand** to
@@ -40,6 +41,9 @@ provider keys, never a Copilot subscription.
 - **Specification-driven builds** - `/spec-sync-project` reads
   `SPECIFICATION.md` and writes the agents, prompts, tools and skills, then asks
   what it could not decide in `SPECIFICATION-FEEDBACK.md`.
+- **A chat in the terminal** - `zen meta chat` is the same agent turn by turn:
+  the answer streams in, each tool call is a line, and `--ask` has it stop for a
+  yes or no before it touches anything.
 - **Commands from the project** - every `.github/skills/<name>/SKILL.md` the
   project carries is a `/<name>` you can run from the terminal, the same ones
   the editor offers.
@@ -62,8 +66,9 @@ zen key add openai          # the keyring `zen` already uses
 ```
 
 Copilot CLI is used from `PATH` when it is there (`npm i -g @github/copilot`)
-and fetched with `npx` otherwise. `zen version` shows which, and every
-`@zenera/*` package version beside it.
+and fetched with `npx` otherwise. `zen meta chat` needs neither: the Copilot SDK
+it runs on is a dependency and brings its own runtime. `zen version` shows
+both, and every `@zenera/*` package version beside them.
 
 ## Use
 
@@ -73,6 +78,7 @@ zen meta run "what does this project do?"    # ask it something
 zen meta run acme /spec-sync-project         # run one of the project's commands
 git diff | zen meta run "what broke?" --allow-tool read
 zen meta resume acme                         # carry on the last session
+zen meta chat acme                           # talk it through, turn by turn
 ```
 
 The answer goes to stdout and the progress to stderr, so `> out.md` keeps the
@@ -82,6 +88,12 @@ answer alone. The whole run - prompt, every step, the answer - is logged under
 It may use every tool without asking: a prompt written for an editor expects
 to read, write and run things, and a terminal has nobody watching to answer.
 Narrow it with `--allow-tool`, or restore the asking with `--ask`.
+
+`zen meta chat` takes the same model, key, tools and log as `run`, in a
+conversation: the answer streams in, Esc stops a turn, `/help` lists the
+chat's commands and `/<name>` runs a project command inside it. It ends by
+printing the session, which `zen meta chat --resume` - or `--continue`, for
+the last one - and `zen meta resume` both take.
 
 The editor files `zen init` writes (`.vscode/` and the `.github/` tree) are
 refreshed in the project before each run, because they are the brief the agent
@@ -93,6 +105,7 @@ works from and they describe this version of `zen`.
 zen meta run [project] "<question>"      Ask it something.
 zen meta run [project] /<name> [words]   Run .github/skills/<name>/SKILL.md.
 zen meta run [project]                   Pick one of those commands.
+zen meta chat [project] [question]       Talk it through, turn by turn.
 zen meta prompts [project]               List those commands.
 zen meta resume [project] [session]      Carry on a session that stopped.
 zen meta model [ref]                     Show or set the model it uses.
@@ -103,8 +116,8 @@ zen meta finetune <verb>                 Tune the project on those cases.
 Useful options: `--project`, `--model`, `--provider`, `--prompt-file`,
 `--agent`, `--effort`, `--allow-tool`, `--ask`, `--add-dir`, `--retries`,
 `--share`, `--events`, `--dry-run` (print the command, secrets masked),
-`--json`. `zen meta --help`, `zen meta run --help`, `zen meta dataset --help`
-and `zen meta finetune --help` print the full tables. The tuning loop is
+`--json`. `zen meta --help`, `zen meta run --help`, `zen meta chat --help`,
+`zen meta dataset --help` and `zen meta finetune --help` print the full tables. The tuning loop is
 described in [docs/finetuning.md](https://github.com/zenera-ai/ZeneraNeo/blob/main/docs/finetuning.md).
 
 ## Models

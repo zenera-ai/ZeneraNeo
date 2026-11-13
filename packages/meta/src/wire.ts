@@ -68,6 +68,8 @@ export interface Wiring {
     warnings: string[];
     /** Claude on Vertex: a loopback relay to start, whose url becomes the base url */
     relay?: { key: string; project: string; location: string; keyFile: string };
+    /** a service account's key file, when the key command mints its token from one */
+    keyFile?: string;
 }
 
 /** Where the relay's url goes once it is listening. */
@@ -166,7 +168,14 @@ export function wire(store: KeyStore, entry: KeyEntry, id: string): Wiring {
         secret.push('COPILOT_PROVIDER_API_KEY');
     }
 
-    return { provider, model: env.COPILOT_PROVIDER_WIRE_MODEL ?? id, env, secret, warnings };
+    return {
+        provider,
+        model: env.COPILOT_PROVIDER_WIRE_MODEL ?? id,
+        env,
+        secret,
+        warnings,
+        ...(entry.holds === 'file' ? { keyFile: store.fileOf(entry) } : {}),
+    };
 }
 
 /**
