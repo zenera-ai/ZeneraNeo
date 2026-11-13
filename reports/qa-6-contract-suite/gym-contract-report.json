@@ -1,0 +1,170 @@
+{
+    "numTotalTestSuites": 5,
+    "numPassedTestSuites": 5,
+    "numFailedTestSuites": 0,
+    "numPendingTestSuites": 0,
+    "numTotalTests": 13,
+    "numPassedTests": 13,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTodoTests": 0,
+    "snapshot": {
+        "added": 0,
+        "failure": false,
+        "filesAdded": 0,
+        "filesRemoved": 0,
+        "filesRemovedList": [],
+        "filesUnmatched": 0,
+        "filesUpdated": 0,
+        "matched": 0,
+        "total": 0,
+        "unchecked": 0,
+        "uncheckedKeysByFile": [],
+        "unmatched": 0,
+        "updated": 0,
+        "didUpdate": false
+    },
+    "startTime": 1793651381317,
+    "success": true,
+    "testResults": [
+        {
+            "assertionResults": [
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Calendar API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Calendar API (Positive) listEvents successfully calls and validates",
+                    "status": "passed",
+                    "title": "listEvents successfully calls and validates",
+                    "duration": 583.9150999999983,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Calendar API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Calendar API (Positive) insertEvent successfully calls and validates",
+                    "status": "passed",
+                    "title": "insertEvent successfully calls and validates",
+                    "duration": 45.202000000001135,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Calendar API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Calendar API (Positive) getEvent successfully calls and validates",
+                    "status": "passed",
+                    "title": "getEvent successfully calls and validates",
+                    "duration": 38.54309999999896,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Calendar API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Calendar API (Positive) queryFreeBusy successfully calls and validates",
+                    "status": "passed",
+                    "title": "queryFreeBusy successfully calls and validates",
+                    "duration": 29.625700000000506,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Mail API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Mail API (Positive) listMessages successfully calls and validates",
+                    "status": "passed",
+                    "title": "listMessages successfully calls and validates",
+                    "duration": 2972.861100000002,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Mail API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Mail API (Positive) getMessage successfully calls and validates",
+                    "status": "passed",
+                    "title": "getMessage successfully calls and validates",
+                    "duration": 56.88760000000184,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Mail API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Mail API (Positive) sendMessage successfully calls and validates",
+                    "status": "passed",
+                    "title": "sendMessage successfully calls and validates",
+                    "duration": 32.147799999998824,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Mail API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Mail API (Positive) listLabels successfully calls and validates",
+                    "status": "passed",
+                    "title": "listLabels successfully calls and validates",
+                    "duration": 26.72889999999461,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Mail API (Positive)"],
+                    "fullName": "QA-6 Contract Suite: Mail API (Positive) listThreads successfully calls and validates",
+                    "status": "passed",
+                    "title": "listThreads successfully calls and validates",
+                    "duration": 26.97049999999581,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Negative Schema Violations"],
+                    "fullName": "QA-6 Contract Suite: Negative Schema Violations fails validation on required property missing (direct Checks API)",
+                    "status": "passed",
+                    "title": "fails validation on required property missing (direct Checks API)",
+                    "duration": 86.39350000000559,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Negative Schema Violations"],
+                    "fullName": "QA-6 Contract Suite: Negative Schema Violations fails validation on incorrect type (direct Checks API)",
+                    "status": "passed",
+                    "title": "fails validation on incorrect type (direct Checks API)",
+                    "duration": 78.21399999999994,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: Negative Schema Violations"],
+                    "fullName": "QA-6 Contract Suite: Negative Schema Violations fails validation on pattern mismatch (direct Checks API)",
+                    "status": "passed",
+                    "title": "fails validation on pattern mismatch (direct Checks API)",
+                    "duration": 70.45550000000367,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                },
+                {
+                    "ancestorTitles": ["QA-6 Contract Suite: HTTP Negative"],
+                    "fullName": "QA-6 Contract Suite: HTTP Negative reports the operation and response schema mismatch at the regeneration limit",
+                    "status": "passed",
+                    "title": "reports the operation and response schema mismatch at the regeneration limit",
+                    "duration": 337.14890000000014,
+                    "failureMessages": [],
+                    "meta": {},
+                    "tags": []
+                }
+            ],
+            "startTime": 1793651410155,
+            "endTime": 1793651415833.149,
+            "status": "passed",
+            "message": "",
+            "name": "packages/gym/test/qa-contract.test.ts"
+        }
+    ]
+}
