@@ -49,6 +49,7 @@ the editor skill for each one - `zen-memory` for a `memory:` block,
 `zen-sandbox` for sandbox configuration or shell tools, `zen-rag-schema` or
 `zen-rag-docs` for an index, `zen-code-python` for an agent that writes or runs
 code, `zen-topology` for `handoffs:` or `fork:` on any agent,
+`zen-mcp` for `mcp:*` or any `mcp_*` tool on any agent,
 `zen-sandbox-capacity` before any `zen run batch`
 (except under `zen-finetune`, which sets its own concurrency),
 `zen-cli` always. A capability that is already
@@ -850,6 +851,11 @@ Three rules follow:
 
 Skills can own tools too - `tools:` in a skill's frontmatter (§3.4) names tools
 that refuse to run until that skill is active.
+
+A project running in Zenera also has `mcp:*` - external services such as GitHub
+or Linear, called as the signed-in user. Those tools work only in the app's
+chats and Test tab, and they need a runtime skill installed in `agents/skills`.
+Load `zen-mcp` before granting or reviewing them.
 
 ### 3.6 The file tools (`files:*`, alias `workspace:*`)
 
@@ -2027,6 +2033,7 @@ candidates; these are the judgements to make about each one)**
 | Answers from stale knowledge of the world     | Grant `web_search` + `web_read`, and say when - §3.8                |
 | Cites a page it only saw the excerpt of       | A prompt line: `web_read` before quoting - §3.8                     |
 | Every web call refuses                        | No Exa key: `zen key add exa` - `zen check` warns - §3.8            |
+| Every MCP call says it is not available       | Run it in the app chat or Test tab - zen-mcp                        |
 | A model or embedder refuses every call        | `zen models test <ref>` - if `blocked`, `zen models ls` - §8        |
 | Answers instead of routing                    | Router prompt prohibition; check `handoffs:`                        |
 | Routes to the wrong specialist                | The target agents' `description:` fields                            |
