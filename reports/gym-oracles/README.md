@@ -126,3 +126,7 @@ this branch). It looks reasonable and failed 2 of 10 runs. It was wrong twice ov
 
 - `.env.example` names `ANTROPIC_API_KEY`; the code reads `ANTHROPIC_API_KEY`.
 - `zen gym serve` does not read `.env`; a key kept only there needs `node --env-file=.env`.
+- `packages/gym/test/setup.test.ts` ("embeds the docs only when --embedding asks") clears
+  `OPENAI_API_KEY` but not `GEMINI_API_KEY`. `npm test` loads `.env`, so with a Gemini key
+  present it resolves `google:gemini-embedding-2` and fails. It passes without `.env` and in CI,
+  which has no keys: a test that depends on the developer's keys.
