@@ -28,6 +28,10 @@
             "types": "./dist/command.d.ts",
             "default": "./dist/command.js"
         },
+        "./chat": {
+            "types": "./dist/chat/index.d.ts",
+            "default": "./dist/chat/index.js"
+        },
         "./package.json": "./package.json"
     },
     "files": [

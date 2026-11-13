@@ -153,6 +153,11 @@ holds that line. The CLI keeps what `zen init` and `zen open` also need - the
 `.github/` editor tree and its templates, and the usage ledger. See §7.6 of the
 [CLI design notes](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/DESIGN.md).
 
+`@zenera/meta/chat` exports `openMetaChat`, the session behind `zen meta chat`
+without its screen, for a host that draws its own chat. It refreshes the editor
+files, picks the model and key, logs and records usage as the terminal chat
+does, and reports each turn as `ChatEvent`s.
+
 ## The rest of the family
 
 | Package                                                                                    | What it is                                                    |

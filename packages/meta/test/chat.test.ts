@@ -1,8 +1,9 @@
 import type { PermissionRequest, SessionConfig, SessionEvent } from '@github/copilot-sdk';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { openMetaChat } from '../src/chat/index.ts';
 import { allows, parseRules, permissionPolicy } from '../src/chat/permissions.ts';
 import {
     openChat,
@@ -14,7 +15,7 @@ import {
 } from '../src/chat/session.ts';
 import { EMPTY, fold } from '../src/chat/transcript.ts';
 import { command } from '../src/command.ts';
-import { RESUME_PROMPT } from '../src/launch.ts';
+import { recordSession, RESUME_PROMPT } from '../src/launch.ts';
 
 // ---------------------------------------------------------------------------
 // zen meta chat, without a runtime: the SDK is stood in for by a client that
@@ -321,5 +322,79 @@ describe('zen meta chat', () => {
         await expect(command.run({ args: ['chat'], json: false, cwd: dir })).rejects.toThrow(
             /needs a terminal/,
         );
+    });
+});
+
+describe('openMetaChat, the chat without its screen', () => {
+    const kept = { ...process.env };
+    let root: string;
+    let project: { dir: string; name: string };
+
+    // Through a gateway, with the model named: no keyring, no listing, no runtime.
+    beforeEach(() => {
+        root = mkdtempSync(join(tmpdir(), 'meta-open-'));
+        process.env.ZENERA_HOME = join(root, 'home');
+        process.env.BIFROST_BASE_URL = 'http://127.0.0.1:9';
+        process.env.BIFROST_API_KEY = 'sk-bf-1';
+        project = { dir: join(root, 'p'), name: 'p' };
+        mkdirSync(project.dir, { recursive: true });
+        writeFileSync(join(project.dir, 'agents.yaml'), 'agents: {}\n');
+    });
+    afterEach(() => {
+        process.env = { ...kept };
+        rmSync(root, { recursive: true, force: true });
+    });
+
+    const open = (extra: { continue?: boolean } = {}) => {
+        const { connect, calls } = fake((_, emit) => {
+            emit(
+                ev('tool.execution_start', {
+                    toolCallId: 't',
+                    toolName: 'view',
+                    arguments: { path: `${project.dir}/agents.yaml` },
+                }),
+            );
+            emit(ev('tool.execution_complete', { toolCallId: 't', success: true }));
+            emit(ev('assistant.message', { messageId: 'a', content: 'Done.' }));
+            emit(ev('session.idle'));
+        });
+        const events: ChatEvent[] = [];
+        return openMetaChat({
+            project,
+            model: 'openai/gpt-5',
+            refresh: false,
+            connect,
+            onEvent: (e) => events.push(e),
+            ...extra,
+        }).then((chat) => ({ chat, calls, events }));
+    };
+
+    it('runs a turn, says paths from the project, logs what was typed and closes once', async () => {
+        const { chat, calls, events } = await open();
+        expect(await chat.send('expanded /new-agent body', '/new-agent')).toEqual({
+            aborted: false,
+        });
+        expect(calls.sent).toEqual(['expanded /new-agent body']);
+        expect(events).toContainEqual({
+            type: 'tool',
+            id: 't',
+            name: 'view',
+            subject: 'agents.yaml',
+        });
+        await Promise.all([chat.close(), chat.close()]);
+        expect(calls.stopped).toBe(1);
+        const log = readFileSync(chat.logPath, 'utf8');
+        expect(log).toContain('--- you: /new-agent ---');
+        expect(log).toContain('expanded /new-agent body');
+        expect(log).toContain('Done.');
+    });
+
+    it('carries on the session the project last recorded', async () => {
+        const id = '11111111-2222-4333-8444-555555555555';
+        recordSession(project.dir, id);
+        const { chat, calls } = await open({ continue: true });
+        expect(chat.resumed).toBe(true);
+        expect(calls.resumed).toEqual([id]);
+        await chat.close();
     });
 });

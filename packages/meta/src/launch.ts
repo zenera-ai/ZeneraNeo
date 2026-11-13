@@ -142,7 +142,8 @@ export interface Log {
     readonly answerPath: string;
     line(text: string): void;
     saveAnswer(text: string): void;
-    close(): void;
+    /** resolves once every line is on disk */
+    close(): Promise<void>;
 }
 
 /**
@@ -169,9 +170,7 @@ export function openLog(dir: string, now = new Date(), session?: string): Log {
         saveAnswer: (text) => {
             writeFileSync(answerPath, text.endsWith('\n') ? text : `${text}\n`);
         },
-        close: () => {
-            file.end();
-        },
+        close: () => new Promise<void>((done) => file.end(done)),
     };
 }
 

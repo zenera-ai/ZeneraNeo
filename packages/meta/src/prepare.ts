@@ -3,8 +3,8 @@
 // Everything a meta agent session needs before it starts, shared by `zen meta run` and `zen meta chat`.
 // Main: `prepare(values, project)` - load the project's .env, open the keyring, choose the model, wire the key,
 // settle the session id (refusing a resume across models). Also `announce` (the stderr lines a run opens with),
-// `projectModel` (agents.yaml's `model:`) and `asProvider`.
-// Used by: `command.ts` (`go()` for run/resume, `chat()`, and `model()` for `projectModel`).
+// `refreshEditor` (rewrite the project's editor files), `projectModel` (agents.yaml's `model:`) and `asProvider`.
+// Used by: `command.ts` (`go()` for run/resume, and `model()` for `projectModel`) and `chat/open.ts`.
 
 import * as Projects from '@zenera/engine';
 import {
@@ -18,7 +18,16 @@ import {
 } from '@zenera/engine';
 import { gatewayOf, readProjectConfig } from '@zenera/neo';
 import { randomUUID } from 'node:crypto';
-import { credentialError, cyan, dim, note, splitRef, usageError, warn } from './host.ts';
+import {
+    credentialError,
+    cyan,
+    dim,
+    editorFiles,
+    note,
+    splitRef,
+    usageError,
+    warn,
+} from './host.ts';
 import { locate, RESUME_PROMPT, type Binary } from './launch.ts';
 import { chooseModel, fallbackRef, misspelledProvider, MODEL_ENV, readMeta } from './model.ts';
 import type { ModelChoice } from './model.ts';
@@ -132,6 +141,25 @@ export async function prepare<F extends Selection>(
         binary: locate(),
         session: values.resume ?? (values.continue ? undefined : (fresh ?? randomUUID())),
     };
+}
+
+/**
+ * The editor's files, rewritten before the agent reads them — the same refresh
+ * `zen open` does, for the same reason. `.github/` is the brief this agent works
+ * from and the prompts it is offered, and it describes the version of `zen` in
+ * hand; a project scaffolded by an older one would otherwise be briefed on a
+ * runtime that has moved. A failure is narrated, not raised: a read-only
+ * checkout is no reason to refuse to answer a question.
+ */
+export function refreshEditor(project: Projects.Project): void {
+    try {
+        const written = editorFiles(project.dir);
+        if (written.length) {
+            note(dim(`refreshed ${written.length} editor files in ${project.name}`));
+        }
+    } catch (err) {
+        warn(`could not refresh the editor files — ${(err as Error).message}`);
+    }
 }
 
 /** What a session says on stderr before it starts: the warnings, then which model on which key. */

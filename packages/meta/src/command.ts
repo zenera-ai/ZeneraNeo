@@ -25,7 +25,6 @@ import {
     cyan,
     dim,
     duration,
-    editorFiles,
     EXIT,
     green,
     isInteractive,
@@ -99,7 +98,7 @@ import {
     type ModelSources,
 } from './index.ts';
 import { EFFORTS } from './chat/session.ts';
-import { announce, prepare, projectModel } from './prepare.ts';
+import { announce, prepare, projectModel, refreshEditor } from './prepare.ts';
 import { usageReporter } from './reporter.ts';
 
 const USAGE = 'zen meta run [project] [prompt] [options]';
@@ -465,25 +464,6 @@ async function where(
     return { project, rest: named ? tail : positionals };
 }
 
-/**
- * The editor's files, rewritten before the agent reads them — the same refresh
- * `zen open` does, for the same reason. `.github/` is the brief this agent works
- * from and the prompts it is offered, and it describes the version of `zen` in
- * hand; a project scaffolded by an older one would otherwise be briefed on a
- * runtime that has moved. A failure is narrated, not raised: a read-only
- * checkout is no reason to refuse to answer a question.
- */
-function refresh(project: Projects.Project): void {
-    try {
-        const written = editorFiles(project.dir);
-        if (written.length) {
-            note(dim(`refreshed ${written.length} editor files in ${project.name}`));
-        }
-    } catch (err) {
-        warn(`could not refresh the editor files — ${(err as Error).message}`);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // zen meta run [project] [/<name>|<question>] [words...]
 //
@@ -512,7 +492,7 @@ async function stored(ctx: Context, values: Flags, args: string[]): Promise<void
 
     const { project } = await where(ctx, values.project, head);
     if (!values['no-refresh']) {
-        refresh(project);
+        refreshEditor(project);
     }
     if (name) {
         return await runPrompt(ctx, values, project, name, rest);
@@ -699,7 +679,7 @@ export async function completeMeta(
 
 async function prompts(ctx: Context, values: Flags, args: string[]): Promise<void> {
     const { project } = await where(ctx, values.project, args);
-    refresh(project);
+    refreshEditor(project);
     const names = await listPrompts(project.dir);
     const found = await Promise.all(names.map((name) => loadPrompt(project.dir, name)));
 
@@ -793,22 +773,9 @@ async function chat(ctx: Context, values: Flags, args: string[]): Promise<void> 
         );
     }
     const { project, rest } = await where(ctx, values.project, args);
-    if (!values['no-refresh']) {
-        refresh(project);
-    }
-    let resume = values.resume;
-    if (values.continue && !resume) {
-        resume = lastSession(project.dir);
-        if (!resume) {
-            note(dim(`no meta session recorded in ${project.name} - starting a new one`));
-        }
-    }
-    if (resume) {
-        note(dim(`resuming session ${resume}`));
-    }
     const { runChat } = await import('./chat/run.ts');
     await runChat({
-        values: { ...values, resume, continue: false },
+        values,
         project,
         cwd: ctx.cwd,
         first: (values.prompt ?? rest.join(' ')).trim() || undefined,
@@ -837,7 +804,7 @@ async function resumeRun(ctx: Context, values: Flags, args: string[]): Promise<v
     }
     note(dim(`resuming session ${session}`));
     if (!values['no-refresh']) {
-        refresh(project);
+        refreshEditor(project);
     }
     const message = withFile(values, (values.prompt ?? words.join(' ')).trim()) || RESUME_PROMPT;
     await go(ctx, { ...values, resume: session, continue: false }, project, message);
@@ -1034,7 +1001,7 @@ async function go(
         tail.stop();
         reporter.stop();
         await relay?.close();
-        log.close();
+        await log.close();
     }
 }
 
