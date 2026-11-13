@@ -4,9 +4,8 @@ This file describes what a running agent sees, so you can write skills and
 prompts that match it. The agent-facing version of the procedure is
 [runtime-skill.md](./runtime-skill.md).
 
-Every call goes from the `zen` process to the host's MCP broker, which checks
-the run, the project's server selection and the user, then calls Bifrost with
-that user's key. Nothing about this is configurable from the project.
+Every call is checked against the project's server selection and made as the
+signed-in user. Nothing about this is configurable from the project.
 
 ## 1. `mcp_servers` - what this run can use
 
@@ -35,8 +34,8 @@ memory or a skill did not supply.
 ```
 
 The name and the **first line** of each description (up to 200 characters). Only
-tools the project allows are listed. The broker keeps the list for the rest of
-the run, so a second call in the same run is cheap. Across runs nothing is kept
+tools the project allows are listed. The list is kept for the rest of the
+run, so a second call in the same run is cheap. Across runs nothing is kept
 unless memory keeps it.
 
 ## 3. Searching for a tool
@@ -91,10 +90,10 @@ skill or memory naming an argument shape is a hint, and the schema decides.
 | Error after a pause                                      | The user chose _Not now_. Continue without that service and say what is missing                                            |
 | `{ auth_required: true, server, connect_url, message }`  | Older host. Give the user `connect_url` as a link, say what it is for, stop. Retry when they say they have connected       |
 
-**Calls take up to 120 seconds** before the plugin gives up. A slow upstream
+**Calls take up to 120 seconds** before they time out. A slow upstream
 looks like a long tool call, not a hang.
 
-## 6. Errors from the broker
+## 6. Errors
 
 These are thrown, and reach the model as an error result:
 
@@ -103,8 +102,8 @@ These are thrown, and reach the model as an error result:
 | `MCP is not available in this run: ...`                    | Not a chat or Test-tab run. Say MCP is unavailable here; do not retry     |
 | `<server> is not enabled for this project (enabled: a, b)` | Use a listed server, or tell the user an editor must enable it            |
 | `<server>'s tool <tool> is not enabled for this project`   | The server is on, but this tool is excluded. Find another route or say so |
-| `MCP gateway: ...`                                         | Bifrost or the upstream server failed. Retry once, then report            |
-| `MCP broker unreachable: ...`                              | The host is down or restarting. Retry once, then report                   |
+| `MCP gateway: ...`                                         | The service failed. Retry once, then report                               |
+| `MCP broker unreachable: ...`                              | MCP is briefly unavailable. Retry once, then report                       |
 
 A refusal of a server or tool that **memory or a skill named** means the route is
 stale. Re-discover from step 1, and if memory is on, supersede the old route
@@ -112,7 +111,7 @@ stale. Re-discover from step 1, and if memory is on, supersede the old route
 
 ## 7. Writes
 
-The broker passes every allowed tool through, whether it reads or writes.
+Every allowed tool can be called, whether it reads or writes.
 Whether an agent may change something upstream is decided by the project:
 
 - in the prompt or skill (_"ask before creating, editing or deleting anything"_),

@@ -852,11 +852,10 @@ Three rules follow:
 Skills can own tools too - `tools:` in a skill's frontmatter (§3.4) names tools
 that refuse to run until that skill is active.
 
-A host can add groups of its own through `ZEN_PLUGINS`. In a Zenera pod that
-includes `mcp:*` - external services such as GitHub or Linear, called as the
-signed-in user. Those tools work only in the app's chats and Test tab, and they
-need a runtime skill installed in `agents/skills`. Load `zen-mcp` before granting
-or reviewing them.
+A project running in Zenera also has `mcp:*` - external services such as GitHub
+or Linear, called as the signed-in user. Those tools work only in the app's
+chats and Test tab, and they need a runtime skill installed in `agents/skills`.
+Load `zen-mcp` before granting or reviewing them.
 
 ### 3.6 The file tools (`files:*`, alias `workspace:*`)
 

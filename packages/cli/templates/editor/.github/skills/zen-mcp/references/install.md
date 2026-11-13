@@ -33,8 +33,8 @@ agents:
   `mcp_describe` and `mcp_call` are one procedure. `mcp:mcp_call` alone leaves
   the agent guessing arguments.
 - **Take `mcp_call` away for read-only reviewers**: `tools: [mcp:*, -mcp_call]`
-  lets an agent see what exists without acting on it. The broker cannot tell a
-  read from a write, so this is the only way to keep an agent from changing
+  lets an agent see what exists without acting on it. MCP cannot tell a read
+  from a write, so this is the only way to keep an agent from changing
   anything upstream.
 - **Handoffs.** A router that only routes does not get `mcp:*`. Hand off to the
   agent that has it, and say so in that agent's `description:`.
@@ -137,9 +137,8 @@ Rules for these skills:
 zen check
 ```
 
-- `unknown tool "mcp:*"` means this environment has no `ZEN_PLUGINS`. In a
-  Zenera pod it is always set. Locally, set it in the real environment to the
-  absolute path of `mcp.mjs`, not in `.env`.
+- `unknown tool "mcp:*"` means this is not a Zenera environment. Keep the grant
+  and check the project in Zenera.
 - `skills.allow` / `preload` naming something absent means the folder name and
   the binding differ.
 

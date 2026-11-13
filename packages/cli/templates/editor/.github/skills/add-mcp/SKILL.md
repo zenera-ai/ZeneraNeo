@@ -32,8 +32,8 @@ agent will hand MCP data to code it runs, also load `zen-code-python`.
    (`references/install.md` §4). Bind each one like `mcp_tools`.
 6. **Add a prompt line** to each agent from step 2 saying when to reach for the
    services and to load `mcp_tools` first, unless it is preloaded.
-7. Run `zen check`. If it reports `unknown tool "mcp:*"`, this environment has
-   no `ZEN_PLUGINS`. Say so instead of removing the grant.
+7. Run `zen check`. If it reports `unknown tool "mcp:*"`, this is not a Zenera
+   environment. Say so instead of removing the grant.
 8. Tell me to try it in the Test tab: the first request per service shows a
    connect card. A terminal `zen run` cannot call MCP.
 

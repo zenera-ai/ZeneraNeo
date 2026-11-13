@@ -71,7 +71,7 @@ after they say they have connected.
   or tell the user a project editor can enable `x` in Project settings → MCP
   servers.
 - _"`x`'s tool `y` is not enabled"_: find another tool on that server, or say so.
-- `MCP gateway` or `broker unreachable`: retry once, then report it.
+- An error that the service or MCP is unavailable: retry once, then report it.
 
 If the refused route came from memory or a skill, it is stale. Discover again
 from step 3 of _Finding a tool_.

@@ -1,8 +1,8 @@
 # Caching MCP tools in memory
 
 Discovery costs round trips and context: `mcp_servers`, then a tool listing that
-may be thousands of tokens, then `mcp_describe`. The broker keeps the tool list
-for one run only. Memory is what lets the next run skip discovery. The
+may be thousands of tokens, then `mcp_describe`. The tool list is kept for one
+run only. Memory is what lets the next run skip discovery. The
 principle is the same as memory in front of a `zen rag` index (`zen-memory`
 skill): **keep the route, not the source.**
 
@@ -34,14 +34,14 @@ it depended on (`INFORMED`).
 ## What never to commit
 
 - **Tool results.** Issues, pull requests, messages and pages are the user's
-  data. In a project pod, memory lives with the project and every user of the
+  data. Memory lives with the project and every user of the
   project can recall it. Whatever an audience mask allows, the data goes stale
   upstream the moment it is written.
-- **Whole tool listings or schemas.** The project editor or the Bifrost admin
+- **Whole tool listings or schemas.** The project editor or the administrator
   can change them at any time, and `mcp_describe` returns the current one in a
   single call. Commit the route and the one or two arguments that mattered, not
   `inputSchema`.
-- **Connect URLs, flow ids, tokens or anything from `auth_required`.** They are
+- **Connect URLs or anything from `auth_required`.** They are
   per flow, per user, and expire.
 - **User-specific ids** (a team, repo, workspace) in a node with audience `*`.
   Commit how to find them (`list_teams` filtered by name), not the value.

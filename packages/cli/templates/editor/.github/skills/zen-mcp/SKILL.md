@@ -1,13 +1,13 @@
 ---
 name: zen-mcp
-description: 'MCP servers (GitHub, Linear, Notion, ... through the Bifrost gateway) in a Zenera project - the `mcp:*` tool group (`mcp_servers`, `mcp_tools`, `mcp_describe`, `mcp_call`) that the platform plugin provides, where those tools work and where they only refuse, how to grant them in `agents.yaml`, how to install the runtime `mcp_tools` skill and per-workflow skills into `agents/skills`, how an agent discovers, searches and calls a tool, the connect-your-account pause, result limits, and caching tool routes in memory. Load before adding, reviewing or debugging `mcp:*` or any `mcp_*` tool in a project, or a skill or prompt that tells an agent to use an external service through MCP.'
+description: 'MCP servers (GitHub, Linear, Notion, ...) in a Zenera project - the `mcp:*` tool group (`mcp_servers`, `mcp_tools`, `mcp_describe`, `mcp_call`) that Zenera provides, where those tools work and where they only refuse, how to grant them in `agents.yaml`, how to install the runtime `mcp_tools` skill and per-workflow skills into `agents/skills`, how an agent discovers, searches and calls a tool, the connect-your-account pause, result limits, and caching tool routes in memory. Load before adding, reviewing or debugging `mcp:*` or any `mcp_*` tool in a project, or a skill or prompt that tells an agent to use an external service through MCP.'
 user-invocable: false
 ---
 
 # MCP tools in a project
 
 External services - GitHub, Linear, Notion, Slack, Sentry and the other MCP
-servers in Bifrost's library - reach an agent as **four generic tools** in group
+servers an administrator has set up - reach an agent as **four generic tools** in group
 `mcp`. A project does not declare servers, URLs or credentials. It grants the
 group and teaches its agents how to use it.
 
@@ -23,11 +23,10 @@ Detail on each reply, the errors and the limits is in
 
 ## 1. Where they come from, and who decides what is in them
 
-- **The tools are the platform's, not the project's.** A plugin
-  (`/opt/zenera/plugins/mcp.mjs`) that the host names in `ZEN_PLUGINS` adds
-  them to every `zen` process in a Zenera pod. Nothing goes in `agents.yaml`
-  except the grant, and nothing goes in `.env`.
-- **Which servers exist** is up to the Bifrost admin. **Which of them this
+- **The tools are Zenera's, not the project's.** Every project running in
+  Zenera has them. Nothing goes in `agents.yaml` except the grant, and nothing
+  goes in `.env`.
+- **Which servers exist** is up to the Zenera administrator. **Which of them this
   project may use**, and optionally which of their tools, is set by a project
   editor in the app under _Project settings → MCP servers_. You cannot see or
   change either from the project files. Ask the user which servers are enabled
@@ -43,11 +42,11 @@ Detail on each reply, the errors and the limits is in
 
 ## 2. Where they work, and where they only refuse
 
-| Run                                                  | MCP                                                                            |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
-| A chat in the Zenera app; the editor's Test tab      | Works, as the signed-in user                                                   |
-| `zen run`, `zen meta`, batches, datasets, gym, a job | Tools are present; every call returns _"MCP is not available in this run"_     |
-| Code in the sandbox (`run_command`, a skill script)  | Never: the run token is held by the `zen` process and never enters the sandbox |
+| Run                                                  | MCP                                                                        |
+| ---------------------------------------------------- | -------------------------------------------------------------------------- |
+| A chat in the Zenera app; the editor's Test tab      | Works, as the signed-in user                                               |
+| `zen run`, `zen meta`, batches, datasets, gym, a job | Tools are present; every call returns _"MCP is not available in this run"_ |
+| Code in the sandbox (`run_command`, a skill script)  | Never: the sandbox has no access to the services                           |
 
 Consequences you must design for:
 
@@ -57,11 +56,9 @@ Consequences you must design for:
 - **A script cannot fetch from a service.** The agent calls `mcp_call`, then
   writes what it needs into `/workspace` with the file tools, and the script
   reads it from there.
-- **Without `ZEN_PLUGINS`, `mcp:*` does not resolve.** On a machine without the
-  plugin, `zen check` and `zen run` fail with `unknown tool "mcp:*"`. That is the
-  environment, not the project: in a Zenera pod the variable is set. Locally,
-  point it at a copy of `mcp.mjs` (absolute path) in the real environment.
-  `ZEN_PLUGINS` in `.env` is refused.
+- **Outside Zenera, `mcp:*` does not exist.** There, `zen check` and `zen run`
+  fail with `unknown tool "mcp:*"`. That is the environment, not the project:
+  do not remove the grant. Check the project in Zenera instead.
 
 ## 3. Obligations `zen check` does not report
 
@@ -95,9 +92,8 @@ A project that grants `mcp:*` is not finished until all of these hold:
 6. **No `mcp_*` in a skill's frontmatter `tools:`.** An agent-level grant of the
    same name wins and is never gated, so the line does nothing except mislead
    the next reader. Gate by binding the skill, not the tool.
-7. **No credentials, connect URLs or `ZEN_MCP_*` anywhere in the project.** The
-   pod sets them and the project's `.env` cannot override them. A connect URL
-   is per flow and expires.
+7. **No credentials or connect URLs anywhere in the project.** Zenera gives each
+   run its access. A connect URL belongs to one user's sign-in and expires.
 
 There is no `requires: [mcp]` for house rules. The vocabulary is closed (see
 `zen-instructions`), so MCP guidance lives in the skill, not in
@@ -116,14 +112,13 @@ There is no `requires: [mcp]` for house rules. The vocabulary is closed (see
 - [ ] No sandbox script expected to call a service itself.
 - [ ] With `memory:`, nothing tells the agent to commit tool results, user
       data or whole tool lists.
-- [ ] `zen check` passes in an environment with `ZEN_PLUGINS` set; behaviour
-      checked in the Test tab.
+- [ ] `zen check` passes in Zenera; behaviour checked in the Test tab.
 
 ## 5. When it goes wrong
 
 | Symptom                                                   | Cause and fix                                                                                          |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `unknown tool "mcp:*"` at load                            | No `ZEN_PLUGINS` in this environment - §2. Not a project error in a Zenera pod                         |
+| `unknown tool "mcp:*"` at load                            | Not a Zenera environment - §2. Not a project error                                                     |
 | Every call: _"MCP is not available in this run"_          | A terminal, batch or job run. Use the chat or Test tab                                                 |
 | `<server> is not enabled for this project (enabled: ...)` | Enable it in Project settings → MCP servers, or change the skill to a listed server                    |
 | `<server>'s tool <tool> is not enabled for this project`  | The editor restricted that server's tools. Enable the tool or route around it                          |
