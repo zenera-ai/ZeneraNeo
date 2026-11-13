@@ -1,25 +1,16 @@
 // packages/meta/src/command.ts
 //
 // `zen meta`: the meta agent's command - a coding agent (GitHub Copilot CLI) run over a zen project on your keys.
-// Main: `command: Command`, which routes `run`, `prompts`, `resume`, `model`, `dataset` and `finetune`; the run
-// itself is `go()` (choose the model, wire the key, log, launch, resume after transient failures).
-// Also `completeMeta` (tab completion) and the `subsystems` hook reporting copilot to `zen version`.
+// Main: `command: Command`, which routes `run`, `chat`, `prompts`, `resume`, `model`, `dataset` and `finetune`; the
+// run itself is `go()` (prepare the model and key, log, launch, resume after transient failures), and `chat()`
+// checks the terminal and hands over to `chat/run.ts`.
+// Also `completeMeta` (tab completion) and the `subsystems` hook reporting copilot and its SDK to `zen version`.
 // Used by: `@zenera/cli`, which loads it by name as `@zenera/meta/command` (`EXTERNAL.meta` in its commands/index.ts).
 
 import * as Projects from '@zenera/engine';
-import {
-    assertOwner,
-    ensureHome,
-    isProvider,
-    KeyStore,
-    loadProjectEnv,
-    PROVIDERS,
-    type Provider,
-} from '@zenera/engine';
-import { gatewayOf, readProjectConfig } from '@zenera/neo';
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { ensureHome, isProvider, KeyStore, loadProjectEnv, PROVIDERS } from '@zenera/engine';
+import { gatewayOf } from '@zenera/neo';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { ParseArgsConfig } from 'node:util';
@@ -83,7 +74,6 @@ import {
     launch,
     listPrompts,
     loadPrompt,
-    locate,
     masked,
     metaCompatible,
     misspelledProvider,
@@ -91,15 +81,13 @@ import {
     openLog,
     ORDER,
     SKILL_DIR,
-    providersWarning,
     readMeta,
     recordSession,
     RESUME_PROMPT,
     resumeDelayMs,
     runDataset,
     runFinetune,
-    sameModel,
-    sessionModel,
+    sdkVersion,
     sessionTotals,
     SOURCE_LABELS,
     startVertexRelay,
@@ -107,16 +95,16 @@ import {
     Tally,
     terminalSink,
     transient,
-    wire,
-    wireGateway,
     writeMeta,
     type ModelSources,
 } from './index.ts';
+import { EFFORTS } from './chat/session.ts';
+import { announce, prepare, projectModel } from './prepare.ts';
+import { usageReporter } from './reporter.ts';
 
 const USAGE = 'zen meta run [project] [prompt] [options]';
 
-const VERBS = new Set(['model', 'run', 'prompts', 'resume', 'dataset', 'finetune']);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const VERBS = new Set(['model', 'run', 'chat', 'prompts', 'resume', 'dataset', 'finetune']);
 
 /** A copilot session id, or the 7+ hex prefix of one it also accepts. */
 const SESSION_ID = /^[0-9a-f]{7,}(?:-[0-9a-f]+)*$/i;
@@ -259,14 +247,15 @@ export const command: Command = {
         'Forms:',
         ...RUN_FORMS,
         '  zen meta prompts [project]               list its commands',
+        '  zen meta chat [project] [question]       talk it through, turn by turn',
         '  zen meta resume [project] [session]      carry on a run that stopped',
         '  zen meta model [ref]                     show or set the model it uses',
         '  zen meta dataset <verb>                  the cases it tunes against',
         '  zen meta finetune <verb>                 tune the project on those cases',
         '',
         'The project may come before the verb instead: `zen meta acme run`.',
-        '`zen meta dataset --help`, `zen meta finetune --help` and `zen meta run --help`',
-        'have their own pages; the last lists the commands.',
+        '`zen meta dataset --help`, `zen meta finetune --help`, `zen meta chat --help`',
+        'and `zen meta run --help` have their own pages; the last lists the commands.',
         '',
         ...RUN_ARGUMENTS,
         '',
@@ -332,10 +321,13 @@ export const command: Command = {
         if (words[0] === 'run' || words[1] === 'run') {
             return await runHelp(ctx, words);
         }
+        if (words[0] === 'chat' || words[1] === 'chat') {
+            return page(CHAT_PAGE);
+        }
         page({ ...command, details: command.details ?? [] });
     },
     complete: (args, cur, cwd) => completeMeta(args, cur, cwd),
-    subsystems: async () => [await copilotVersion()],
+    subsystems: async () => [await copilotVersion(), sdkVersion()],
     run: async (ctx) => {
         // These own their flags, so they are routed before the meta agent's are parsed.
         const sub = subcommand(ctx.args);
@@ -379,6 +371,9 @@ export const command: Command = {
         }
         if (verb === 'resume') {
             return await resumeRun(ctx, values, args);
+        }
+        if (verb === 'chat') {
+            return await chat(ctx, values, args);
         }
         throw usageError(
             first === undefined ? 'nothing to run' : 'a prompt goes through `run`',
@@ -676,7 +671,7 @@ export async function completeMeta(
     }
 
     const rest = words.slice(at + 1);
-    if (verb === 'prompts' || verb === 'resume') {
+    if (verb === 'prompts' || verb === 'resume' || verb === 'chat') {
         return flagged || named || rest.length > 0 ? [] : matching(await projectNames(), cur);
     }
     if (verb !== 'run' || rest.some((w) => w.startsWith('/'))) {
@@ -721,6 +716,107 @@ async function prompts(ctx: Context, values: Flags, args: string[]): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
+// zen meta chat [project] [question]
+//
+// `run` is one question and one answer, for a terminal nobody is watching or a
+// script. A conversation is the other half: the same agent on the same keys,
+// asked again with what it said still in hand. It goes through the Copilot SDK
+// rather than copilot's `-p`, since a turn has to stream in and a tool call can
+// stop to ask - and both of those need someone at the terminal.
+// ---------------------------------------------------------------------------
+
+const CHAT_PAGE = {
+    usage: 'zen meta chat [project] [question] [options]',
+    summary: 'Talk to the meta agent: a conversation over this project, on your own keys.',
+    details: [
+        'Arguments:',
+        '  [project]    Name of a project. Default: the one you are in.',
+        '  [question]   Asked as soon as the chat opens. Or --prompt.',
+        '',
+        'Options:',
+        '  --project <name|dir>   Which project to work in. The agent is rooted there.',
+        '  --model <ref>          Model for this chat, e.g. vertex/gemini-3.8-flash.',
+        '  --provider <name>      Force the key to use. Default: the model ref says.',
+        '  --agent <name>         A .github/agents/<name>.agent.md.',
+        `  --effort <level>       ${EFFORTS.join(', ')}.`,
+        '  --allow-tool <list>    Only these: read, shell(git:*), write(README.md).',
+        '  --ask                  Ask before each tool: y, n, or a for always. Default: it does not.',
+        '  --add-dir <dir>        Another directory it may touch. Repeatable.',
+        '  --resume <id>          Carry on a session - a chat or a run. --continue takes the last.',
+        '  --session-id <uuid>    Start a new session under this id. Default: a random one.',
+        `  --retries <n>          Resume a turn after a rate limit or outage. Default ${DEFAULT_RESUMES}.`,
+        '  --events <file>        Append what the agent does to this file as it does it.',
+        '  --no-refresh           Leave the editor files as they are.',
+        '',
+        'In the chat:',
+        '  /help              the commands',
+        '  /prompts           the commands this project offers',
+        '  /<name> [words]    run one: .github/skills/<name>/SKILL.md',
+        '  /exit              leave; Ctrl-D, or Ctrl-C twice, does too',
+        '  Esc                stop the turn in flight',
+        '  ↑ ↓                what you asked before, kept per project',
+        '',
+        'The model, the key and the editor files are chosen and refreshed as for',
+        '`zen meta run`, and every call is counted and logged the same way. The',
+        "session is copilot's, so `zen meta resume` and `--resume` take a chat as",
+        'readily as a run. It needs a terminal: for one answer in a script, or as',
+        'JSON, use `zen meta run`.',
+        '',
+        'Examples:',
+        '  zen meta chat',
+        '  zen meta chat acme "what does this project do?"',
+        '  zen meta chat --continue',
+        '  zen meta chat --ask --allow-tool read',
+    ],
+};
+
+async function chat(ctx: Context, values: Flags, args: string[]): Promise<void> {
+    if (ctx.json) {
+        throw usageError(
+            'zen meta chat is a conversation, with no one answer to print as JSON',
+            'for that: zen meta run "<question>" --json',
+        );
+    }
+    for (const flag of ['dry-run', 'share', 'prompt-file'] as const) {
+        if (values[flag]) {
+            throw usageError(`zen meta chat takes no --${flag}`, `zen meta run takes it`);
+        }
+    }
+    if (values.effort && !EFFORTS.includes(values.effort)) {
+        throw usageError(`--effort takes ${EFFORTS.join(', ')}`, `got "${values.effort}"`);
+    }
+    const retries = count(values.retries, '--retries') ?? DEFAULT_RESUMES;
+    if (!isInteractive() || !process.stdout.isTTY) {
+        throw usageError(
+            'zen meta chat needs a terminal to talk in',
+            'for one answer: zen meta run "<question>"',
+        );
+    }
+    const { project, rest } = await where(ctx, values.project, args);
+    if (!values['no-refresh']) {
+        refresh(project);
+    }
+    let resume = values.resume;
+    if (values.continue && !resume) {
+        resume = lastSession(project.dir);
+        if (!resume) {
+            note(dim(`no meta session recorded in ${project.name} - starting a new one`));
+        }
+    }
+    if (resume) {
+        note(dim(`resuming session ${resume}`));
+    }
+    const { runChat } = await import('./chat/run.ts');
+    await runChat({
+        values: { ...values, resume, continue: false },
+        project,
+        cwd: ctx.cwd,
+        first: (values.prompt ?? rest.join(' ')).trim() || undefined,
+        retries,
+    });
+}
+
+// ---------------------------------------------------------------------------
 // zen meta resume [project] [session id] [words...]
 //
 // A long run stops for reasons nobody chose - a refused request, a closed
@@ -758,74 +854,10 @@ async function go(
     prompt: string,
     promptName?: string,
 ): Promise<void> {
-    const fresh = values['session-id'];
-    if (fresh !== undefined) {
-        if (values.resume || values.continue) {
-            throw usageError('--session-id starts a new session', 'drop --resume / --continue');
-        }
-        if (!UUID.test(fresh)) {
-            throw usageError(`--session-id must be a UUID, not ${fresh}`, 'try: uuidgen');
-        }
-    }
-    const shell = process.env[MODEL_ENV];
-    loadProjectEnv(project.dir);
-    ensureHome();
-    const store = await KeyStore.open();
-    store.materialize();
-    // After materialize: a keyring in bifrost mode is what sets the url.
-    const gateway = gatewayOf();
-
-    const only = values.provider ? asProvider(values.provider) : undefined;
-    // The fallback can cost a gateway listing, so it is only looked up when nothing else answers.
-    const chosen =
-        chooseModel({
-            flag: values.model,
-            shell,
-            env: process.env[MODEL_ENV],
-            stored: (await readMeta()).model,
-            project: projectModel(project.dir),
-        }) ?? chooseModel({ fallback: await fallbackRef(store, only, gateway !== undefined) });
-    if (!chosen) {
-        if (only) {
-            throw credentialError(`no ${only} key`, `add one: zen key add ${only}`);
-        }
-        throw credentialError(
-            'no model for the meta agent',
-            store.entries.length === 0
-                ? 'add a key: zen key add openai'
-                : 'set one: zen meta model <provider>/<id>',
-        );
-    }
-
-    const { provider, id } = splitRef(chosen.ref);
-    const owner = only ?? provider ?? 'openai';
-    const meant = misspelledProvider(chosen.ref);
-    if (meant && !only) {
-        warn(`${chosen.ref} names no provider — did you mean ${meant}/${id}?`);
-    }
-    const entry = gateway ? undefined : store.active(owner);
-    if (!gateway && !entry) {
-        throw credentialError(`no ${owner} key`, `add one: zen key add ${owner}`);
-    }
-
-    const wiring = gateway ? wireGateway(gateway, owner, id) : wire(store, entry!, id);
-    const binary = locate();
-    // Copilot cannot carry a session to another model: the resume fails on the first call.
-    const ran = values.resume ? sessionModel(values.resume) : undefined;
-    if (values.resume && ran && !sameModel(ran, wiring.model)) {
-        if (prompt === RESUME_PROMPT) {
-            throw usageError(
-                `session ${values.resume} ran on ${ran}, and the meta model is now ${wiring.model} - copilot cannot carry a session to another model`,
-                `switch back for it: zen meta model ${owner}/${ran.replace(/^.*\//, '')} - or ask again, which starts a new session`,
-            );
-        }
-        warn(
-            `session ${values.resume} ran on ${ran}; the meta model is now ${wiring.model}, so this starts a new session`,
-        );
-        values = { ...values, resume: undefined };
-    }
-    // Named up front, so a run killed before copilot reports its id can still be resumed.
-    let session = values.resume ?? (values.continue ? undefined : (fresh ?? randomUUID()));
+    const prepared = await prepare(values, project, prompt);
+    const { owner, chosen, wiring, binary } = prepared;
+    values = prepared.values;
+    let session = prepared.session;
     const args = argv(values, project.dir, prompt, wiring.secret, session);
     const retries = count(values.retries, '--retries') ?? DEFAULT_RESUMES;
 
@@ -847,21 +879,7 @@ async function go(
         return;
     }
 
-    for (const line of wiring.warnings) {
-        warn(line);
-    }
-    const competing = providersWarning();
-    if (competing) {
-        warn(competing);
-    }
-    if (chosen.from === 'default') {
-        const what = gateway
-            ? 'the best model the gateway serves'
-            : `the best ${owner} model zen knows of`;
-        note(dim(`no model set — using ${chosen.ref}, ${what}`));
-        note(dim('set another: zen meta model <provider>/<id>'));
-    }
-    note(cyan(`${owner} · ${wiring.model} · ${project.name}`));
+    announce(prepared, project);
 
     const log = openLog(project.dir, new Date(), session);
     note(`log  ${log.path}`);
@@ -1020,45 +1038,6 @@ async function go(
     }
 }
 
-/** How often a running meta agent rewrites the fine-tuning's usage report. */
-const REPORT_EVERY_MS = 5 * 60_000;
-
-/**
- * Rewrites `finetune/USAGE.md` on a timer and once more at the end, when the
- * project is being tuned. Detached and silent: the report is a by-product, and
- * neither its time nor its failure belongs to the run.
- */
-function usageReporter(dir: string): { stop(): void } {
-    const script = join(dir, '.github/skills/zen-finetune/scripts/usage.mjs');
-    if (!existsSync(join(dir, 'finetune')) || !existsSync(script)) {
-        return { stop: () => undefined };
-    }
-    let running = false;
-    const refresh = (): void => {
-        if (running) {
-            return;
-        }
-        running = true;
-        const child = spawn(process.execPath, [script, '-q'], {
-            cwd: dir,
-            stdio: 'ignore',
-            detached: true,
-        });
-        child.on('exit', () => (running = false));
-        child.on('error', () => (running = false));
-        child.unref();
-    };
-    const timer = setInterval(refresh, REPORT_EVERY_MS);
-    timer.unref();
-    return {
-        stop: (): void => {
-            clearInterval(timer);
-            running = false;
-            refresh();
-        },
-    };
-}
-
 /** The wait before a resume, cut short by Ctrl-C - which still says how to resume. */
 async function pause(ms: number, hint: string | undefined): Promise<void> {
     const stop = new AbortController();
@@ -1116,25 +1095,6 @@ function argv(
     return args;
 }
 
-/** The project's own `model:`, with a `models:` alias resolved to what it names. */
-function projectModel(dir: string): string | undefined {
-    try {
-        const { config } = readProjectConfig(dir);
-        const top = typeof config.model === 'string' ? config.model : undefined;
-        const alias = top ? config.models?.[top] : undefined;
-        if (!alias) {
-            return top;
-        }
-        if (typeof alias === 'string') {
-            return alias;
-        }
-        const owner = PROVIDERS.find((p) => p === alias.provider);
-        return owner ? `${owner}/${alias.model}` : alias.model;
-    } catch {
-        return undefined;
-    }
-}
-
 function count(text: string | undefined, flag: string): number | undefined {
     if (text === undefined) {
         return undefined;
@@ -1144,14 +1104,6 @@ function count(text: string | undefined, flag: string): number | undefined {
         throw usageError(`${flag} takes a whole number, 0 or more`, `got "${text}"`);
     }
     return value;
-}
-
-function asProvider(name: string): Provider {
-    const owner = assertOwner(name);
-    if (!isProvider(owner)) {
-        throw usageError(`${name} is not a model provider`);
-    }
-    return owner;
 }
 
 // ---------------------------------------------------------------------------

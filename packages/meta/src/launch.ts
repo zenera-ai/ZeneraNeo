@@ -1,13 +1,16 @@
 // packages/meta/src/launch.ts
 //
 // Running GitHub Copilot CLI: finding it, launching it, and reading its JSONL into an answer and a narration.
-// Main: `launch(opts)`; also `locate`, `copilotVersion`, `absorb`, `openLog`, `recordSession`/`lastSession`,
+// Main: `launch(opts)`; also `locate`, `copilotVersion`, `sdkVersion`, `absorb`, `openLog`, `recordSession`/`lastSession`,
 // and the resume policy (`transient`, `resumeDelayMs`, `RESUME_PROMPT`).
-// Used by: `command.ts` (`go()` for `zen meta run|resume`, and the `subsystems` hook for `zen version`).
+// Used by: `command.ts` (`go()` for `zen meta run|resume`, and the `subsystems` hook for `zen version`) and
+// `chat/` (the log, the folding and the resume policy).
 
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { cut, dim, duration, formatInline, plain } from './host.ts';
 import { FRAME_MS, windowSink, type Sink } from './sink.ts';
 
@@ -67,6 +70,36 @@ export async function copilotVersion(
 function onPath(cmd: string): boolean {
     const dirs = (process.env.PATH ?? '').split(':').filter(Boolean);
     return dirs.some((d) => existsSync(`${d}/${cmd}`));
+}
+
+/**
+ * The Copilot SDK `zen meta chat` runs on, with the runtime it bundles. Its
+ * manifest is not exported, so it is found by walking up from its entry point.
+ */
+export function sdkVersion(): { name: string; version?: string; detail?: string } {
+    const name = 'copilot-sdk';
+    try {
+        let dir = dirname(fileURLToPath(import.meta.resolve('@github/copilot-sdk')));
+        for (; dir !== dirname(dir); dir = dirname(dir)) {
+            const file = join(dir, 'package.json');
+            if (existsSync(file)) {
+                const pkg = JSON.parse(readFileSync(file, 'utf8')) as {
+                    name?: string;
+                    version?: string;
+                };
+                if (pkg.name === '@github/copilot-sdk') {
+                    return {
+                        name,
+                        version: pkg.version,
+                        detail: 'zen meta chat, its runtime bundled',
+                    };
+                }
+            }
+        }
+    } catch {
+        // Not installed: an optional dependency that failed, or a pruned install.
+    }
+    return { name, detail: 'not installed - zen meta chat needs it' };
 }
 
 // ---------------------------------------------------------------------------
@@ -381,8 +414,18 @@ export function transient(out: Outcome): string | undefined {
     if (status === 408 || status >= 500) {
         return `the provider failed (${status})`;
     }
-    if (/timed out|ECONNRESET|socket hang up/i.test(String(data.message ?? ''))) {
+    const message = String(data.message ?? '');
+    if (
+        /timed out|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed/i.test(
+            message,
+        )
+    ) {
         return 'the connection failed';
+    }
+    // `zen key token` mints a token per request over the network; one that
+    // failed once in a session that has been calling it is a blip, not a bad key.
+    if (/API_KEY_COMMAND exited/.test(message)) {
+        return 'the key command failed';
     }
     if (status === 400 && injected(out.events.slice(0, at))) {
         return 'refused a tool call copilot made itself (400)';

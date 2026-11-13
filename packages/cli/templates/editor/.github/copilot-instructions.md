@@ -41,9 +41,6 @@ Copilot is always the meta-agent that creates and changes target projects. Load
 the editor's `zen-cli` skill before deciding how a target project should run,
 be validated, or use command-line capabilities. It is the command contract; do
 not reconstruct `zen` arguments from memory or call `--help` to discover them.
-When the task is to bring a project into compliance with `SPECIFICATION.md`,
-load `zen-spec-sync` first; its narrow tiers contain the exact validation
-commands and do not require loading `zen-cli` as well.
 
 **Every runtime capability a project turns on carries obligations that are not
 visible in `agents.yaml` and that `zen check` does not report.** Before
@@ -57,11 +54,8 @@ code, `zen-topology` for `handoffs:` or `fork:` on any agent,
 `zen-cli` always. A capability that is already
 configured and already passing `zen check` is exactly the case that looks
 finished and is not: the obligation lives in the skill, so a review that never
-opens the skill cannot find what is missing. Outside a specification-sync pass,
-this applies whatever prompted the change. During an incremental sync, load the
-skills the `zen-spec-sync` pass plan names for the areas its changes reach - an
-enabled capability no change reaches owes nothing new. A full pass still loads
-every enabled capability's skill.
+opens the skill cannot find what is missing. This applies whatever prompted the
+change.
 
 **Load `zen-instructions` before writing, editing, reviewing or deleting any
 `agents/*instructions.md`.** They are the house rules, prepended to every
@@ -137,16 +131,6 @@ file untouched and put this project's own memory policy in a second topic file,
 anything. Never paraphrase it into prose of your own.
 See §5.3.
 
-A project with a `SPECIFICATION.md` carries one more: **`.spec-sync/` records
-what the last `/spec-sync-project` pass applied**, and the `zen-spec-sync` skill is
-loaded before running that prompt, whether or not a baseline exists yet. The
-state is committed, because a record only the last machine has is not a record.
-Two things to watch for, neither of which `zen check` reports: a baseline that
-moved without a history entry to match it, which is a pass claiming work it did
-not do, and a `.spec-sync/baseline/` whose `manifest.txt` no longer matches its
-files. Both are reported, not quietly repaired - rewriting the manifest asserts
-a pass that never happened.
-
 ### 0.2 `zen` is a black box
 
 `zen` is the tool you drive, not the code you are working on. What it does is
@@ -163,8 +147,7 @@ what the `zen-cli` skill and its own output say it does. So:
   when its log has not grown for 10 minutes. Embedding a large corpus takes
   hours, and the progress line says how many.
 - When a `zen` command fails, or does something its skill does not describe,
-  quote the command and the line it printed in your answer - and in
-  `SPECIFICATION-FEEDBACK.md` during a `/spec-sync-project` pass - then go on
+  quote the command and the line it printed in your answer, then go on
   with the next step. Do not look for the cause.
 
 ---
@@ -258,7 +241,6 @@ my-project/
 │   ├── copilot-instructions.md   this file
 │   └── skills/*/SKILL.md         zen-* reference loaded on demand; the rest /commands
 ├── .env                          this project's environment - NEVER committed
-├── .spec-sync/                   what the last /spec-sync-project applied - §0.1
 ├── agents.yaml                   who exists, what they may reach for
 ├── agents/
 │   ├── instructions.md            house rules, prepended to every agent
@@ -418,7 +400,7 @@ token in those files is read by a model as an instruction to open something:
       `memory_copy_file`.
 - [ ] No project file is named: `agents.yaml`, `agents/instructions.md`,
       `agents/prompts/…`, `agents/skills/…`, `sandbox/Dockerfile`, `.env`,
-      `.github/…`, `sessions/…`, `SPECIFICATION.md`, `README.md`, `docs/…`.
+      `.github/…`, `sessions/…`, `README.md`, `docs/…`.
 - [ ] Nothing escapes a mount: no `../`, no `~`, no host path (`/Users/…`,
       `/home/<someone>`), no `/etc`, `/var` or `/tmp` expected to hold anything
       the project put there.
@@ -1914,20 +1896,18 @@ ok, `1` failed, `2` usage, `3` invalid project, `4` no usable credential.
 
 ## 9. Review checklist
 
-Three of these are decidable, and are one command - `zen check`, the path sweep,
-the spec-sync record, in that order:
+Load the `zen-review` skill for any review: it picks the depth from the request,
+runs the mechanical checks, and suggests the command for each finding. The
+decidable part splits by cost into a fast half and a slow one:
 
 ```sh
-.github/skills/zen-review/scripts/review.sh
+.github/skills/zen-review/scripts/review.sh fast   # zen check --no-models --no-sandbox, paths, setup - seconds
+.github/skills/zen-review/scripts/review.sh slow   # zen check with sandbox build + model probes - minutes
 ```
 
-Run it first and read what it says. Everything else below is judgement, which is
-why it is still a list. The `zen-review` skill has the detail.
-Within a specification-sync pass, reuse its final check with
-`review.sh --skip-check` instead of probing again, and apply the sync skill's
-pass plan to this checklist. Use `--skip-check no-sandbox` only when that plan
-does not reach the sandbox image. Independent reviews still cover the whole
-checklist.
+Run `fast` first and read what it says. Warn the user before `slow` - it builds
+the sandbox image with Docker - and start it separately. Everything else below
+is judgement, which is why it is still a list.
 
 Before finishing any change here:
 
@@ -2023,22 +2003,6 @@ candidates; these are the judgements to make about each one)**
 
 - [ ] No key literal in YAML, prompt, skill or log - `${VAR}` only
 - [ ] `.env` is git-ignored
-
-**Specification** (only where the project has a `SPECIFICATION.md`)
-
-- [ ] `.github/skills/zen-spec-sync/scripts/snapshot.sh status` does not say
-      `tampered` - the baseline matches its own `manifest.txt`
-- [ ] `.spec-sync/baseline/applied.txt` names the newest file in
-      `.spec-sync/history/`; a baseline ahead of the history is a pass that
-      claimed work it did not finish
-- [ ] The newest history entry's `Still open` is what the next pass will trust,
-      and says so honestly - an unchanged specification line is not evidence
-      that anything implements it
-- [ ] No question in `SPECIFICATION-FEEDBACK.md` has a box marked `[x]`, or
-      exactly one answer left under it, without a matching `✅ Answered` entry
-      or a strike naming the specification line that superseded it - that is
-      an answer given and never folded into the specification
-- [ ] `.spec-sync/` is committed and `.tmp/` is not
 
 ---
 

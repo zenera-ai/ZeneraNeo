@@ -3,6 +3,7 @@
 ```
 zen meta run [project] "<question>"        ask it something
 zen meta run [project] /<name> [words]     run the command .github/skills/<name>/SKILL.md
+zen meta chat [project] [question]         a conversation, in a terminal only
 zen meta prompts [project]                 list the commands (skills without zen-)
 zen meta resume [project] [session]        carry on a run that stopped
 zen meta model [ref]                       show or set the model it uses
@@ -13,6 +14,9 @@ Provided by `@zenera/meta` - `npm i -g @zenera/meta` if `zen meta` says it is
 not installed. `zen meta dataset` and `zen meta finetune` come with it.
 
 `zen meta --help` has every option.
+
+`zen meta chat` needs a person at a terminal: it refuses `--json` and a
+stdin that is not a TTY. From a script or another agent, use `zen meta run`.
 
 ## `--json`
 

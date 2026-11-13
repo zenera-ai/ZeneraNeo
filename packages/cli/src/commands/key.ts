@@ -792,7 +792,20 @@ const token: Sub = async (ctx, args) => {
         keyFile: store.fileOf(entry),
         scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     });
-    const access = await (await auth.getClient()).getAccessToken();
+    const client = await auth.getClient();
+    // Called before every request of a long session, so one network blip must not fail it.
+    let access: Awaited<ReturnType<typeof client.getAccessToken>> = {};
+    for (let attempt = 0; ; attempt++) {
+        try {
+            access = await client.getAccessToken();
+            break;
+        } catch (err) {
+            if (attempt >= 2) {
+                throw err;
+            }
+            await new Promise((done) => setTimeout(done, 500 * 2 ** attempt));
+        }
+    }
     if (!access.token) {
         throw credentialError(
             `${keyId(entry)} minted no token`,

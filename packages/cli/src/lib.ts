@@ -148,6 +148,7 @@ export { formatBlocks, formatInline, formatMarkdown, wrapSpans } from './tui/mar
 export { matching, projectNames, type Candidate } from './candidates.ts';
 export { editorFiles } from './editor.ts';
 export { copilotEventLog, type EventLine } from './eventlog.ts';
+export { History } from './history.ts';
 export { probeChat, probeModel } from './liveness.ts';
 export { PROVIDER_NAMES, splitRef } from './modelref.ts';
 export { duration } from './narrate.ts';
