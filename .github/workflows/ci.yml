@@ -7,7 +7,7 @@ on:
     workflow_dispatch:
 
 jobs:
-    build:
+    format:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v5
@@ -17,8 +17,33 @@ jobs:
                   cache: npm
             - run: npm ci
             - run: npm run format:check
+
+    typecheck:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
             - run: npm run typecheck
-            - run: npx vitest run --exclude '**/live-*'
+
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2]
+        steps:
+            - uses: actions/checkout@v5
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
+            - run: npm run build
+            - run: npx vitest run --exclude '**/live-*' --shard=${{ matrix.shard }}/2
 
     # BwrapSandbox, and the server running a turn through it, against a real
     # bubblewrap. Ubuntu 24.04 closes unprivileged user namespaces through
