@@ -31,6 +31,10 @@ jobs:
 
     test:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2]
         steps:
             - uses: actions/checkout@v5
             - uses: actions/setup-node@v5
@@ -39,7 +43,7 @@ jobs:
                   cache: npm
             - run: npm ci
             - run: npm run build
-            - run: npx vitest run --exclude '**/live-*'
+            - run: npx vitest run --exclude '**/live-*' --shard=${{ matrix.shard }}/2
 
     # BwrapSandbox, and the server running a turn through it, against a real
     # bubblewrap. Ubuntu 24.04 closes unprivileged user namespaces through
