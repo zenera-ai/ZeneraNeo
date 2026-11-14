@@ -94,7 +94,10 @@ const errors = new Map();
 const homes = new Set();
 for (const s of summaries) {
     for (const r of s.runs) {
-        for (const f of r.failures) errors.set(`\`${f.file}\` > ${f.test}`, scrub(f.error));
+        for (const f of r.failures) {
+            const key = `\`${f.file}\` > ${f.test}`;
+            if (!errors.has(key)) errors.set(key, scrub(f.error));
+        }
         for (const h of r.homeEntries) homes.add(h);
     }
 }
