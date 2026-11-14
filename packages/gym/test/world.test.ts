@@ -102,6 +102,75 @@ describe('the world agent', () => {
         expect(r.store.collection('users').has('12')).toBe(true);
     });
 
+    it('satisfies a 120-record minimum when the world agent cannot', async () => {
+        const model = scripted({
+            world: () => say('No additional records available.'),
+        });
+
+        r = await rig('petstore.yaml', model);
+
+        const made = await synth(r, {
+            collection: 'users',
+            type: 'User',
+            idField: 'user_id',
+            min: 120,
+            count: 120,
+        });
+
+        const stored = r.store.collection('users').all();
+
+        expect(stored).toHaveLength(120);
+        expect(made).toHaveLength(120);
+
+        const ids = stored.map((record) => String(record.user_id));
+        expect(new Set(ids).size).toBe(120);
+
+        expect(stored.every((record) => r!.catalog.validator('User')!(record))).toBe(true);
+    });
+
+    it('expands a populated collection without changing existing records', async () => {
+        const model = scripted({
+            world: () => say('No additional records available.'),
+        });
+
+        r = await rig('petstore.yaml', model);
+
+        const collection = r.store.collection('users');
+
+        for (let i = 1; i <= 60; i++) {
+            collection.put(String(i), {
+                user_id: i,
+                email: `original${i}@acme.io`,
+            });
+        }
+
+        const before = collection.all();
+        expect(before).toHaveLength(60);
+
+        await synth(r, {
+            collection: 'users',
+            type: 'User',
+            idField: 'user_id',
+            min: 120,
+            count: 120,
+        });
+
+        const after = collection.all();
+
+        expect(after).toHaveLength(120);
+
+        for (let i = 1; i <= 60; i++) {
+            expect(collection.get(String(i))).toEqual({
+                user_id: i,
+                email: `original${i}@acme.io`,
+            });
+        }
+
+        expect(new Set(after.map((record) => String(record.user_id))).size).toBe(120);
+
+        expect(model.world.length).toBeGreaterThan(0);
+    });
+
     it('answers a judgement from the schema, without an agent', async () => {
         const model = scripted({});
         r = await rig('petstore.yaml', model);
@@ -114,6 +183,80 @@ describe('the world agent', () => {
         expect(model.world).toHaveLength(0);
         expect(r.catalog.validator('User')!(made[0])).toBe(true);
         expect(r.store.getMeta(populatedKey('users'))).toBe(true);
+    });
+
+    it('populates 120 records during a judgement without calling the agent', async () => {
+        const model = scripted({});
+        r = await rig('petstore.yaml', model);
+
+        const made = await synth(
+            r,
+            {
+                collection: 'users',
+                type: 'User',
+                idField: 'user_id',
+                min: 120,
+                count: 120,
+            },
+            true,
+        );
+
+        expect(made).toHaveLength(120);
+
+        const stored = r.store.collection('users').all();
+        expect(stored).toHaveLength(120);
+
+        const ids = stored.map((record) => String(record.user_id));
+        expect(new Set(ids).size).toBe(120);
+
+        expect(stored.every((record) => r!.catalog.validator('User')!(record))).toBe(true);
+        expect(model.world).toHaveLength(0);
+    });
+
+    it('keeps existing probe records when requesting more', async () => {
+        const model = scripted({});
+        r = await rig('petstore.yaml', model);
+
+        const first = await synth(
+            r,
+            {
+                collection: 'users',
+                type: 'User',
+                idField: 'user_id',
+                min: 60,
+                count: 60,
+            },
+            true,
+        );
+
+        expect(first).toHaveLength(60);
+
+        const before = r.store.collection('users').all();
+        const originalIds = new Set(before.map((record) => String(record.user_id)));
+
+        await synth(
+            r,
+            {
+                collection: 'users',
+                type: 'User',
+                idField: 'user_id',
+                min: 120,
+                count: 120,
+            },
+            true,
+        );
+
+        const after = r.store.collection('users').all();
+
+        expect(after).toHaveLength(120);
+
+        for (const id of originalIds) {
+            expect(r.store.collection('users').has(id)).toBe(true);
+        }
+
+        expect(new Set(after.map((record) => String(record.user_id))).size).toBe(120);
+
+        expect(model.world).toHaveLength(0);
     });
 
     // The story says three database VMs: three ports, not the suggested eight
@@ -307,5 +450,109 @@ describe('the world agent', () => {
             other.close();
             second.close();
         }
+    });
+
+    it('keeps count-only probe synthesis additive', async () => {
+        const model = scripted({});
+        r = await rig('paged.yaml', model);
+
+        const request = {
+            collection: 'machines',
+            type: 'Machine',
+            idField: 'id',
+            count: 2,
+        };
+
+        const first = await synth(r, request, true);
+        const second = await synth(r, request, true);
+
+        expect(first).toHaveLength(2);
+        expect(second).toHaveLength(2);
+        expect(r.store.collection('machines').count()).toBe(4);
+
+        const ids = [...first, ...second].map((record) => record.id);
+        expect(new Set(ids).size).toBe(4);
+    });
+
+    it('keeps count-only fallback synthesis additive', async () => {
+        const model = scripted({
+            world: () => say('Unable to generate records.'),
+        });
+
+        r = await rig('paged.yaml', model);
+
+        const request = {
+            collection: 'machines',
+            type: 'Machine',
+            idField: 'id',
+            count: 2,
+        };
+
+        const first = await synth(r, request);
+        const second = await synth(r, request);
+
+        expect(first).toHaveLength(2);
+        expect(second).toHaveLength(2);
+        expect(r.store.collection('machines').count()).toBe(4);
+
+        const ids = [...first, ...second].map((record) => record.id);
+        expect(new Set(ids).size).toBe(4);
+    });
+
+    it('generates 400 unique schema-valid machine records', async () => {
+        const model = scripted({});
+        r = await rig('paged.yaml', model);
+
+        const records = await synth(
+            r,
+            {
+                collection: 'machines',
+                type: 'Machine',
+                idField: 'id',
+                min: 400,
+                count: 400,
+            },
+            true,
+        );
+
+        expect(records).toHaveLength(400);
+        expect(r.store.collection('machines').count()).toBe(400);
+
+        const ids = records.map((record) => record.id);
+        expect(new Set(ids).size).toBe(400);
+
+        const validate = r.catalog.validator('Machine');
+        expect(validate).toBeDefined();
+        for (const record of records) {
+            expect(validate!(record)).toBe(true);
+        }
+    });
+
+    it('generates 120 unique schema-valid numeric IDs', async () => {
+        const model = scripted({});
+        r = await rig('petstore.yaml', model);
+
+        const records = await synth(
+            r,
+            {
+                collection: 'users',
+                type: 'User',
+                idField: 'user_id',
+                min: 120,
+                count: 120,
+            },
+            true,
+        );
+
+        expect(records).toHaveLength(120);
+
+        const ids = records.map((record) => record.user_id);
+
+        expect(ids.every((id) => typeof id === 'number')).toBe(true);
+        expect(new Set(ids).size).toBe(120);
+
+        const validate = r.catalog.validator('User');
+        expect(validate).toBeDefined();
+        expect(records.every((record) => validate!(record))).toBe(true);
     });
 });

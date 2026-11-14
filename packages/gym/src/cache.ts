@@ -11,6 +11,7 @@ import { CONTRACT_VERSION, type Operation } from './spec.ts';
 import { leaseOwner, WorldStore } from './store.ts';
 import type { World } from './synth.ts';
 import type { Checks } from './validate.ts';
+import type { LongPaginationConfig, LongPaginationPolicy } from './long-pagination.ts';
 
 // ---------------------------------------------------------------------------
 // The cache
@@ -43,6 +44,7 @@ export interface HandlerMeta {
     attempts?: number;
     rulesVersion?: number;
     createdAt?: string;
+    longPagination?: LongPaginationConfig;
 }
 
 interface Stored {
@@ -98,6 +100,8 @@ export interface CacheOptions {
     cacheDir?: string;
     /** where rejected handlers are written down. Default `<box root>/builds` */
     dumpDir?: string;
+    /** Long-list configuration by operationId. */
+    longPagination?: LongPaginationPolicy;
     onStart?: (e: CacheEvent) => void;
     onAttempt?: (e: CacheEvent) => void;
     onReady?: (e: CacheEvent & { cached: boolean; attempts: number }) => void;
@@ -116,6 +120,17 @@ const DEFAULT_CONCURRENCY = 4;
 /** Longer than any build; a crashed builder's lease lapses at once. */
 const BUILD_LEASE_MS = 20 * 60_000;
 const BUILD_POLL_MS = 500;
+
+function samePagination(
+    stored: LongPaginationConfig | undefined,
+    expected: LongPaginationConfig | undefined,
+): boolean {
+    if (!stored || !expected) {
+        return stored === expected;
+    }
+
+    return stored.pages === expected.pages && stored.pageSize === expected.pageSize;
+}
 
 /** One build's worth of rejected attempts, and where they are being written. */
 interface BuildRecord {
@@ -235,6 +250,8 @@ export class Cache {
             sourceOf: (other) => this.getSource(other.key),
             onAttempt: (attempt, diagnostics, source, limit) =>
                 this.#rejected(operation, attempt, diagnostics, source, limit, regeneration),
+            longPagination: this.#opts.longPagination?.[operation.operationId],
+            paginationWalkPages: this.#opts.longPagination?.[operation.operationId]?.pages,
         };
     }
 
@@ -255,6 +272,7 @@ export class Cache {
                 attempts,
                 rulesVersion: CONTRACT_VERSION,
                 createdAt: new Date().toISOString(),
+                longPagination: this.#opts.longPagination?.[operation.operationId],
             },
         } satisfies Stored);
     }
@@ -263,7 +281,7 @@ export class Cache {
         const { box, rebuild } = this.#opts;
         // Read before queueing: a cache hit costs nothing and must not wait
         // behind somebody else's model call.
-        const source = rebuild ? undefined : await this.#read(box, operation.key);
+        const source = rebuild ? undefined : await this.#read(box, operation);
 
         if (source !== undefined) {
             this.#opts.onReady?.({ operation, cached: true, attempts: 0 });
@@ -275,7 +293,7 @@ export class Cache {
         const lease = `build:${operation.key}`;
         while (!this.#leases().claim(lease, this.#owner, BUILD_LEASE_MS)) {
             await new Promise((settle) => setTimeout(settle, BUILD_POLL_MS));
-            const theirs = await this.#read(box, operation.key);
+            const theirs = await this.#read(box, operation);
             if (theirs !== undefined) {
                 this.#opts.onReady?.({ operation, cached: true, attempts: 0 });
                 return { key: operation.key, source: theirs, cached: true };
@@ -381,27 +399,40 @@ export class Cache {
      * files from the box and nothing else, and the box is scratch that any
      * `cache clear` is free to delete.
      */
-    async #read(box: Box, key: string): Promise<string | undefined> {
+    async #read(box: Box, operation: Operation): Promise<string | undefined> {
+        const key = operation.key;
         const found = this.#store.get<Stored>(key);
+
         if (!found?.source?.trim()) {
             return undefined;
         }
-        // Written against a placement that no longer holds: it would read and
-        // write somewhere nobody else looks.
+
+        // A handler generated for a different pagination requirement
+        // must not be reused.
+        const expected = this.#opts.longPagination?.[operation.operationId];
+
+        if (!samePagination(found.meta?.longPagination, expected)) {
+            return undefined;
+        }
+
+        // Reject cached handlers whose type bindings no longer agree.
         const bindings = Object.entries(found.bindings ?? {});
+
         if (bindings.some(([type, b]) => this.#opts.bindings.conflict(type, b))) {
             return undefined;
         }
-        // A cleared bindings store gets back what its handlers relied on.
+
+        // Restore bindings relied on by a cached handler.
         for (const [type, b] of bindings) {
             this.#opts.bindings.bind(type, b);
         }
+
         try {
             await box.write(key, found.source);
         } catch {
-            // The mount went away. Writing it again is the model's job.
             return undefined;
         }
+
         return found.source;
     }
 

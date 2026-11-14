@@ -44,6 +44,8 @@ import {
 } from './setup.ts';
 import { called, type Operation } from './spec.ts';
 import { listWorlds, removeWorld, worldPath, worldsDir } from './store.ts';
+import { validateLongPagination, type LongPaginationPolicy } from './long-pagination.ts';
+import { randomInt } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
 // zen gym — a mock API from a specification
@@ -83,6 +85,7 @@ interface Flags {
     'no-cache'?: boolean;
     clear?: boolean;
     quiet?: boolean;
+    'long-pagination'?: string[];
 }
 
 // `--json` is the frame's, lifted out of the arguments before they arrive; it
@@ -109,6 +112,7 @@ const OPTIONS = {
     'no-cache': { type: 'boolean' },
     clear: { type: 'boolean' },
     quiet: { type: 'boolean' },
+    'long-pagination': { type: 'string', multiple: true },
 } as const;
 
 export const command: Command = {
@@ -162,6 +166,10 @@ export const command: Command = {
                 dim('With `model`: forget the stored model. `--embedding clear` forgets that one.'),
             ],
             ['  --quiet', dim('No narration.')],
+            [
+                '  --long-pagination <operationId=pagesxsize>',
+                dim('Generate a long paginated list for an operation. Repeatable.'),
+            ],
         ]),
         '',
         dim(
@@ -203,6 +211,15 @@ export const command: Command = {
 async function serve(args: readonly string[], ctx: Context): Promise<void> {
     const { values, positionals } = parse<Flags>(args, OPTIONS, SERVE_USAGE);
     const setup = await start(values, positionals, ctx, 'serve');
+    const longPagination = parseLongPagination(values['long-pagination']);
+    const pageLimits = new Map(
+        setup.router.operations
+            .filter((operation) => longPagination?.[operation.operationId] !== undefined)
+            .map(
+                (operation) =>
+                    [operation.key, longPagination![operation.operationId].pages] as const,
+            ),
+    );
 
     const host = values.host ?? '127.0.0.1';
     const requestsDir = values['requests-dir']
@@ -219,6 +236,7 @@ async function serve(args: readonly string[], ctx: Context): Promise<void> {
             requestsDir,
             regenLimit: number(values['regen-limit'], 'regen-limit'),
             onRequest: values.quiet ? undefined : (line) => note(line),
+            maxPages: (operationKey) => pageLimits.get(operationKey) ?? randomInt(1, 11),
         },
         host,
         number(values.port, 'port') ?? 8787,
@@ -674,11 +692,13 @@ async function start(
 ): Promise<Setup> {
     const loud = !values.quiet && !ctx.json;
     const progress = loud ? indexing() : undefined;
+    const longPagination = parseLongPagination(values['long-pagination']);
     const setup = await open({
         schemas: [...positionals, ...(values.schema ?? [])],
         story: values.story,
         docs: values.docs,
         cwd: ctx.cwd,
+        longPagination,
         cache: values.cache,
         model: values.model,
         embedding: values.embedding,
@@ -749,4 +769,47 @@ function number(raw: string | undefined, what: string): number | undefined {
         throw usageError(`--${what} must be a number, got "${raw}"`);
     }
     return value;
+}
+
+function parseLongPagination(
+    entries: readonly string[] | undefined,
+): LongPaginationPolicy | undefined {
+    if (!entries?.length) {
+        return undefined;
+    }
+
+    const policy: Record<string, { pages: number; pageSize: number }> = {};
+
+    for (const entry of entries) {
+        const match = /^([^=]+)=(\d+)x(\d+)$/.exec(entry);
+
+        if (!match) {
+            throw usageError(
+                `invalid --long-pagination value "${entry}". ` + 'Expected operationId=pagesxsize',
+            );
+        }
+
+        const operationId = match[1];
+        const config = {
+            pages: Number(match[2]),
+            pageSize: Number(match[3]),
+        };
+
+        if (Object.hasOwn(policy, operationId)) {
+            throw usageError(`duplicate --long-pagination for "${operationId}"`);
+        }
+
+        try {
+            validateLongPagination(config);
+        } catch (error) {
+            throw usageError(
+                `invalid --long-pagination for "${operationId}". ` +
+                    (error instanceof Error ? error.message : String(error)),
+            );
+        }
+
+        policy[operationId] = config;
+    }
+
+    return policy;
 }
