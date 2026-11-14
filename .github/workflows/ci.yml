@@ -38,6 +38,7 @@ jobs:
                   node-version: 24
                   cache: npm
             - run: npm ci
+            - run: npm run build
             - run: npx vitest run --exclude '**/live-*'
 
     # BwrapSandbox, and the server running a turn through it, against a real
