@@ -59,6 +59,168 @@ describe('the handler agent', () => {
         expect(brief).toContain('createUser');
         expect(brief).toContain('THE WORLD SO FAR');
     });
+    it('tells the handler agent about long pagination requirements', async () => {
+        const model = scripted({
+            builder: writes(`
+    export default (req: any, ctx: any) => {
+        const records = Array.from({ length: 400 }, (_, i) => ({
+            id: 'm' + (i + 1),
+            name: 'Machine ' + (i + 1),
+        }));
+
+        const page = ctx.page(records, {
+            token: req.query.cursor,
+            size: 2,
+        });
+
+        return {
+            results: page.items,
+            cursor: page.nextToken,
+            has_more: page.hasMore,
+        };
+    };`),
+        });
+
+        const r = await rig('paged.yaml', model);
+
+        try {
+            await build(op(r, 'listMachines'), {
+                ...options(r, model, 1),
+                longPagination: {
+                    pages: 200,
+                    pageSize: 2,
+                },
+                paginationWalkPages: 200,
+            });
+
+            expect(model.builder[0]!.brief).toContain(
+                'This operation must provide 200 pages at 2 records per page.',
+            );
+
+            expect(model.builder[0]!.brief).toContain(
+                'Ensure at least 400 matching records exist before paginating.',
+            );
+        } finally {
+            await r.close();
+        }
+    });
+
+    it('rejects a long pagination handler that stops too early', async () => {
+        const model = scripted({
+            builder: writes(`
+    export default (req: any, ctx: any) => {
+        const records = Array.from({ length: 20 }, (_, i) => ({
+            id: 'm' + (i + 1),
+            name: 'Machine ' + (i + 1),
+        }));
+
+        const page = ctx.page(records, {
+            token: req.query.cursor,
+            size: 2,
+        });
+
+        return {
+            results: page.items,
+            cursor: page.nextToken,
+            has_more: page.hasMore,
+        };
+    };`),
+        });
+
+        const r = await rig('paged.yaml', model);
+
+        try {
+            await expect(
+                build(op(r, 'listMachines'), {
+                    ...options(r, model, 1),
+                    longPagination: {
+                        pages: 200,
+                        pageSize: 2,
+                    },
+                    paginationWalkPages: 200,
+                }),
+            ).rejects.toThrow();
+        } finally {
+            await r.close();
+        }
+    });
+
+    it('rejects long pagination with too few records per page', async () => {
+        const underfilled = `
+    export default async function(req) {
+        const page = req.query.cursor
+            ? Number(req.query.cursor)
+            : 1;
+
+        return {
+            results: [{ id: 'm' + page }],
+            cursor: page < 200 ? String(page + 1) : null,
+            has_more: page < 200,
+        };
+    }
+    `;
+
+        const model = scripted({
+            builder: writes(underfilled),
+        });
+
+        r = await rig('paged.yaml', model);
+
+        const buildOpts = {
+            ...options(r, model, 1),
+            longPagination: {
+                pages: 200,
+                pageSize: 2,
+            },
+        };
+
+        const failed = await build(op(r, 'listMachines'), buildOpts).catch(
+            (error: unknown) => error,
+        );
+
+        expect(failed).toBeInstanceOf(BuildFailed);
+        expect((failed as BuildFailed).diagnostics.join('\n')).toContain('expected 2 records');
+    });
+
+    it('accepts 200 pages populated through ctx.ensure', async () => {
+        const source = `
+    export default async function(req, ctx) {
+        const all = await ctx.ensure('Machine', {
+            min: 400,
+            count: 400,
+        });
+
+        const p = ctx.page(all, {
+            token: req.query.cursor,
+            size: req.query.page_size,
+        });
+
+        return {
+            results: p.items,
+            cursor: p.nextToken,
+            has_more: p.hasMore,
+        };
+    }
+    `;
+
+        const model = scripted({
+            builder: writes(source),
+        });
+
+        r = await rig('paged.yaml', model);
+
+        await expect(
+            build(op(r, 'listMachines'), {
+                ...options(r, model, 1),
+                longPagination: {
+                    pages: 200,
+                    pageSize: 2,
+                },
+            }),
+        ).resolves.toMatchObject({
+            attempts: 1,
+        });
+    });
 
     it('hands every problem back, and a fix is tested again', async () => {
         const model = scripted({ builder: writes(GET_USER_NO_EMAIL, GET_USER) });
@@ -160,6 +322,33 @@ export default async function handle(req: any, ctx: any) {
         const model = scripted({ builder: writes(paged) });
         r = await rig('paged.yaml', model);
         await expect(build(op(r, 'listMachines'), options(r, model))).resolves.toMatchObject({
+            attempts: 1,
+        });
+    });
+
+    it('accepts a finite paginated handler that terminates after 12 pages', async () => {
+        const paged = `
+export default function handle(req: any) {
+    const page = req.query.cursor
+        ? Number(req.query.cursor)
+        : 1;
+
+    return {
+        results: [{ id: 'm' + page, name: 'Machine ' + page }],
+        cursor: page < 12 ? String(page + 1) : null,
+        has_more: page < 12,
+    };
+}`;
+
+        const model = scripted({ builder: writes(paged) });
+        r = await rig('paged.yaml', model);
+
+        const buildOpts = {
+            ...options(r, model, 1),
+            paginationWalkPages: 12,
+        };
+
+        await expect(build(op(r, 'listMachines'), buildOpts)).resolves.toMatchObject({
             attempts: 1,
         });
     });
@@ -396,6 +585,95 @@ describe('the cache', () => {
             );
         } finally {
             await again.box.dispose();
+        }
+    });
+
+    it('invalidates cached handlers when pagination configuration changes', async () => {
+        const operationId = 'getUserById';
+
+        const first = scripted({ builder: writes(GET_USER) });
+        r = await rig('petstore.yaml', first);
+
+        const initial = await r.cache.ensure(op(r, operationId));
+        expect(initial.cached).toBe(false);
+
+        const shared = {
+            root: r.root,
+            cacheDir: join(r.root, 'store'),
+        };
+
+        const policy200 = {
+            [operationId]: { pages: 200, pageSize: 2 },
+        };
+
+        const policy100 = {
+            [operationId]: { pages: 100, pageSize: 5 },
+        };
+
+        // Same configuration should reuse the existing handler.
+        const normal = scripted({});
+        const sameNormal = await rig('petstore.yaml', normal, shared);
+
+        try {
+            const result = await sameNormal.cache.ensure(op(sameNormal, operationId));
+            expect(result.cached).toBe(true);
+            expect(normal.builder).toHaveLength(0);
+        } finally {
+            await sameNormal.box.dispose();
+        }
+
+        // Changing from normal pagination to 200x2 must rebuild.
+        const longer = scripted({ builder: writes(GET_USER) });
+        const configured = await rig('petstore.yaml', longer, {
+            ...shared,
+            longPagination: policy200,
+        });
+
+        try {
+            const result = await configured.cache.ensure(op(configured, operationId));
+            expect(result.cached).toBe(false);
+        } finally {
+            await configured.box.dispose();
+        }
+
+        // Restarting with the same 200x2 configuration must hit the cache.
+        const unchanged = scripted({});
+        const sameConfigured = await rig('petstore.yaml', unchanged, {
+            ...shared,
+            longPagination: policy200,
+        });
+
+        try {
+            const result = await sameConfigured.cache.ensure(op(sameConfigured, operationId));
+            expect(result.cached).toBe(true);
+            expect(unchanged.builder).toHaveLength(0);
+        } finally {
+            await sameConfigured.box.dispose();
+        }
+
+        // Changing the page count and size must rebuild again.
+        const changed = scripted({ builder: writes(GET_USER) });
+        const different = await rig('petstore.yaml', changed, {
+            ...shared,
+            longPagination: policy100,
+        });
+
+        try {
+            const result = await different.cache.ensure(op(different, operationId));
+            expect(result.cached).toBe(false);
+        } finally {
+            await different.box.dispose();
+        }
+
+        // Removing the configuration must not reuse a configured handler.
+        const removed = scripted({ builder: writes(GET_USER) });
+        const backToNormal = await rig('petstore.yaml', removed, shared);
+
+        try {
+            const result = await backToNormal.cache.ensure(op(backToNormal, operationId));
+            expect(result.cached).toBe(false);
+        } finally {
+            await backToNormal.box.dispose();
         }
     });
 

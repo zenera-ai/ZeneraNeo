@@ -53,6 +53,13 @@ export interface BuildOptions {
     attempts?: number;
     /** where HTML reports of agent runs go */
     reportDir?: string;
+    /** Maximum pages to validate when walking a paginated handler. */
+    paginationWalkPages?: number;
+    /** Target pagination for this operation, when explicitly configured. */
+    longPagination?: {
+        pages: number;
+        pageSize: number;
+    };
     // Awaited: the next test overwrites the file this one was judged on.
     onAttempt?: (
         attempt: number,
@@ -153,6 +160,7 @@ export async function build(
                     .join(' — '),
                 3,
             ),
+            longPagination: opts.longPagination,
         }),
         ...(repair ? ['', repairBrief(repair)] : []),
     ].join('\n');
@@ -542,6 +550,36 @@ function placement(
     return { problems: [...problems], placed };
 }
 
+function pagedItems(value: unknown, name: string): unknown[] | undefined {
+    const seen = new Set<object>();
+    const queue: unknown[] = [value];
+
+    while (queue.length > 0) {
+        const node = queue.shift();
+
+        if (typeof node !== 'object' || node === null || seen.has(node)) {
+            continue;
+        }
+
+        seen.add(node);
+
+        if (Array.isArray(node)) {
+            continue;
+        }
+
+        const record = node as Record<string, unknown>;
+        const items = record[name];
+
+        if (Array.isArray(items)) {
+            return items;
+        }
+
+        queue.push(...Object.values(record));
+    }
+
+    return undefined;
+}
+
 /** How many pages a judged handler may offer before it is not terminating. */
 const MAX_PAGES = 8;
 
@@ -555,12 +593,16 @@ async function walk(
     let input = walkStart(operation, paging);
     const seen = new Set<string>();
     let sent: string | undefined;
+    const targetPages = opts.longPagination?.pages;
+    const maxPages = targetPages ?? opts.paginationWalkPages ?? MAX_PAGES;
+    const pageSize = opts.longPagination?.pageSize ?? 2;
+
     // Enough content to need more than one page, so the token is exercised.
     if (paging.size) {
-        input = setSize(input, paging, 2);
+        input = setSize(input, paging, pageSize);
     }
 
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = 1; page <= maxPages; page++) {
         const outcome = await opts.box.run(operation.key, input, { db, probe: true });
         used.push(...(outcome.used ?? []));
         const what = `page ${page} of ${operation.method.toUpperCase()} ${called(operation)}`;
@@ -573,8 +615,40 @@ async function walk(
                 `- ${what}: the answer does not match the response schema — ${describeIssues(issues('', response.errors))}.`,
             ];
         }
+
+        if (targetPages !== undefined) {
+            if (!paging.items) {
+                return [
+                    `- ${what}: cannot validate long pagination page size ` +
+                        'because the paginated items property is unknown.',
+                ];
+            }
+
+            const items = pagedItems(outcome.value, paging.items);
+
+            if (!items) {
+                return [
+                    `- ${what}: could not find paginated items ` + `in property "${paging.items}".`,
+                ];
+            }
+
+            if (items.length !== pageSize) {
+                return [
+                    `- ${what}: expected ${pageSize} records per page, ` +
+                        `but received ${items.length}.`,
+                ];
+            }
+        }
+
         const token = tokenOf(outcome.value, paging);
         if (token === undefined) {
+            if (targetPages !== undefined && page !== targetPages) {
+                return [
+                    `- ${what}: long pagination requires ${targetPages} pages, ` +
+                        `but the handler terminated after ${page}.`,
+                ];
+            }
+
             return [];
         }
         if (token === sent) {
@@ -591,8 +665,18 @@ async function walk(
         sent = token;
         input = nextPage(input, paging, token);
     }
+    if (targetPages !== undefined) {
+        return [
+            `- ${operation.method.toUpperCase()} ${operation.path}: ` +
+                `long pagination requires termination on page ${targetPages}, ` +
+                `but the continuation token is still present.`,
+        ];
+    }
+
     return [
-        `- ${operation.method.toUpperCase()} ${operation.path}: the pages never run out — after ${MAX_PAGES} of them \`${paging.next}\` is still set. Page with ctx.page so the list ends.`,
+        `- ${operation.method.toUpperCase()} ${operation.path}: ` +
+            `the pages never run out — after ${maxPages} of them ` +
+            `\`${paging.next}\` is still set. Page with ctx.page so the list ends.`,
     ];
 }
 

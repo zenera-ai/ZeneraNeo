@@ -240,4 +240,104 @@ describe('PaginationLimiter', () => {
         expect(cut).toEqual({ cut: true, reason: 'cut pagination at max pages (5)' });
         expect(body.cursor).toBeNull();
     });
+
+    it('supports 1000 consecutive pages without premature termination', () => {
+        const limiter = new PaginationLimiter(1000);
+
+        for (let page = 1; page <= 1000; page++) {
+            const currentToken = page === 1 ? undefined : `token-${page}`;
+
+            const body = {
+                results: [`item-${page}`],
+                cursor: `token-${page + 1}` as string | null,
+                has_more: true,
+            };
+
+            const result = limiter.process('long-list', 'client-1', currentToken, body, paging);
+
+            if (page < 1000) {
+                expect(result).toBeUndefined();
+                expect(body.cursor).toBe(`token-${page + 1}`);
+                expect(body.has_more).toBe(true);
+            } else {
+                expect(result).toEqual({
+                    cut: true,
+                    reason: 'cut pagination at max pages (1000)',
+                });
+                expect(body.cursor).toBeNull();
+                expect(body.has_more).toBe(false);
+            }
+        }
+    });
+
+    it('isolates identical cursors across operations and streams', () => {
+        const limiter = new PaginationLimiter((operationKey) =>
+            operationKey === 'machines' ? 200 : 2,
+        );
+
+        // Both operations produce the same continuation token.
+        const machines1 = {
+            results: ['machine-1'],
+            cursor: '2' as string | null,
+            has_more: true,
+        };
+
+        const audit1 = {
+            results: ['audit-1'],
+            cursor: '2' as string | null,
+            has_more: true,
+        };
+
+        expect(
+            limiter.process('machines', 'client-1', undefined, machines1, paging),
+        ).toBeUndefined();
+
+        expect(limiter.process('audit', 'client-1', undefined, audit1, paging)).toBeUndefined();
+
+        // The machine stream must retain its 200-page limit.
+        const machines2 = {
+            results: ['machine-2'],
+            cursor: '3' as string | null,
+            has_more: true,
+        };
+
+        expect(limiter.process('machines', 'client-1', '2', machines2, paging)).toBeUndefined();
+
+        expect(machines2.cursor).toBe('3');
+
+        // The audit stream must independently stop on page 2.
+        const audit2 = {
+            results: ['audit-2'],
+            cursor: '3' as string | null,
+            has_more: true,
+        };
+
+        expect(limiter.process('audit', 'client-1', '2', audit2, paging)).toMatchObject({
+            cut: true,
+            reason: 'cut pagination at max pages (2)',
+        });
+
+        expect(audit2.cursor).toBeNull();
+
+        // A different client must not inherit an existing stream's state.
+        const otherClient1 = {
+            results: ['machine-A'],
+            cursor: '2' as string | null,
+            has_more: true,
+        };
+
+        expect(
+            limiter.process('machines', 'client-2', undefined, otherClient1, paging),
+        ).toBeUndefined();
+
+        const otherClient2 = {
+            results: ['machine-B'],
+            cursor: '3' as string | null,
+            has_more: true,
+        };
+
+        expect(limiter.process('machines', 'client-2', '2', otherClient2, paging)).toBeUndefined();
+
+        expect(otherClient2.cursor).toBe('3');
+    });
 });
