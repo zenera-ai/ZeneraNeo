@@ -1,3 +1,5 @@
+import stringWidth from 'string-width';
+
 // ---------------------------------------------------------------------------
 // Measuring in rows
 //
@@ -11,7 +13,47 @@
 // out. Plain text only: nothing that reaches these two functions has style
 // codes in it, so there is no need to carry the machinery for counting around
 // them.
+//
+// Rows are counted in columns, the way Ink counts them (string-width), not in
+// UTF-16 units. A Japanese character is one unit but two columns, an emoji is
+// two units and two columns, and an accent is one unit and no columns. Counting
+// units gets the width wrong, so the terminal wraps the row again. Rows are
+// only cut between whole characters, so an emoji or a flag never gets split.
 // ---------------------------------------------------------------------------
+
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** Printable ASCII only. One unit is one column, so plain slicing works. */
+const PLAIN = /^[\x20-\x7e]*$/;
+
+/**
+ * Splits `text` into the longest start that fits in `cols` columns, and the
+ * rest. It only cuts between whole characters. With `force` it always takes at
+ * least one character, so a loop over the rest always ends, even when a
+ * character is wider than the row.
+ */
+function takeColumns(
+    text: string,
+    cols: number,
+    force: boolean,
+    plain = PLAIN.test(text),
+): [string, string] {
+    if (plain) {
+        const at = force ? Math.max(1, cols) : Math.max(0, cols);
+        return [text.slice(0, at), text.slice(at)];
+    }
+    let used = 0;
+    let end = 0;
+    for (const { segment, index } of GRAPHEMES.segment(text)) {
+        const width = stringWidth(segment);
+        if (used + width > cols && (end > 0 || !force)) {
+            break;
+        }
+        used += width;
+        end = index + segment.length;
+    }
+    return [text.slice(0, end), text.slice(end)];
+}
 
 /**
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
@@ -28,6 +70,9 @@ export function windowOf(text: string, width: number, rows: number): string[] {
     // paragraph break would spend one of the few rows it has on nothing.
     const tail = text
         .slice(-w * n * 2)
+        // The cut can land in the middle of a surrogate pair, and a lone half
+        // draws as a broken character.
+        .replace(/^[\udc00-\udfff]/, '')
         .replace(/\n{2,}/g, '\n')
         .trimEnd();
     return wrap(tail, w).slice(-n);
@@ -41,10 +86,16 @@ export function windowOf(text: string, width: number, rows: number): string[] {
 export function clip(text: string, width: number): string {
     const flat = text.replace(/\s+/g, ' ').trim();
     const w = Math.max(1, width);
-    return flat.length <= w ? flat : `${flat.slice(0, w - 1)}…`;
+    if (stringWidth(flat) <= w) {
+        return flat;
+    }
+    return `${takeColumns(flat, w - 1, false)[0]}…`;
 }
 
-/** Word wrap. Every returned row is at most `width` columns wide. */
+/**
+ * Word wrap. Rows are at most `width` columns wide, except that a single
+ * character wider than `width` gets a row to itself.
+ */
 export function wrap(text: string, width: number): string[] {
     const w = Math.max(1, width);
     const out: string[] = [];
@@ -54,17 +105,22 @@ export function wrap(text: string, width: number): string[] {
             // A word wider than the terminal has to be broken somewhere, and
             // anywhere is as good as anywhere else.
             let rest = word;
-            while (rest.length > w) {
+            const plain = PLAIN.test(word);
+            for (;;) {
+                const [head, tail] = takeColumns(rest, w, true, plain);
+                if (tail === '') {
+                    break;
+                }
                 if (line) {
                     out.push(line);
                     line = '';
                 }
-                out.push(rest.slice(0, w));
-                rest = rest.slice(w);
+                out.push(head);
+                rest = tail;
             }
             if (!line) {
                 line = rest;
-            } else if (line.length + 1 + rest.length <= w) {
+            } else if (stringWidth(line) + 1 + stringWidth(rest) <= w) {
                 line += ` ${rest}`;
             } else {
                 out.push(line);
@@ -209,11 +265,11 @@ export function boxWidth(text: string, columns: number): number {
         // A fence is drawn behind a `│ ` gutter; a table row is not.
         const lines =
             block.kind === 'code'
-                ? (block.lines ?? []).map((l) => l.length + 6)
+                ? (block.lines ?? []).map((l) => stringWidth(l) + 6)
                 : block.kind === 'table'
                   ? textOf(block)
                         .split('\n')
-                        .map((l) => l.length + 4)
+                        .map((l) => stringWidth(l) + 4)
                   : [];
         for (const width of lines) {
             rigid = Math.max(rigid, width);
@@ -496,7 +552,7 @@ export function gistOf(text: string, width: number): string {
 // is the one thing Ink cannot erase.
 //
 // Inline markup comes out as `Span`s, which carry their styling BESIDE the
-// text rather than inside it. The width of a row is therefore still the length
+// text rather than inside it. The width of a row is therefore still the columns
 // of its characters, and `boxWidth` cannot be lied to.
 //
 // The scan is one pass and tolerant of anything half-written, because on a
@@ -958,8 +1014,8 @@ export function blocksOf(text: string): Block[] {
 // Back to text
 // ---------------------------------------------------------------------------
 
-/** What a run of spans measures, which is the text and never the styling. */
-const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + s.text.length, 0);
+/** Width of a run of spans in columns. Styling is not counted. */
+const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + stringWidth(s.text), 0);
 
 /** A cell in its column, set where the rule row asked for it. */
 function padOf(spans: Span[], width: number, align: Align): Span[] {
@@ -976,7 +1032,7 @@ function padOf(spans: Span[], width: number, align: Align): Span[] {
  * A table as its rows, each one a single run of spans.
  *
  * Columns are laid out here and nowhere else, so the drawn table and the plain
- * one are the same table: a cell's width is the length of its text, which is
+ * one are the same table: a cell's width is the columns of its text, which is
  * what a `Span` measures whatever styling rides beside it. Nothing a model
  * writes in a cell can move the cell after it.
  */
