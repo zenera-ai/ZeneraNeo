@@ -168,7 +168,9 @@ Branches run at once and can exchange nothing...
 ```
 
 `requires:` takes a list, and all of it has to hold. The vocabulary is closed -
-`fork`, `memory`, `memory-write`, `memory-forget` - and a name outside it is a
+`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`, and
+`tools:<group>` for an agent whose `tools:` grants any tool of a group (zen's
+`agents/mcp-instructions.md` uses `tools:mcp`) - and a name outside it is a
 load error rather than a rule that silently never fires. There is no `not`: a
 rule for agents _without_ a capability is a rule about the rest of the project,
 which is what `agents/instructions.md` is for. A document with no frontmatter is

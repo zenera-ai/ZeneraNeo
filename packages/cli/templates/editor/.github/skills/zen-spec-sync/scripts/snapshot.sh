@@ -76,7 +76,7 @@ differs() {
 
 owned() {
     case "$1" in
-        agents/files-instructions.md|agents/fork-instructions.md|agents/memory-instructions.md|agents/tools-instructions.md) return 0 ;;
+        agents/files-instructions.md|agents/fork-instructions.md|agents/mcp-instructions.md|agents/mcp-memory-instructions.md|agents/memory-instructions.md|agents/tools-instructions.md) return 0 ;;
         *) return 1 ;;
     esac
 }

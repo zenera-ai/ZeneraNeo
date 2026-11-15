@@ -164,8 +164,9 @@ the skill is how you find out whether it is.
     (create a policy file only when step 3 proved the rule absent and every
     agent with that capability must obey it).
 11. **Never edit** `agents.yaml`, `agents/memory-instructions.md`,
-    `agents/tools-instructions.md`, `agents/fork-instructions.md` or
-    `agents/files-instructions.md`, nor anything outside `agents/`.
+    `agents/tools-instructions.md`, `agents/fork-instructions.md`,
+    `agents/files-instructions.md`, `agents/mcp-instructions.md` or
+    `agents/mcp-memory-instructions.md`, nor anything outside `agents/`.
 12. **Tidy up every file you touched** - the whole file, not only your lines.
     For each obligation in it, search the files the same agents read, and pick
     one move:

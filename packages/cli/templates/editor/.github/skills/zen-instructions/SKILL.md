@@ -1,6 +1,6 @@
 ---
 name: zen-instructions
-description: The house rules - `agents/instructions.md` and every `agents/<topic>-instructions.md` prepended to every agent's system prompt. How the set is discovered and ordered, the `requires:` frontmatter and its closed vocabulary (`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`), which four documents are `zen`'s own and are replaced by `zen check --fix`, how a project writes its own customisable topic prompts beside them (`files-policy-instructions.md`, `memory-policy-instructions.md`, `fork-<topic>-instructions.md`, `tools-<topic>-instructions.md`) without losing the copy, what belongs in a house rule as against an agent prompt or a skill, and every `zen check` finding these files can produce. Load before creating, editing, reviewing or deleting any `agents/*instructions.md`, before adding a capability whose rules arrive as one, and whenever `rules.stale`, `rules.unreached`, `files.uninstructed`, `memory.uninstructed` or `fork.uninstructed` is reported.
+description: The house rules - `agents/instructions.md` and every `agents/<topic>-instructions.md` prepended to every agent's system prompt. How the set is discovered and ordered, the `requires:` frontmatter and its closed vocabulary (`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`, `tools:<group>`), which six documents are `zen`'s own and are replaced by `zen check --fix`, how a project writes its own customisable topic prompts beside them (`memory-policy-instructions.md`, `mcp-policy-instructions.md`, any `<topic>-policy-instructions.md`) without losing the copy, what belongs in a house rule as against an agent prompt or a skill, and every `zen check` finding these files can produce. Load before creating, editing, reviewing or deleting any `agents/*instructions.md`, before adding a capability whose rules arrive as one, and whenever `rules.stale`, `rules.unreached` or any `*.uninstructed` finding (`files`, `memory`, `fork`, `mcp`, `mcp-memory`) is reported.
 user-invocable: false
 ---
 
@@ -69,8 +69,14 @@ condition and the prose it guards are one edit.
 | `memory`        | it declares `memory:` in any form                              |
 | `memory-write`  | its memory `access` is `read-write` or `full`                  |
 | `memory-forget` | its memory `access` is `full`                                  |
+| `tools:<group>` | its `tools:` grants any tool of that group (`tools:mcp`)       |
 
 Legacy aliases `workspace` and `workspace-write` match `files` and `files-write`.
+
+`tools:<group>` is read from `agents.yaml` alone, like the rest: `<group>:*`,
+`<group>:<name>` and `*` grant the group, `-<group>:*` takes it back, and a bare
+name counts when it starts `<group>_` (`mcp_call`). Withholding some of a
+group's tools by name (`-mcp_call`) still leaves the group granted.
 
 The vocabulary is **closed**. A name outside it is a load error
 (`rules.requires.unknown`), not a rule that silently never fires. A list means
@@ -85,24 +91,28 @@ confused by.
 
 ## Two owners, in the same directory
 
-| File                                    | Whose     | `requires:` | Is                                                        |
-| --------------------------------------- | --------- | ----------- | --------------------------------------------------------- |
-| `agents/instructions.md`                | project's | -           | identity, shared model of the system, global constraints  |
-| `agents/tools-instructions.md`          | **ours**  | -           | how tools are called: narrate, batch the independent ones |
-| `agents/files-instructions.md`          | **ours**  | `files`     | how files are read, searched and patched; safety, mounts  |
-| `agents/memory-instructions.md`         | **ours**  | `memory`    | how the graph is reached, what to commit, how to correct  |
-| `agents/fork-instructions.md`           | **ours**  | `fork`      | what a branch is, what returns, when it is worth it       |
-| `agents/tools-<topic>-instructions.md`  | project's | yours       | **this project's** tool policy                            |
-| `agents/files-<topic>-instructions.md`  | project's | `files`     | **this project's** file policy                            |
-| `agents/memory-<topic>-instructions.md` | project's | `memory`    | **this project's** memory policy                          |
-| `agents/fork-<topic>-instructions.md`   | project's | `fork`      | **this project's** forking policy                         |
+| File                                    | Whose     | `requires:`           | Is                                                        |
+| --------------------------------------- | --------- | --------------------- | --------------------------------------------------------- |
+| `agents/instructions.md`                | project's | -                     | identity, shared model of the system, global constraints  |
+| `agents/tools-instructions.md`          | **ours**  | -                     | how tools are called: narrate, batch the independent ones |
+| `agents/files-instructions.md`          | **ours**  | `files`               | how files are read, searched and patched; safety, mounts  |
+| `agents/memory-instructions.md`         | **ours**  | `memory`              | how the graph is reached, what to commit, how to correct  |
+| `agents/fork-instructions.md`           | **ours**  | `fork`                | what a branch is, what returns, when it is worth it       |
+| `agents/mcp-instructions.md`            | **ours**  | `tools:mcp`           | finding, describing and calling a service; connect pause  |
+| `agents/mcp-memory-instructions.md`     | **ours**  | `tools:mcp`, `memory` | commit MCP routes, never results                          |
+| `agents/tools-<topic>-instructions.md`  | project's | yours                 | **this project's** tool policy                            |
+| `agents/files-<topic>-instructions.md`  | project's | `files`               | **this project's** file policy                            |
+| `agents/memory-<topic>-instructions.md` | project's | `memory`              | **this project's** memory policy                          |
+| `agents/fork-<topic>-instructions.md`   | project's | `fork`                | **this project's** forking policy                         |
+| `agents/mcp-<topic>-instructions.md`    | project's | `tools:mcp`           | **this project's** services: which servers, for what      |
 
-The four marked **ours** describe _this version of `zen`_ - how the memory
+The six marked **ours** describe _this version of `zen`_ - how the memory
 graph works, how its tools are called, what survives a join, how files are safely
-handled. They land under `agents/` only because that is where a document has to
-be to reach a prompt. They are not the project's to maintain:
+handled, how Zenera's MCP tools behave. They land under `agents/` only because
+that is where a document has to be to reach a prompt. They are not the project's
+to maintain:
 
-- `zen check --fix` **replaces all four** with the bytes this `zen` ships.
+- `zen check --fix` **replaces all six** with the bytes this `zen` ships.
 - A copy that differs - edited in place, or scaffolded by an older `zen` - is
   reported as `rules.stale`, because prose about a runtime that has since moved
   reads exactly as authoritative as the version that is true.
@@ -119,12 +129,13 @@ inside. Anything this project decides for itself on a subject one of ours
 covers - which audience holds what, what must never be written down, how wide a
 fan-out may go, which tools are off limits here - is its own document:
 
-| Instead of editing       | Write                                  |
-| ------------------------ | -------------------------------------- |
-| `files-instructions.md`  | `agents/files-policy-instructions.md`  |
-| `memory-instructions.md` | `agents/memory-policy-instructions.md` |
-| `fork-instructions.md`   | `agents/fork-policy-instructions.md`   |
-| `tools-instructions.md`  | `agents/tools-policy-instructions.md`  |
+| Instead of editing       | Write                                                         |
+| ------------------------ | ------------------------------------------------------------- |
+| `files-instructions.md`  | `agents/files-policy-instructions.md`                         |
+| `memory-instructions.md` | `agents/memory-policy-instructions.md`                        |
+| `fork-instructions.md`   | `agents/fork-policy-instructions.md`                          |
+| `tools-instructions.md`  | `agents/tools-policy-instructions.md`                         |
+| `mcp-instructions.md`    | `agents/mcp-policy-instructions.md` (`requires: [tools:mcp]`) |
 
 `<topic>` is yours; `policy` is the convention and needs no explaining. Then a
 `zen check --fix`, a `zen init` or a `zen open` refreshes our copy and takes
@@ -191,20 +202,22 @@ It reads `agents/*instructions.md` and exits `1` on any candidate.
 
 ## What `zen check` reports
 
-| Finding                  | Severity | Means                                                            |
-| ------------------------ | -------- | ---------------------------------------------------------------- |
-| `rules.requires.unknown` | error    | `requires:` names no capability - the loader refuses the project |
-| `files.uninstructed`     | error    | an agent has file tools and `files-instructions.md` is absent    |
-| `memory.uninstructed`    | error    | memory is on and `memory-instructions.md` is missing or empty    |
-| `fork.uninstructed`      | error    | an agent can fork and `fork-instructions.md` is missing or empty |
-| `rules.stale`            | warning  | one of ours is not the copy this `zen` ships                     |
-| `house-rules.empty`      | warning  | a document contributes nothing but a prompt section              |
-| `rules.unreached`        | note     | a document of **yours** whose `requires:` no agent satisfies     |
-| `house-rules.missing`    | note     | no house rules at all, which is allowed                          |
+| Finding                   | Severity | Means                                                                    |
+| ------------------------- | -------- | ------------------------------------------------------------------------ |
+| `rules.requires.unknown`  | error    | `requires:` names no capability - the loader refuses the project         |
+| `files.uninstructed`      | error    | an agent has file tools and `files-instructions.md` is absent            |
+| `memory.uninstructed`     | error    | memory is on and `memory-instructions.md` is missing or empty            |
+| `fork.uninstructed`       | error    | an agent can fork and `fork-instructions.md` is missing or empty         |
+| `mcp.uninstructed`        | error    | an agent has `mcp` tools and `mcp-instructions.md` is absent             |
+| `mcp-memory.uninstructed` | error    | an agent has `mcp` tools and memory, `mcp-memory-instructions.md` absent |
+| `rules.stale`             | warning  | one of ours is not the copy this `zen` ships                             |
+| `house-rules.empty`       | warning  | a document contributes nothing but a prompt section                      |
+| `rules.unreached`         | note     | a document of **yours** whose `requires:` no agent satisfies             |
+| `house-rules.missing`     | note     | no house rules at all, which is allowed                                  |
 
-`zen check --fix` answers the first five between them: it rewrites all four of
-ours and the whole `.github/` tree, then validates, so the report and its exit
-code describe the repaired project.
+`zen check --fix` answers every `*.uninstructed` and `rules.stale` between them:
+it rewrites all six of ours and the whole `.github/` tree, then validates, so the
+report and its exit code describe the repaired project.
 
 Two silences to know about. **There is no `tools.uninstructed`** - that document
 is unconditional and its absence is not reported, so a project that deleted it

@@ -1,8 +1,9 @@
 # How a run finds and calls MCP tools
 
 This file describes what a running agent sees, so you can write skills and
-prompts that match it. The agent-facing version of the procedure is
-[runtime-skill.md](./runtime-skill.md).
+prompts that match it. The agent-facing version of the procedure is zen's house
+rules file `agents/mcp-instructions.md`, which reaches every agent granted
+`mcp:*`.
 
 Every call is checked against the project's server selection and made as the
 signed-in user. Nothing about this is configurable from the project.

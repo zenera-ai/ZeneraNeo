@@ -1,6 +1,6 @@
 # Installing MCP in a target project
 
-Four edits, in this order, followed by `zen check` and a Test-tab run. Every path
+Edits in this order, followed by `zen check` and a Test-tab run. Every path
 is relative to the project root, the directory with `agents.yaml`.
 
 ## 1. Find out what is enabled
@@ -13,8 +13,8 @@ Ask the user:
 - whether any server is limited to some of its tools,
 - which jobs the agents should do with them.
 
-If they do not know, install only the generic skill (step 3). It discovers
-servers at run time, so the project works whatever is enabled later.
+If they do not know, grant the tools and stop at step 3: the house rules
+discover servers at run time, so the project works whatever is enabled later.
 
 ## 2. Grant the tools in `agents.yaml`
 
@@ -25,8 +25,7 @@ agents:
     - name: assistant
       tools: [files:*, mcp:*] # mcp: GitHub and Linear as the signed-in user
       skills:
-          allow: [mcp_tools, linear_triage, house_style]
-          preload: [mcp_tools] # MCP is this agent's main job
+          allow: [linear_triage, house_style]
 ```
 
 - **Grant `mcp:*`, not single tools.** `mcp_servers`, `mcp_tools`,
@@ -38,35 +37,37 @@ agents:
   anything upstream.
 - **Handoffs.** A router that only routes does not get `mcp:*`. Hand off to the
   agent that has it, and say so in that agent's `description:`.
-- **`skills:`**. If the agent has an `allow:` list, `mcp_tools` must be in it.
-  A `preload` entry must also be in `allow`. Leave `preload` out when the agent
-  only sometimes reaches an external service: the index line costs one line,
-  and preloading costs the whole skill on every call.
 
-## 3. Install the runtime skill
+## 3. The house rules
 
-Copy the template into the project's catalog. The folder name is the skill name:
+Nothing to copy. The grant is what delivers them: `agents/mcp-instructions.md`
+(`requires: [tools:mcp]`) reaches every agent granted the group, and
+`agents/mcp-memory-instructions.md` (`requires: [tools:mcp, memory]`) those that
+also have memory. Both are zen's copies, scaffolded into every project.
 
-```sh
-mkdir -p agents/skills/mcp_tools
-cp .github/skills/zen-mcp/references/runtime-skill.md agents/skills/mcp_tools/SKILL.md
+- If either is missing - a project scaffolded by an older `zen` - run
+  `zen check --fix`. `zen check` reports it as `mcp.uninstructed` or
+  `mcp-memory.uninstructed`.
+- Never edit them. Project-specific text goes in a file beside them,
+  `agents/mcp-policy-instructions.md`:
+
+```markdown
+---
+requires: [tools:mcp]
+---
+
+# Services in this project
+
+- `github` - pull requests, reviews and issues in the user's repositories.
+- `linear` - the user's issues and projects.
 ```
 
-Then edit **only** what is project-specific in the copy:
+List only servers the user confirmed. Leave the file out if none were: the
+agent discovers them. Copy the `requires:` line - without it the file reaches
+every agent.
 
-- The **Servers** section: list the servers the user confirmed, with one line on
-  what each is for here. Leave the section out if none were confirmed, so the
-  agent discovers them.
-- The **Memory** section: delete it if the project has no `memory:` block,
-  since an agent without the memory tools cannot follow it. Keep it otherwise.
-- Remove the two `<!-- ... -->` editor notes.
-- Nothing else. The discovery order, search procedure and connect handling
-  describe how the platform behaves, not this project.
-
-Why copy and not reference: `.github/` is the editor's tree, and a running agent
-cannot read it. `zen init` and `zen open` also rewrite `.github/`, so the copy in
-`agents/skills/` is the one the project owns. To pick up a newer template later,
-compare the two files and merge by hand.
+- A project that still has the older `agents/skills/mcp_tools/` skill: delete
+  it and its `allow`/`preload` entries. The house rules replace it.
 
 ### Skills from somewhere else
 
@@ -76,7 +77,7 @@ MCP skills in one directory and use them in several projects:
 ```yaml
 skills:
     - agents/skills
-    - ../shared/mcp-skills # mcp_tools, github_review, linear_triage
+    - ../shared/mcp-skills # github_review, linear_triage
 ```
 
 With several directories the catalog is mounted at `/skills/<folder>` per
@@ -98,7 +99,7 @@ agents/skills/linear_triage/SKILL.md
 description: Triage the user's open Linear issues - list, group by state and priority, propose next steps.
 ---
 
-Needs `mcp:*` and the `mcp_tools` skill. Without them, say MCP is not
+Needs the `mcp_*` tools. Without them, say MCP is not
 available here and stop.
 
 1. `mcp_call` server `linear`, tool `list_issues`, arguments
@@ -118,7 +119,7 @@ user confirmed, and leave argument details to `mcp_describe` when unsure.
 
 Rules for these skills:
 
-- **State the prerequisite first** (`mcp:*`, `mcp_tools`) and what to do without
+- **State the prerequisite first** (the `mcp_*` tools) and what to do without
   it. The catalog is readable by every agent, including ones not granted the
   skill.
 - **Name the tool and argument shape, but still describe once per run.** Tools
@@ -129,9 +130,18 @@ Rules for these skills:
 - **No user-specific ids.** A team id, repo or workspace belongs to one user.
   The skill tells the agent how to find it (`list_teams`, or memory), not the
   value itself.
+- **Do not restate the house rules.** Discovery, the connect pause and
+  truncation are already in every MCP agent's prompt.
 - **Bind it** in `skills.allow` of the agents that hold `mcp:*`.
 
-## 5. Check
+## 5. A prompt line
+
+In `agents/prompts/<name>.md` of each agent from step 2, one line saying when to
+reach for the services - for example _"For anything about the user's issues,
+pull requests or tickets, use the MCP tools."_ A grant the prompt never
+mentions is used at the model's discretion.
+
+## 6. Check
 
 ```sh
 zen check
@@ -139,6 +149,7 @@ zen check
 
 - `unknown tool "mcp:*"` means this is not a Zenera environment. Keep the grant
   and check the project in Zenera.
+- `mcp.uninstructed` or `mcp-memory.uninstructed`: run `zen check --fix`.
 - `skills.allow` / `preload` naming something absent means the folder name and
   the binding differ.
 

@@ -271,8 +271,14 @@ const FILE_RULES = 'agents/files-instructions.md';
 const MEMORY_RULES = 'agents/memory-instructions.md';
 /** The only place forking is explained to a model; the same holds. */
 const FORK_RULES = 'agents/fork-instructions.md';
+/** How a run finds and calls an external service through the `mcp` tools. */
+const MCP_RULES = 'agents/mcp-instructions.md';
+/** What an MCP agent with a memory store may commit about those calls. */
+const MCP_MEMORY_RULES = 'agents/mcp-memory-instructions.md';
+/** The tool group Zenera's MCP plugin registers. */
+const MCP_GROUP = 'mcp';
 /** The conditioned documents `zen` ships, which land whether or not they apply. */
-const OURS = new Set([FILE_RULES, MEMORY_RULES, FORK_RULES]);
+const OURS = new Set([FILE_RULES, MEMORY_RULES, FORK_RULES, MCP_RULES, MCP_MEMORY_RULES]);
 const PROMPTS_DIR = 'agents/prompts';
 const SKILLS_DIR = 'agents/skills';
 const SKILL_FILE = 'SKILL.md';
@@ -361,6 +367,46 @@ const CAPABILITIES: Record<string, (spec: AgentConfig) => boolean> = {
     'workspace-write': (spec) => hasFileWriteTools(spec),
 };
 
+/** `tools:<group>`, the open-ended capability. Mirrors the loader's. */
+const TOOLS_CAPABILITY = 'tools:';
+
+function grantsGroup(selectors: readonly string[] | undefined, group: string): boolean {
+    let whole = false;
+    const named = new Set<string>();
+    for (const raw of selectors ?? []) {
+        const drop = raw.startsWith('-');
+        const selector = (drop ? raw.slice(1) : raw).trim();
+        if (selector === '*' || selector === `${group}:*`) {
+            whole = !drop;
+            named.clear();
+            continue;
+        }
+        const colon = selector.lastIndexOf(':');
+        const name = colon >= 0 ? selector.slice(colon + 1) : selector;
+        const inGroup =
+            colon >= 0 ? selector.slice(0, colon) === group : name.startsWith(`${group}_`);
+        if (!inGroup) {
+            continue;
+        }
+        if (drop) {
+            named.delete(name);
+        } else {
+            named.add(name);
+        }
+    }
+    return whole || named.size > 0;
+}
+
+function capability(cap: string): ((spec: AgentConfig) => boolean) | undefined {
+    if (cap.startsWith(TOOLS_CAPABILITY)) {
+        const group = cap.slice(TOOLS_CAPABILITY.length);
+        return group ? (spec) => grantsGroup(spec.tools, group) : undefined;
+    }
+    return Object.hasOwn(CAPABILITIES, cap) ? CAPABILITIES[cap] : undefined;
+}
+
+const KNOWN_CAPABILITIES = [...Object.keys(CAPABILITIES), `${TOOLS_CAPABILITY}<group>`].join(', ');
+
 /** A house-rules document as found on disk, with what its frontmatter asked for. */
 interface RuleFile {
     rel: string;
@@ -403,7 +449,7 @@ function houseRules(root: string): RuleFile[] {
  */
 function rulesFor(rules: RuleFile[], spec: AgentConfig): string[] {
     return rules
-        .filter((r) => r.requires.every((cap) => CAPABILITIES[cap]?.(spec) ?? true))
+        .filter((r) => r.requires.every((cap) => capability(cap)?.(spec) ?? true))
         .map((r) => r.rel);
 }
 
@@ -567,7 +613,7 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
             });
         }
         for (const cap of requires) {
-            if (!(cap in CAPABILITIES)) {
+            if (!capability(cap)) {
                 add({
                     severity: 'error',
                     code: 'rules.requires.unknown',
@@ -575,7 +621,7 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
                     message:
                         `\`requires: ${cap}\` names no capability, so the loader refuses the ` +
                         'project',
-                    fix: `use one of: ${Object.keys(CAPABILITIES).join(', ')}`,
+                    fix: `use one of: ${KNOWN_CAPABILITIES}`,
                 });
             }
         }
@@ -656,6 +702,39 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
                 message:
                     'an agent has file tools, but nothing tells it how to use them — ' +
                     'the tools are granted with only their schemas to explain them',
+                fix: 'zen check --fix, which writes the current rules back',
+            });
+        }
+    }
+
+    // The same again for the MCP tools. They come from a plugin, so nothing in
+    // `zen` explains them otherwise, and their schemas say nothing about the
+    // connect pause, the result limit, or where they refuse to work.
+    const mcpAgents = config.agents.filter((a) => grantsGroup(a.tools, MCP_GROUP));
+    if (mcpAgents.length) {
+        const path = join(root, MCP_RULES);
+        if (!existsSync(path) || empty(path)) {
+            add({
+                severity: 'error',
+                code: 'mcp.uninstructed',
+                where: MCP_RULES,
+                message:
+                    'an agent has the mcp tools, but nothing tells it how to find, describe ' +
+                    'and call a service tool, or what to do when the user must connect',
+                fix: 'zen check --fix, which writes the current rules back',
+            });
+        }
+    }
+    if (mcpAgents.some((a) => a.memory)) {
+        const path = join(root, MCP_MEMORY_RULES);
+        if (!existsSync(path) || empty(path)) {
+            add({
+                severity: 'error',
+                code: 'mcp-memory.uninstructed',
+                where: MCP_MEMORY_RULES,
+                message:
+                    'an agent has both the mcp tools and memory, but nothing tells it to ' +
+                    'commit tool routes and never the results, which are the user’s data',
                 fix: 'zen check --fix, which writes the current rules back',
             });
         }

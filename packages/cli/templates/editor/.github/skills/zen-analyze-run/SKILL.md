@@ -642,8 +642,10 @@ When nothing warrants a change, write `No instruction changes needed.`
 In a tuning loop, keep the actionable list identical to §7 `improvements`.
 Smaller cost observations below §7's threshold stay in section 3, not here.
 
-`agents/fork-instructions.md`, `agents/memory-instructions.md` and
-`agents/tools-instructions.md` are zen's own copies, and so is every built-in
+`agents/fork-instructions.md`, `agents/memory-instructions.md`,
+`agents/tools-instructions.md`, `agents/files-instructions.md`,
+`agents/mcp-instructions.md` and `agents/mcp-memory-instructions.md` are zen's
+own copies, and so is every built-in
 tool description. Never propose editing them; propose the project's policy
 file or prompt, or say the change belongs upstream in zen.
 

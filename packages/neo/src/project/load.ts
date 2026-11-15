@@ -1,3 +1,17 @@
+// packages/neo/src/project/load.ts
+//
+// Turning a project folder (`agents.yaml`, `agents/*instructions.md`, `agents/prompts/`, skills,
+// assets, memory) into an `AgentRegistry` and a runner. Also where house rules are discovered and
+// gated by their `requires:` frontmatter (`CAPABILITIES`, `tools:<group>`).
+// Main: `loadProject(dir, opts)` -> `AgentProject`; also `readProjectConfig`, `projectRegistry`,
+// `memoryDir`, `skillDirs`, `skillMounts`, `assetsDir`.
+// Used by (through `project/index.ts` and `@zenera/neo`): the engine (`engine.ts` loads every run,
+// `projects.ts`, `audit.ts`); the CLI (`validate.ts`, `batch.ts`, `release.ts`, `container.ts`,
+// `ask.ts`, `seed.ts`, commands); the server (`store.ts`, `status.ts`, `memory.ts`);
+// `@zenera/meta` (`prepare.ts`); and SDK users directly.
+// `packages/cli/src/validate.ts` mirrors its constants and capabilities on purpose: keep the two in
+// step. Tests: test/project.test.ts.
+
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { Agent, AgentRegistry, type ForkOptions } from '../agent.ts';
@@ -369,10 +383,10 @@ function readHouseRules(root: string): HouseRule[] {
         const { data, body } = frontmatter(readFileSync(path, 'utf8'));
         const requires = toList(data.requires);
         for (const cap of requires) {
-            if (!(cap in CAPABILITIES)) {
+            if (!capability(cap)) {
                 throw new Error(
                     `${rel}: unknown capability "${cap}" in requires: ` +
-                        `(known: ${Object.keys(CAPABILITIES).join(', ')})`,
+                        `(known: ${[...Object.keys(CAPABILITIES), `${TOOLS_CAPABILITY}<group>`].join(', ')})`,
                 );
             }
         }
@@ -490,13 +504,61 @@ const CAPABILITIES: Record<string, (spec: AgentConfig) => PromptText['when'] | b
 };
 
 /**
+ * `tools:<group>`: the agent's `tools:` grants at least one tool of that group.
+ * The one open-ended entry, because groups come from plugins this package
+ * cannot list. It is still decided from `agents.yaml` alone, so a bare name
+ * counts as the group's when it carries the group's prefix (`mcp_call` for
+ * `mcp`) - the convention plugin tools are named by.
+ */
+const TOOLS_CAPABILITY = 'tools:';
+
+function grantsGroup(selectors: readonly string[] | undefined, group: string): boolean {
+    let whole = false;
+    const named = new Set<string>();
+    for (const raw of selectors ?? []) {
+        const drop = raw.startsWith('-');
+        const selector = (drop ? raw.slice(1) : raw).trim();
+        if (selector === '*' || selector === `${group}:*`) {
+            whole = !drop;
+            named.clear();
+            continue;
+        }
+        const colon = selector.lastIndexOf(':');
+        const name = colon >= 0 ? selector.slice(colon + 1) : selector;
+        const inGroup =
+            colon >= 0 ? selector.slice(0, colon) === group : name.startsWith(`${group}_`);
+        if (!inGroup) {
+            continue;
+        }
+        if (drop) {
+            named.delete(name);
+        } else {
+            named.add(name);
+        }
+    }
+    // A whole group less some names still grants the rest: no selector can
+    // withdraw every tool of a group without knowing what the group holds.
+    return whole || named.size > 0;
+}
+
+function capability(
+    cap: string,
+): ((spec: AgentConfig) => PromptText['when'] | boolean) | undefined {
+    if (cap.startsWith(TOOLS_CAPABILITY)) {
+        const group = cap.slice(TOOLS_CAPABILITY.length);
+        return group ? (spec) => grantsGroup(spec.tools, group) : undefined;
+    }
+    return Object.hasOwn(CAPABILITIES, cap) ? CAPABILITIES[cap] : undefined;
+}
+
+/**
  * The document as this agent gets it, or `undefined` when its conditions rule
  * the agent out. Several run-time conditions are met by meeting all of them.
  */
 function ruleFor(rule: HouseRule, spec: AgentConfig): PromptText | undefined {
     const gates: NonNullable<PromptText['when']>[] = [];
     for (const cap of rule.requires) {
-        const resolved = CAPABILITIES[cap](spec);
+        const resolved = capability(cap)!(spec);
         if (!resolved) {
             return undefined;
         }

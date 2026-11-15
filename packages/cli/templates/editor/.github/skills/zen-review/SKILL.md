@@ -232,10 +232,12 @@ copy sitting in this project.
 ## 9. Findings that are not yours to fix in place
 
 `zen check` reports `rules.stale`, `files.uninstructed`, `memory.uninstructed`,
-`fork.uninstructed`, `rules.requires.unknown` or `rules.unreached` against a
+`fork.uninstructed`, `mcp.uninstructed`, `mcp-memory.uninstructed`,
+`rules.requires.unknown` or `rules.unreached` against a
 file under `agents/`, and the obvious repair - open it and edit it - is wrong for
-four of those files. `tools-instructions.md`, `files-instructions.md`,
-`memory-instructions.md` and `fork-instructions.md` are `zen`'s copies:
+six of those files. `tools-instructions.md`, `files-instructions.md`,
+`memory-instructions.md`, `fork-instructions.md`, `mcp-instructions.md` and
+`mcp-memory-instructions.md` are `zen`'s copies:
 `zen check --fix` replaces them, so an edit made inside one is gone at the next
 fix, `init` or `open`.
 

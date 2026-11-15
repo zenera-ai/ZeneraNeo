@@ -1370,6 +1370,7 @@ A check is a reader, and `--fix` is the one thing it writes. It is here rather
 than behind a verb of its own because the set it may touch is narrow enough to
 state in a sentence: the files a project holds a copy of without owning them -
 `agents/files-instructions.md`, `agents/fork-instructions.md`,
+`agents/mcp-instructions.md`, `agents/mcp-memory-instructions.md`,
 `agents/memory-instructions.md`, `agents/tools-instructions.md`, and the
 `.vscode/` and `.github/` trees. Every one of them documents _this version of
 `zen`_ rather than this project, so the current text is the only one worth
@@ -1382,21 +1383,25 @@ This is the other half of `keep: true` in
 [editor.ts](packages/cli/src/editor.ts)). A scaffold never overwrites, which
 is right for `agents.yaml`, the prompts, the specification and
 `agents/instructions.md` - the project's own house rules, whose template says
-"replace this with yours" - and wrong for the four that only restate how the
+"replace this with yours" - and wrong for the six that only restate how the
 runtime behaves. Before `--fix` there was no way to upgrade them except by
 hand.
 
-`agents/files-instructions.md`, `agents/fork-instructions.md` and
+`agents/files-instructions.md`, `agents/fork-instructions.md`,
+`agents/mcp-instructions.md`, `agents/mcp-memory-instructions.md` and
 `agents/memory-instructions.md` are copied into every project, using files,
-forking or remembering or not, because `--fix` cannot know what the project
-will declare next week. All three carry a `requires:` line, so an inert copy
-reaches no prompt and costs nothing; they are the files in the set the check
-does not report for going unread.
+forking, external services or remembering or not, because `--fix` cannot know
+what the project will declare next week. All five carry a `requires:` line, so
+an inert copy reaches no prompt and costs nothing; they are the files in the set
+the check does not report for going unread. The MCP pair is gated by
+`tools:mcp`, the one capability that names a tool group rather than a key of
+`agents.yaml` - the tools come from Zenera's plugin, so the group is all `zen`
+can see of them, and the prose describes that plugin's behaviour.
 
 Being there is not the same as being current, and a stale copy looks like
 nothing at all: it parses, it loads, and it describes a runtime that has since
 moved with exactly the authority of the text that is true. So the check
-compares all four against the ones `--fix` would write and reports
+compares all six against the ones `--fix` would write and reports
 `rules.stale` for any that differ - the whole file, because no reading of one
 would have caught what actually goes stale in them. The `requires:` lines are
 the case in hand. Every project scaffolded before they existed carries a memory

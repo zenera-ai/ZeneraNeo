@@ -63,9 +63,11 @@ before the first call of that tool in a run. Then:
 
 ## Where this policy is written
 
-- In the runtime skill `mcp_tools` ([runtime-skill.md](./runtime-skill.md),
-  section _Memory_). It is read at the moment the agent uses the tools, so it is
-  the right place. Delete that section when the project has no `memory:`.
+- In `agents/mcp-memory-instructions.md`, zen's own house rules file. It has
+  `requires: [tools:mcp, memory]`, so it reaches exactly the agents that have
+  both, and nothing has to be deleted in a project without `memory:`. Never edit
+  it: `zen check --fix` replaces it.
 - Project-specific additions (for example, a team or audience that holds MCP
   routes) go in `agents/memory-policy-instructions.md`, never in
-  `agents/memory-instructions.md` (zen's own copy, see `zen-memory`).
+  `agents/memory-instructions.md` or `agents/mcp-memory-instructions.md` (zen's
+  own copies, see `zen-instructions`).

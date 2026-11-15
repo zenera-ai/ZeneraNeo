@@ -1328,7 +1328,8 @@ assembled prefix in order. The remaining copies must either have different
 audiences or be deleted.
 
 Never edit `agents/memory-instructions.md`, `agents/fork-instructions.md`,
-`agents/tools-instructions.md` or `agents/files-instructions.md`. They are copies
+`agents/tools-instructions.md`, `agents/files-instructions.md`,
+`agents/mcp-instructions.md` or `agents/mcp-memory-instructions.md`. They are copies
 of the runtime templates; `zen check --fix` replaces them wholesale. If a finding
 genuinely belongs in one — true of every Zenera project, not just this one —
 change the master upstream in the CLI templates, and note it in the run.

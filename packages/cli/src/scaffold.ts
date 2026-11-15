@@ -64,6 +64,12 @@ const TOOL_RULES = join('agents', 'tools-instructions.md');
 /** How forking behaves: the same again, reaching only agents that declare `fork:`. */
 const FORK_RULES = join('agents', 'fork-instructions.md');
 
+/** How the `mcp` tools are used: reaching only agents granted that group. */
+const MCP_RULES = join('agents', 'mcp-instructions.md');
+
+/** What an MCP agent with a store commits about its calls: routes, never results. */
+const MCP_MEMORY_RULES = join('agents', 'mcp-memory-instructions.md');
+
 /**
  * The project files that are ours rather than the project's.
  *
@@ -76,7 +82,14 @@ const FORK_RULES = join('agents', 'fork-instructions.md');
  * place: project policy on any of those subjects goes in a topic file of its
  * own beside them.
  */
-export const SHARED_RULES: readonly string[] = [FILE_RULES, FORK_RULES, MEMORY_RULES, TOOL_RULES];
+export const SHARED_RULES: readonly string[] = [
+    FILE_RULES,
+    FORK_RULES,
+    MCP_RULES,
+    MCP_MEMORY_RULES,
+    MEMORY_RULES,
+    TOOL_RULES,
+];
 
 /**
  * This `zen`'s own version, which the scaffold pins the sandbox's tools to.

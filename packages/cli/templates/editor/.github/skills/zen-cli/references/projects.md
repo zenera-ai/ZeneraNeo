@@ -23,6 +23,8 @@ agents.yaml                     the configuration
 agents/instructions.md          house rules, prepended to every agent
 agents/files-instructions.md     more of them, for agents that work with files
 agents/fork-instructions.md     more of them, for agents that can fork
+agents/mcp-instructions.md      more of them, for agents granted the mcp tools
+agents/mcp-memory-instructions.md   the same, for those that also have memory
 agents/memory-instructions.md   more of them, for agents with the memory store
 agents/tools-instructions.md    more of them, about how tools are called
 agents/prompts/default.md       the default agent's prompt

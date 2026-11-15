@@ -47,7 +47,8 @@ strip_urls() {
 # The three trees §2.5 names, prose only: a skill's own script is code the
 # sandbox runs, not text rendered into a prompt, and its paths are its own.
 #
-# The four copies `zen` ships (files-, fork-, memory-, tools-instructions.md)
+# The six copies `zen` ships (files-, fork-, mcp-, mcp-memory-, memory-,
+# tools-instructions.md)
 # are left out on purpose. They are full of worked examples, so they fail this
 # sweep by design, and the project cannot edit them anyway: `zen check` reports
 # any byte that differs as `rules.stale`.
@@ -58,7 +59,7 @@ files() {
         for file in agents/*instructions.md; do
             if [ -f "$file" ]; then echo "$file"; fi
         done
-    } | grep -Ev '^agents/(files|fork|memory|tools)-instructions\.md$' | sort -u
+    } | grep -Ev '^agents/(files|fork|mcp|mcp-memory|memory|tools)-instructions\.md$' | sort -u
 }
 
 # Every token in those files, urls removed first, and a sentence's full stop

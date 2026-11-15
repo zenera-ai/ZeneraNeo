@@ -562,7 +562,8 @@ standing rule to `agents/instructions.md`, a rule about one capability to a new
 
 You may edit prompts, skills, house rules and new policy files. You may not edit
 `agents/memory-instructions.md`, `agents/fork-instructions.md`,
-`agents/tools-instructions.md` or `agents/files-instructions.md` - `zen check
+`agents/tools-instructions.md`, `agents/files-instructions.md`,
+`agents/mcp-instructions.md` or `agents/mcp-memory-instructions.md` - `zen check
 --fix` overwrites them. You may not change a rubric to make a run pass. Do not
 change `agents.yaml`: a finding that needs it is structural - record it as an
 open problem and carry on.

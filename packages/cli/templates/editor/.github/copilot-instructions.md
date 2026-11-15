@@ -60,10 +60,10 @@ change.
 
 **Load `zen-instructions` before writing, editing, reviewing or deleting any
 `agents/*instructions.md`.** They are the house rules, prepended to every
-agent's prompt, and four of them are `zen`'s own copies rather than the
+agent's prompt, and six of them are `zen`'s own copies rather than the
 project's: an edit made inside one is lost at the next `zen check --fix`, `zen
 init` or `zen open`, with no diff to show for it. The skill is what says which
-four those are, where a project's own rules on the same subjects go instead,
+six those are, where a project's own rules on the same subjects go instead,
 how `requires:` conditions a document, and what filename order decides. None of
 that is visible in the file being edited.
 Replacing generated copies with `zen check --fix` is maintenance, not manual
@@ -247,6 +247,8 @@ my-project/
 │   ├── instructions.md            house rules, prepended to every agent
 │   ├── files-instructions.md      and more - how files are handled
 │   ├── fork-instructions.md       more of them - any `<topic>-instructions.md`
+│   ├── mcp-instructions.md        and more - how external services are called
+│   ├── mcp-memory-instructions.md and more - what of them memory keeps
 │   ├── memory-instructions.md     and more - how the graph is used
 │   ├── tools-instructions.md      and more - how tools are called
 │   ├── prompts/
@@ -662,9 +664,10 @@ follow. So:
 Target 20-60 lines each. If one exceeds ~100, split the stable half out into a
 preloaded skill.
 
-Four of these documents are **`zen`'s, not the project's** -
-`tools-instructions.md`, `files-instructions.md`, `memory-instructions.md` and
-`fork-instructions.md`. They are replaced by `zen check --fix`, and a copy that
+Six of these documents are **`zen`'s, not the project's** -
+`tools-instructions.md`, `files-instructions.md`, `memory-instructions.md`,
+`fork-instructions.md`, `mcp-instructions.md` and `mcp-memory-instructions.md`.
+They are replaced by `zen check --fix`, and a copy that
 differs is reported as `rules.stale`. This project's own rules on any of those
 subjects go in a topic file beside them - `agents/files-policy-instructions.md`,
 `agents/memory-policy-instructions.md` and the like, carrying the same
@@ -854,8 +857,14 @@ that refuse to run until that skill is active.
 
 A project running in Zenera also has `mcp:*` - external services such as GitHub
 or Linear, called as the signed-in user. Those tools work only in the app's
-chats and Test tab, and they need a runtime skill installed in `agents/skills`.
-Load `zen-mcp` before granting or reviewing them.
+chats and Test tab. How to use them reaches the agent through zen's house rules
+`agents/mcp-instructions.md`, which `requires: [tools:mcp]` delivers to every
+agent granted the group. Load `zen-mcp` before granting or reviewing them.
+
+A request to "add GitHub MCP", "connect Linear" or the like is about **this
+project's agents**: grant them `mcp:*` (`/add-mcp`, or `zen-mcp`). It never
+means editing `.vscode/mcp.json` - that gives the editor tools, not the
+project, and a project declares no servers or credentials.
 
 ### 3.6 The file tools (`files:*`, alias `workspace:*`)
 
@@ -1959,7 +1968,8 @@ Before finishing any change here:
       of every agent it reaches - `requires:` if it is about one of them
 - [ ] If any agent has file tools, `agents/files-instructions.md` is present - §3.6
 - [ ] If any agent has `fork:`, `agents/fork-instructions.md` is present - zen-topology §8
-- [ ] No `rules.stale`: the four files that are `zen`'s rather than yours say
+- [ ] If any agent has `mcp:*`, `agents/mcp-instructions.md` is present - zen-mcp
+- [ ] No `rules.stale`: the six files that are `zen`'s rather than yours say
       what this version of the runtime does, and `zen check --fix` replaces them
 - [ ] Any change to an `agents/*instructions.md` was made with the
       `zen-instructions` skill loaded, and nothing of this project's was written

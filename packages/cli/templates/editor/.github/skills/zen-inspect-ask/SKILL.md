@@ -258,7 +258,8 @@ only a finding once the sentence is confirmed.
    once in a skill with a softer tail. Grep the whole request for a distinctive
    phrase of it, then grep the project's `agents/` tree for the file to edit.
 3. **Check it is the project's file.** `fork-instructions.md`,
-   `memory-instructions.md`, `tools-instructions.md` are zen's own copies; load
+   `memory-instructions.md`, `tools-instructions.md`, `files-instructions.md`,
+   `mcp-instructions.md`, `mcp-memory-instructions.md` are zen's own copies; load
    **zen-instructions** before changing where that rule lives.
 4. **Second opinion only when justified.** A thin answer or `no instruction -
 my own default` does not itself justify more replay. In a whole-run audit,

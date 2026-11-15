@@ -287,6 +287,50 @@ describe('conditional house rules', () => {
         expect(srcs(p, 'none')).toEqual([]);
     });
 
+    it('conditions a tools:<group> document on any grant of that group', async () => {
+        const mcp = ['mcp_servers', 'mcp_tools', 'mcp_describe', 'mcp_call'].map((name) =>
+            tool({
+                name,
+                group: 'mcp',
+                description: name,
+                parameters: { type: 'object', properties: {}, additionalProperties: false },
+                execute: () => 'ok',
+            }),
+        );
+        const tools = [...fileTools({ root: tmpdir() }), ...mcp];
+        const p = await loadProject(
+            project({
+                'agents.yaml':
+                    'agents:\n' +
+                    '  - name: group\n    tools: [mcp:*]\n' +
+                    '  - name: lookonly\n    tools: [mcp:*, -mcp_call]\n' +
+                    '  - name: bare\n    tools: [mcp_call]\n' +
+                    '  - name: all\n    tools: ["*"]\n' +
+                    '  - name: withdrawn\n    tools: ["*", "-mcp:*"]\n' +
+                    '  - name: none\n    tools: [files:*]\n',
+                'agents/mcp-instructions.md': '---\nrequires: [tools:mcp]\n---\nDescribe first.',
+            }),
+            { tools },
+        );
+        for (const name of ['group', 'lookonly', 'bare', 'all']) {
+            expect(srcs(p, name)).toContain('agents/mcp-instructions.md');
+        }
+        for (const name of ['withdrawn', 'none']) {
+            expect(srcs(p, name)).not.toContain('agents/mcp-instructions.md');
+        }
+    });
+
+    it('refuses tools: with no group', async () => {
+        await expect(
+            loadProject(
+                project({
+                    'agents.yaml': TWO_AGENTS,
+                    'agents/odd-instructions.md': '---\nrequires: ["tools:"]\n---\nHm.',
+                }),
+            ),
+        ).rejects.toThrow(/agents\/odd-instructions\.md.*tools:/s);
+    });
+
     it('leaves a document without frontmatter unconditional, header and all', async () => {
         const p = await loadProject(
             project({

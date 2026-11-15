@@ -1,6 +1,6 @@
 ---
 name: zen-mcp
-description: 'MCP servers (GitHub, Linear, Notion, ...) in a Zenera project - the `mcp:*` tool group (`mcp_servers`, `mcp_tools`, `mcp_describe`, `mcp_call`) that Zenera provides, where those tools work and where they only refuse, how to grant them in `agents.yaml`, how to install the runtime `mcp_tools` skill and per-workflow skills into `agents/skills`, how an agent discovers, searches and calls a tool, the connect-your-account pause, result limits, and caching tool routes in memory. Load before adding, reviewing or debugging `mcp:*` or any `mcp_*` tool in a project, or a skill or prompt that tells an agent to use an external service through MCP.'
+description: 'MCP servers (GitHub, Linear, Notion, ...) in a Zenera project - the `mcp:*` tool group (`mcp_servers`, `mcp_tools`, `mcp_describe`, `mcp_call`) that Zenera provides, where those tools work and where they only refuse, how to grant them in `agents.yaml`, the house rules `agents/mcp-instructions.md` and `agents/mcp-memory-instructions.md` that reach every agent granted the group, per-workflow skills in `agents/skills`, how an agent discovers, searches and calls a tool, the connect-your-account pause, result limits, and caching tool routes in memory. Load before adding, reviewing or debugging `mcp:*` or any `mcp_*` tool in a project, or a skill or prompt that tells an agent to use an external service through MCP, and whenever `mcp.uninstructed` or `mcp-memory.uninstructed` is reported.'
 user-invocable: false
 ---
 
@@ -25,7 +25,10 @@ Detail on each reply, the errors and the limits is in
 
 - **The tools are Zenera's, not the project's.** Every project running in
   Zenera has them. Nothing goes in `agents.yaml` except the grant, and nothing
-  goes in `.env`.
+  goes in `.env`. How to use them reaches the agent as zen's own house rules,
+  `agents/mcp-instructions.md` (and `agents/mcp-memory-instructions.md` with
+  memory), which every scaffold carries and which `requires: [tools:mcp]`
+  delivers only to agents granted the group.
 - **Which servers exist** is up to the Zenera administrator. **Which of them this
   project may use**, and optionally which of their tools, is set by a project
   editor in the app under _Project settings → MCP servers_. You cannot see or
@@ -60,51 +63,51 @@ Consequences you must design for:
   fail with `unknown tool "mcp:*"`. That is the environment, not the project:
   do not remove the grant. Check the project in Zenera instead.
 
-## 3. Obligations `zen check` does not report
+## 3. What a project with `mcp:*` needs
 
-A project that grants `mcp:*` is not finished until all of these hold:
+`zen check` reports the house rules missing (`mcp.uninstructed`,
+`mcp-memory.uninstructed`) or edited (`rules.stale`). It does not report the
+rest of this list.
 
 1. **Grant the group only to the agents that act on external services.** Use
    `tools: [mcp:*, ...]`. Grant the group, not a hand-picked subset, because the
    four tools are one procedure and an agent missing `mcp_describe` guesses
    arguments. A router or a summariser does not get it.
-2. **Install the runtime skill.** Copy
-   [references/runtime-skill.md](./references/runtime-skill.md) to
-   `agents/skills/mcp_tools/SKILL.md` unchanged in substance. It is the only
-   thing that teaches a running agent the discover → describe → call order,
-   how to search, how to handle the connect pause and truncation, and the memory
-   rules. Bind it to every agent holding `mcp:*`: add it to `skills.allow`, and
-   to `preload` when MCP is that agent's main job. How to do this:
-   [references/install.md](./references/install.md).
+2. **Keep zen's house rules.** `agents/mcp-instructions.md` is the only thing
+   that teaches a running agent the discover → describe → call order, how to
+   choose a tool, the connect pause and truncation; with memory,
+   `agents/mcp-memory-instructions.md` adds the memory rules. Both are zen's
+   copies: never edit them, and restore them with `zen check --fix`. They need
+   no binding: the grant is what delivers them.
 3. **One project skill per recurring workflow** that names the server, the tool
    route and the argument shape, for example `agents/skills/linear_triage/`.
    Name only servers the user has confirmed are enabled, and tell the agent to
    fall back to discovery when the named tool is refused. See
    [references/install.md §4](./references/install.md#4-workflow-skills).
 4. **A prompt line saying when to reach for it.** For example: _"For anything
-   about the user's issues, pull requests or tickets, use the MCP tools - load
-   `mcp_tools` first."_ A grant the prompt never mentions is used at the
-   model's discretion.
-5. **Memory policy for MCP**, if the project has `memory:`: cache routes, never
-   results. See [references/memory-cache.md](./references/memory-cache.md). It
-   goes in the `mcp_tools` skill (already there) and, for project-specific
-   policy, `agents/memory-policy-instructions.md`.
+   about the user's issues, pull requests or tickets, use the MCP tools."_ A
+   grant the prompt never mentions is used at the model's discretion.
+5. **Project policy beside, not inside.** Which servers this project uses and
+   what each is for goes in `agents/mcp-policy-instructions.md` with
+   `requires: [tools:mcp]`; project-specific memory policy goes in
+   `agents/memory-policy-instructions.md`. See
+   [references/memory-cache.md](./references/memory-cache.md).
 6. **No `mcp_*` in a skill's frontmatter `tools:`.** An agent-level grant of the
    same name wins and is never gated, so the line does nothing except mislead
    the next reader. Gate by binding the skill, not the tool.
 7. **No credentials or connect URLs anywhere in the project.** Zenera gives each
    run its access. A connect URL belongs to one user's sign-in and expires.
 
-There is no `requires: [mcp]` for house rules. The vocabulary is closed (see
-`zen-instructions`), so MCP guidance lives in the skill, not in
-`agents/*instructions.md`.
+A project scaffolded before these files existed has neither: `zen check --fix`
+writes both. A project that installed the older `agents/skills/mcp_tools` skill
+can delete it and its `allow`/`preload` entries once the house rules are there,
+since the two say the same thing twice.
 
 ## 4. Review checklist
 
-- [ ] Every agent with `mcp:*` has `mcp_tools` reachable: in `allow`, or the
-      catalog is unrestricted. If MCP is its main job, the skill is also in `preload`.
-- [ ] `agents/skills/mcp_tools/SKILL.md` exists and still has the discovery,
-      search, connect and memory sections from the runtime template.
+- [ ] `agents/mcp-instructions.md` is present and not `rules.stale`; with
+      memory, so is `agents/mcp-memory-instructions.md`.
+- [ ] No leftover `agents/skills/mcp_tools/` duplicating them.
 - [ ] Workflow skills name servers the user confirmed. Each says what to do when
       the server or tool is refused, and none hard-codes an id that belongs to
       one user (a team, repo or workspace of theirs).
@@ -116,24 +119,24 @@ There is no `requires: [mcp]` for house rules. The vocabulary is closed (see
 
 ## 5. When it goes wrong
 
-| Symptom                                                   | Cause and fix                                                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `unknown tool "mcp:*"` at load                            | Not a Zenera environment - §2. Not a project error                                                     |
-| Every call: _"MCP is not available in this run"_          | A terminal, batch or job run. Use the chat or Test tab                                                 |
-| `<server> is not enabled for this project (enabled: ...)` | Enable it in Project settings → MCP servers, or change the skill to a listed server                    |
-| `<server>'s tool <tool> is not enabled for this project`  | The editor restricted that server's tools. Enable the tool or route around it                          |
-| Agent guesses arguments, call fails validation            | It skipped `mcp_describe`. Check the runtime skill is loaded, or preload it                            |
-| Result ends with `truncated: true` and a `note`           | Over 60,000 characters. Ask for less: filters, fields, smaller pages - discovery.md §5                 |
-| Run sits waiting after a call                             | The user has not connected the service. The card is in the chat; nothing to fix in the project         |
-| Agent pastes a link and stops                             | Older host without pause support: `auth_required` + `connect_url`. Correct behaviour                   |
-| Agent re-lists every server's tools every turn            | The runtime skill's search procedure is missing, or memory routes are not committed                    |
-| Agent acts on a recalled route that no longer exists      | Memory was trusted over the server. The skill must say to re-describe on any refusal - memory-cache.md |
+| Symptom                                                   | Cause and fix                                                                                           |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `unknown tool "mcp:*"` at load                            | Not a Zenera environment - §2. Not a project error                                                      |
+| Every call: _"MCP is not available in this run"_          | A terminal, batch or job run. Use the chat or Test tab                                                  |
+| `<server> is not enabled for this project (enabled: ...)` | Enable it in Project settings → MCP servers, or change the skill to a listed server                     |
+| `<server>'s tool <tool> is not enabled for this project`  | The editor restricted that server's tools. Enable the tool or route around it                           |
+| `mcp.uninstructed` / `mcp-memory.uninstructed`            | A house rules file is missing or empty. `zen check --fix`                                               |
+| Agent guesses arguments, call fails validation            | It skipped `mcp_describe`. Check `agents/mcp-instructions.md` is in its prompt (`zen check` lists it)   |
+| Result ends with `truncated: true` and a `note`           | Over 60,000 characters. Ask for less: filters, fields, smaller pages - discovery.md §5                  |
+| Run sits waiting after a call                             | The user has not connected the service. The card is in the chat; nothing to fix in the project          |
+| Agent pastes a link and stops                             | Older host without pause support: `auth_required` + `connect_url`. Correct behaviour                    |
+| Agent re-lists every server's tools every turn            | No workflow skill for the job, or with memory, routes are not being committed                           |
+| Agent acts on a recalled route that no longer exists      | Memory was trusted over the server. The house rules say to re-describe on any refusal - memory-cache.md |
 
 ## References
 
-| File                                                         | Read when                                                                        |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| [references/install.md](./references/install.md)             | Adding MCP to a project: `tools:`, skill install and binding, workflow skills    |
-| [references/discovery.md](./references/discovery.md)         | How a run finds servers and tools, searches, calls, and reads replies and errors |
-| [references/memory-cache.md](./references/memory-cache.md)   | The project has `memory:`, or an agent re-discovers the same tools every run     |
-| [references/runtime-skill.md](./references/runtime-skill.md) | The text to copy to `agents/skills/mcp_tools/SKILL.md`                           |
+| File                                                       | Read when                                                                        |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [references/install.md](./references/install.md)           | Adding MCP to a project: `tools:`, house rules, policy file, workflow skills     |
+| [references/discovery.md](./references/discovery.md)       | How a run finds servers and tools, searches, calls, and reads replies and errors |
+| [references/memory-cache.md](./references/memory-cache.md) | The project has `memory:`, or an agent re-discovers the same tools every run     |

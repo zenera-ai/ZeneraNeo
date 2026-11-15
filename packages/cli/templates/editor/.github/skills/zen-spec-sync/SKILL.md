@@ -333,7 +333,8 @@ Outside the two narrow tiers:
 5. **`zen-instructions` is loaded before editing a project-owned house rule.** A pass
    whose scope reaches `agents/*instructions.md` - and input 4 puts it there
    whenever a project-owned one moved - has to know that `tools-instructions.md`,
-   `files-instructions.md`, `memory-instructions.md` and `fork-instructions.md`
+   `files-instructions.md`, `memory-instructions.md`, `fork-instructions.md`,
+   `mcp-instructions.md` and `mcp-memory-instructions.md`
    are `zen`'s and are replaced by `zen check --fix`. A pass that writes a
    requirement into one of them has implemented nothing: the next `open` reverts
    it, the history entry claims it, and the baseline records it as applied.
