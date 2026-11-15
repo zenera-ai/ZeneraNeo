@@ -1,0 +1,459 @@
+{
+    "generatedBy": "scripts/hostile-archives.mjs",
+    "quick": false,
+    "limits": {
+        "entries": 200000,
+        "bytes": 8589934592
+    },
+    "cases": [
+        {
+            "id": "traversal-parent",
+            "title": "A path that walks out of the target",
+            "why": "The classic zip-slip: the entry name contains `..`, so a naive reader writes beside the destination.",
+            "expect": "refused",
+            "archive": "<archives>/traversal-parent.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error <archives>/traversal-parent.zip is not a zip archive zen can unpack — invalid relative path: ../../pwned.txt",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "traversal-absolute",
+            "title": "An absolute path",
+            "why": "`/etc/passwd` is not a project file, whatever the manifest says.",
+            "expect": "refused",
+            "archive": "<archives>/traversal-absolute.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error <archives>/traversal-absolute.zip is not a zip archive zen can unpack — absolute path: /etc/passwd",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "traversal-backslash",
+            "title": "A Windows separator in the name",
+            "why": "A reader that normalises `\\` to `/` after checking the path has already lost the argument.",
+            "expect": "refused",
+            "archive": "<archives>/traversal-backslash.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error <archives>/traversal-backslash.zip is not a zip archive zen can unpack — invalid relative path: proj/../pwned",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "wrong-root",
+            "title": "An entry outside the manifest root",
+            "why": "The manifest names one directory; an entry from another one was not written by the exporter.",
+            "expect": "refused",
+            "archive": "<archives>/wrong-root.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error zzzz/xx.txt does not belong under proj/ — this archive was not written by `zen export`",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "symlink-file",
+            "title": "A symbolic link to /etc/passwd",
+            "why": "Writing a link is writing a path the extractor never checked.",
+            "expect": "refused",
+            "archive": "<archives>/symlink-file.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/a.txt is a symbolic link — a link can point out of the directory being written to",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "symlink-dir",
+            "title": "A symbolic link shaped like a directory",
+            "why": "The trailing slash makes a naive reader treat it as a directory entry, which is often skipped before the mode is checked.",
+            "expect": "refused",
+            "archive": "<archives>/symlink-dir.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/link/ is a symbolic link — a link can point out of the directory being written to",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "fifo-entry",
+            "title": "A fifo that claims to be a file",
+            "why": "Only regular files and directories belong in a project archive. A fifo is a different kind of object and must not be materialised.",
+            "expect": "refused",
+            "archive": "<archives>/fifo-entry.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/fifo is not a regular file — this archive was not written by `zen export`",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "dir-mode-no-slash",
+            "title": "A directory mode on a file name",
+            "why": "The type bits say directory and the name says file; the two disagree, so the entry is not trustworthy.",
+            "expect": "refused",
+            "archive": "<archives>/dir-mode-no-slash.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/weird is a directory entry without a trailing slash — this archive was not written by `zen export`",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "encrypted",
+            "title": "An encrypted entry",
+            "why": "This tool does not write encrypted entries, so it cannot tell what this one contains.",
+            "expect": "refused",
+            "archive": "<archives>/encrypted.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/secret.txt is encrypted — zen does not write those",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "entry-flood-files",
+            "title": "An absurd number of file entries",
+            "why": "A central directory can ask for more work than a person would ever pack. It should be refused before the first file is created.",
+            "expect": "refused",
+            "archive": "<archives>/entry-flood-files.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error this archive holds more than 200000 entries",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "entry-flood-dirs",
+            "title": "An absurd number of directory entries",
+            "why": "Directory entries are not files, but they are still records in the central directory. A count that only counts files lets a flood through.",
+            "expect": "refused",
+            "archive": "<archives>/entry-flood-dirs.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error this archive holds more than 200000 entries",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "bomb-declared",
+            "title": "An expansion bomb that declares more than 8 GiB",
+            "why": "The payload is a few bytes; the central directory claims gigabytes. The preflight must sum the claims before opening a decompressor.",
+            "expect": "refused",
+            "archive": "<archives>/bomb-declared.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error this archive unpacks to more than 8 GiB",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "bomb-under-limit",
+            "title": "A highly compressible payload below the limit",
+            "why": "This one is accepted by policy: the absolute byte bound is the defence, not a compression-ratio rule. The report records the residual risk.",
+            "expect": "accepted",
+            "archive": "<archives>/bomb-under-limit.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/bomb-under-limit/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/bomb-under-limit/landing",
+                "name": "proj",
+                "files": 1,
+                "bytes": 67108864,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "bomb.bin",
+                    "bytes": 67108864,
+                    "mode": 420
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "case-collision",
+            "title": "Two names that differ only in case",
+            "why": "On macOS and Windows one entry silently overwrites the other; which one wins depends on extraction order.",
+            "expect": "refused",
+            "archive": "<archives>/case-collision.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/agents.yaml and proj/AGENTS.yaml differ only in case — a case-insensitive filesystem would overwrite one with the other",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "unicode-collision",
+            "title": "Two spellings of the same Unicode name",
+            "why": "NFC and NFD are different bytes and the same name on a filesystem that normalises. Folding only case misses this.",
+            "expect": "refused",
+            "archive": "<archives>/unicode-collision.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/café.txt and proj/café.txt differ only in case — a case-insensitive filesystem would overwrite one with the other",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "duplicate-path",
+            "title": "The same path twice",
+            "why": "The result depends on which entry the reader writes last, so the archive means different things to different readers.",
+            "expect": "refused",
+            "archive": "<archives>/duplicate-path.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error this archive holds proj/a.txt twice — a case-insensitive filesystem would overwrite one with the other",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "file-dir-collision",
+            "title": "A path that is both a file and a directory",
+            "why": "Writing the file succeeds and writing below it fails with ENOTDIR, leaving a half-written tree.",
+            "expect": "refused",
+            "archive": "<archives>/file-dir-collision.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error proj/a/b is both a file and a directory in this archive",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "mode-setuid",
+            "title": "A setuid bit on a regular file",
+            "why": "A mode is the archive's claim. The importer replaces it, so setuid cannot survive.",
+            "expect": "accepted",
+            "archive": "<archives>/mode-setuid.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/mode-setuid/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/mode-setuid/landing",
+                "name": "proj",
+                "files": 1,
+                "bytes": 10,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "tool",
+                    "bytes": 10,
+                    "mode": 420
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "mode-zero",
+            "title": "A file with no permission bits",
+            "why": "A zero mode is a valid claim but not a useful file; the importer decides the mode instead.",
+            "expect": "accepted",
+            "archive": "<archives>/mode-zero.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/mode-zero/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/mode-zero/landing",
+                "name": "proj",
+                "files": 1,
+                "bytes": 8,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "zero",
+                    "bytes": 8,
+                    "mode": 420
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "mode-world",
+            "title": "A world-writable file",
+            "why": "A 0777 claim must not become a 0777 file.",
+            "expect": "accepted",
+            "archive": "<archives>/mode-world.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/mode-world/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/mode-world/landing",
+                "name": "proj",
+                "files": 1,
+                "bytes": 9,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "world",
+                    "bytes": 9,
+                    "mode": 420
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "mode-shell",
+            "title": "An executable shell script",
+            "why": "A script has to be runnable to be useful, and that is the only bit the importer grants.",
+            "expect": "accepted",
+            "archive": "<archives>/mode-shell.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/mode-shell/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/mode-shell/landing",
+                "name": "proj",
+                "files": 1,
+                "bytes": 18,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "run.sh",
+                    "bytes": 18,
+                    "mode": 493
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "manifest-traversal",
+            "title": "A manifest that names a path outside the target",
+            "why": "The root and the name are used to build paths and registry keys, so they are checked rather than trusted.",
+            "expect": "refused",
+            "archive": "<archives>/manifest-traversal.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error zenera-export.json names the project in a way zen will not write",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "partial-write",
+            "title": "A benign entry before a hostile one",
+            "why": "If the guard runs while writing, the benign file is already on disk when the hostile entry is refused.",
+            "expect": "refused",
+            "archive": "<archives>/partial-write.zip",
+            "exit": 3,
+            "verdict": "refused",
+            "message": "error <archives>/partial-write.zip is not a zip archive zen can unpack — invalid relative path: ../../pwned.txt",
+            "files": [],
+            "outside": []
+        },
+        {
+            "id": "windows-names",
+            "title": "Names Windows cannot represent safely",
+            "why": "A Linux import accepts these, then a Windows checkout has to deal with them. The report records them as residual risk rather than claiming they are safe.",
+            "expect": "accepted",
+            "archive": "<archives>/windows-names.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/windows-names/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/windows-names/landing",
+                "name": "proj",
+                "files": 4,
+                "bytes": 0,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [
+                {
+                    "path": "C:/x",
+                    "bytes": 0,
+                    "mode": 420
+                },
+                {
+                    "path": "CON",
+                    "bytes": 0,
+                    "mode": 420
+                },
+                {
+                    "path": "aux.txt",
+                    "bytes": 0,
+                    "mode": 420
+                },
+                {
+                    "path": "name.",
+                    "bytes": 0,
+                    "mode": 420
+                }
+            ],
+            "outside": []
+        },
+        {
+            "id": "empty-dirs",
+            "title": "Directory entries with no files",
+            "why": "An empty directory is not part of the project; the archive is accepted and the directory does not travel.",
+            "expect": "accepted",
+            "archive": "<archives>/empty-dirs.zip",
+            "exit": 0,
+            "verdict": "accepted",
+            "message": "warning <run>/empty-dirs/landing has no agents.yaml — the archive did not hold a whole project",
+            "imported": {
+                "dir": "<run>/empty-dirs/landing",
+                "name": "proj",
+                "files": 0,
+                "bytes": 0,
+                "registered": false,
+                "from": {
+                    "project": "proj",
+                    "exportedAt": "2026-01-01T00:00:00.000Z",
+                    "cli": "0.0.0-hostile"
+                },
+                "vectors": true,
+                "memory": true
+            },
+            "files": [],
+            "outside": []
+        }
+    ]
+}
