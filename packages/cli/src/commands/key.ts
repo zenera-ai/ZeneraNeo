@@ -509,11 +509,24 @@ async function promptFor(shape: (typeof SHAPES)[KeyOwner]): Promise<string> {
         : askSecret('Paste the key (it will not be shown):');
 }
 
+/**
+ * The key was left off the line. Asking "which key?" alone sends the reader to
+ * `zen key ls` without saying how to write the answer once they have it, and on
+ * an empty keyring that listing has nothing to copy from. So name the shape,
+ * with an example in it, and keep the pointer to the listing as the hint.
+ */
+function whichKey(sub: string, shape: string, example: string): ReturnType<typeof usageError> {
+    return usageError(
+        `which key? name it as ${shape}, e.g. zen key ${sub} ${example}`,
+        'see: zen key ls',
+    );
+}
+
 const use: Sub = async (ctx, args) => {
     const { positionals } = parse(args, {}, 'zen key use <provider>/<name>');
     const ref = positionals[0];
     if (!ref) {
-        throw usageError('which key?', 'see: zen key ls');
+        throw whichKey('use', '<provider>/<name>', 'openai/default');
     }
     const { provider, name } = parseRef(ref);
     if (!name) {
@@ -635,7 +648,7 @@ const rm: Sub = async (ctx, args) => {
     );
     const ref = positionals[0];
     if (!ref) {
-        throw usageError('which key?', 'see: zen key ls');
+        throw whichKey('rm', '<provider>/<name>', 'openai/default');
     }
     const { provider, name } = parseRef(ref);
     if (!name) {
@@ -669,7 +682,7 @@ const show: Sub = async (ctx, args) => {
     );
     const ref = positionals[0];
     if (!ref) {
-        throw usageError('which key?', 'see: zen key ls');
+        throw whichKey('show', '<provider>[/name]', 'openai');
     }
     const store = await KeyStore.open();
     const entry = select(store, ref)[0];
