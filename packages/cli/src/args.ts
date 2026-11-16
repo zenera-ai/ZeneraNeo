@@ -74,11 +74,17 @@ export function describeParseError(err: Error & { code?: string }, options: Opti
  * The candidate a mistyped word most plausibly meant, or nothing when none is
  * close. Distance counts insertions, deletions, substitutions and swaps of two
  * neighbouring letters, so `inti` is one edit from `init`. Short words get
- * less slack than long ones, or every three-letter typo would match something.
+ * less slack than long ones, or every three-letter typo would match something,
+ * and a word under three letters gets no suggestion at all.
  */
 export function closest(word: string, candidates: readonly string[]): string | undefined {
     const bare = (s: string): string => s.replace(/^-+/, '').toLowerCase();
     const w = bare(word);
+    // Every one- or two-letter word is a single edit from every other, so a
+    // suggestion for `-x` (say, `-h`) would be a guess, not a correction.
+    if (w.length < 3) {
+        return undefined;
+    }
     const limit = w.length <= 4 ? 1 : 2;
     let best: string | undefined;
     let bestDistance = limit + 1;

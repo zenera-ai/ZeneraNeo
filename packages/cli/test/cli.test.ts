@@ -176,6 +176,11 @@ describe('suggesting what a typo meant', () => {
         expect(closest('xyz', commands)).toBeUndefined();
     });
 
+    it('does not guess at a one- or two-letter word', () => {
+        expect(closest('-x', ['-h', '-v', '-C'])).toBeUndefined();
+        expect(closest('rn', commands)).toBeUndefined();
+    });
+
     it('compares flags without their dashes and returns them as written', () => {
         expect(closest('--nmae', ['--name', '--model', '--force'])).toBe('--name');
     });
