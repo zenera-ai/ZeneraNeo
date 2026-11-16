@@ -695,15 +695,30 @@ describe('a refused connection', () => {
         expect(n).toBe(1);
     });
 
-    it('does not repeat a command that had already produced output', async () => {
+    it.each([1, 125])('does not repeat output-producing work with exit code %i', async (code) => {
         let n = 0;
+        const result = answer({ code, stdout: 'partial', stderr: 'connection reset by peer' });
         const run: Runner = () => {
             n++;
-            return Promise.resolve(
-                answer({ code: 1, stdout: 'partial', stderr: 'connection reset by peer' }),
-            );
+            return Promise.resolve(result);
         };
-        await resilient(run)('podman', ['exec']);
+        expect(await resilient(run)('podman', ['exec'])).toBe(result);
+        expect(n).toBe(1);
+    });
+
+    it('does not repeat timed-out work even when stderr resembles a transport failure', async () => {
+        let n = 0;
+        const result = answer({
+            code: 124,
+            stderr: 'connection reset by peer',
+            timedOut: true,
+        });
+        const run: Runner = () => {
+            n++;
+            return Promise.resolve(result);
+        };
+
+        expect(await resilient(run)('podman', ['exec'])).toBe(result);
         expect(n).toBe(1);
     });
 
