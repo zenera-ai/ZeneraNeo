@@ -407,6 +407,10 @@ interface ActiveToken {
     createdAt: number;
 }
 
+function tokenStateKey(operationKey: string, streamKey: string, token: string): string {
+    return JSON.stringify([operationKey, streamKey, token]);
+}
+
 /**
  * Tracks active pagination streams to bound iterations and prevent infinite loops.
  *
@@ -415,11 +419,15 @@ interface ActiveToken {
  */
 export class PaginationLimiter {
     readonly #tokens = new Map<string, ActiveToken>();
-    readonly #maxPagesFactory: () => number;
+    readonly #maxPagesFactory: (operationKey: string) => number;
     readonly #maxEntries: number;
 
-    constructor(maxPages: number | (() => number) = () => randomInt(1, 11), maxEntries = 5000) {
+    constructor(
+        maxPages: number | ((operationKey: string) => number) = () => randomInt(1, 11),
+        maxEntries = 5000,
+    ) {
         this.#maxPagesFactory = typeof maxPages === 'function' ? maxPages : () => maxPages;
+
         this.#maxEntries = maxEntries;
     }
 
@@ -432,10 +440,11 @@ export class PaginationLimiter {
     ): PaginationCutResult | undefined {
         this.#prune();
         const nextToken = tokenOf(value, paging);
+        const keyOf = (token: string): string => tokenStateKey(operationKey, streamKey, token);
 
         // Case 1: First page (no cursor sent)
         if (sent === undefined) {
-            const maxPages = Math.max(1, this.#maxPagesFactory());
+            const maxPages = Math.max(1, this.#maxPagesFactory(operationKey));
             if (maxPages === 1) {
                 if (nextToken !== undefined) {
                     cutPaging(value, paging);
@@ -444,7 +453,7 @@ export class PaginationLimiter {
                 return undefined;
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(nextToken, {
+                this.#tokens.set(keyOf(nextToken), {
                     operationKey,
                     page: 2,
                     maxPages,
@@ -457,7 +466,7 @@ export class PaginationLimiter {
         }
 
         // Case 2: Cursor was sent
-        const state = this.#tokens.get(sent);
+        const state = this.#tokens.get(keyOf(sent));
 
         // Subcase 2A: Re-requesting an already-terminated token
         if (state?.terminated) {
@@ -494,7 +503,7 @@ export class PaginationLimiter {
                 cutPaging(value, paging);
                 state.terminated = true;
                 if (nextToken !== undefined) {
-                    this.#tokens.set(nextToken, {
+                    this.#tokens.set(keyOf(nextToken), {
                         operationKey,
                         page: state.page + 1,
                         maxPages: state.maxPages,
@@ -513,7 +522,7 @@ export class PaginationLimiter {
             // Not yet at maxPages: advance to next page
             if (nextToken !== undefined) {
                 state.seenTokens.add(nextToken);
-                this.#tokens.set(nextToken, {
+                this.#tokens.set(keyOf(nextToken), {
                     operationKey,
                     page: state.page + 1,
                     maxPages: state.maxPages,
@@ -528,7 +537,7 @@ export class PaginationLimiter {
         // Subcase 2E: Untracked token (first time seen)
         const decodedPage = parsePageFromToken(sent, paging.style);
         if (decodedPage !== undefined) {
-            const maxPages = Math.max(decodedPage, this.#maxPagesFactory());
+            const maxPages = Math.max(decodedPage, this.#maxPagesFactory(operationKey));
             if (decodedPage >= maxPages) {
                 cutPaging(value, paging);
                 return {
@@ -537,7 +546,7 @@ export class PaginationLimiter {
                 };
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(nextToken, {
+                this.#tokens.set(keyOf(nextToken), {
                     operationKey,
                     page: decodedPage + 1,
                     maxPages,
@@ -550,9 +559,9 @@ export class PaginationLimiter {
         }
 
         // Untracked arbitrary string token (e.g. 'page-1' in server.test.ts)
-        const maxPages = Math.max(2, this.#maxPagesFactory());
+        const maxPages = Math.max(2, this.#maxPagesFactory(operationKey));
         if (nextToken !== undefined) {
-            this.#tokens.set(nextToken, {
+            this.#tokens.set(keyOf(nextToken), {
                 operationKey,
                 page: 2,
                 maxPages,

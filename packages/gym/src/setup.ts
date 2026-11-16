@@ -32,6 +32,7 @@ import { loadSpecs, SpecError } from './spec.ts';
 import { listWorlds, worldPath, WorldStore } from './store.ts';
 import { World, type WorldEvent } from './synth.ts';
 import { Checks } from './validate.ts';
+import { validateLongPagination, type LongPaginationPolicy } from './long-pagination.ts';
 
 // ---------------------------------------------------------------------------
 // Assembly
@@ -211,6 +212,8 @@ export interface SetupOptions {
     onWorld?: (event: WorldEvent) => void;
     onWarn?: (message: string) => void;
     onIndexing?: KnowledgeOptions['onProgress'];
+    /** Per-operation configuration for long paginated lists. */
+    longPagination?: LongPaginationPolicy;
 }
 
 export interface Setup {
@@ -265,6 +268,24 @@ export async function open(opts: SetupOptions): Promise<Setup> {
     const operations = await loadSpecs(files);
     if (operations.length === 0) {
         throw invalidError('the API documents declare no operations');
+    }
+    for (const [operationId, config] of Object.entries(opts.longPagination ?? {})) {
+        validateLongPagination(config);
+
+        const matches = operations.filter((operation) => operation.operationId === operationId);
+
+        if (matches.length !== 1) {
+            throw invalidError(
+                `--long-pagination operation "${operationId}" ` +
+                    (matches.length === 0
+                        ? 'does not exist in the loaded specification'
+                        : 'is ambiguous across the loaded specifications'),
+            );
+        }
+
+        if (!matches[0].paging?.next) {
+            throw invalidError(`operation "${operationId}" does not declare supported pagination`);
+        }
     }
     const router = new Router(operations);
     const checks = new Checks();
@@ -336,6 +357,7 @@ export async function open(opts: SetupOptions): Promise<Setup> {
         concurrency: opts.concurrency,
         rebuild: opts.rebuild,
         ephemeral: opts.ephemeral,
+        longPagination: opts.longPagination,
         ...opts.events,
     });
 

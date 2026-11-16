@@ -69,6 +69,7 @@ const DEFAULT_COUNT = 5;
 const MAX_TOOL_CALLS = 14;
 /** What one read of a collection may put into the prompt. */
 const READ_CHARS = 24_000;
+const MAX_BATCH_RECORDS = 5000;
 
 export interface WorldEvent {
     collection: string;
@@ -115,7 +116,25 @@ export class World {
         const req = normalizeRequest(request);
         const store = this.#storeFor(context.db);
         if (context.probe) {
-            return Promise.resolve(this.#stub(store, req, context.input.seed));
+            if (req.ids?.length) {
+                return Promise.resolve(this.#stub(store, req, context.input.seed));
+            }
+
+            const target = Math.max(req.count ?? 3, req.min ?? 0);
+            if (!Number.isSafeInteger(target) || target < 0 || target > MAX_BATCH_RECORDS) {
+                throw new Error(
+                    `requested ${target} probe records, maximum is ${MAX_BATCH_RECORDS}`,
+                );
+            }
+
+            const existing = store
+                .collection(req.collection)
+                .all()
+                .filter((record) => matches(record, req.where)).length;
+
+            const missingCount = req.min === undefined ? target : Math.max(0, target - existing);
+
+            return Promise.resolve(this.#stubBatches(store, req, context.input.seed, missingCount));
         }
         // One agent per collection at a time: two requests that both found the
         // inbox empty must not both fill it.
@@ -228,7 +247,9 @@ export class World {
         // A first fill makes what the story says exists, however many that is:
         // the count is only a suggestion, and what is required is what the
         // handler cannot answer without.
-        const required = req.ids?.length ?? (req.populate ? Math.max(req.min ?? 1, 1) : wanted);
+        const required =
+            req.ids?.length ??
+            (req.populate ? Math.max(req.min ?? 1, 1) : Math.max(wanted, req.min ?? 0));
         const enough = (): boolean =>
             req.ids?.length ? req.ids.every((id) => saved.has(String(id))) : saved.size >= required;
         // Stopped as soon as it is provably done — except a first fill, whose
@@ -265,15 +286,28 @@ export class World {
             store.setMeta(key, true);
         }
         if (failure) {
-            // Better a plausible-shaped answer than a failed request: the rest
-            // is sampled from the schema, and the narration says so.
+            const fallback = {
+                ...req,
+                ids: missing(req, saved),
+            };
+
+            const remaining =
+                req.min === undefined && !req.populate
+                    ? Math.max(0, required - saved.size)
+                    : Math.max(
+                          0,
+                          required -
+                              store
+                                  .collection(req.collection)
+                                  .all()
+                                  .filter((record) => matches(record, req.where)).length,
+                      );
+
             made = [
                 ...made,
-                ...this.#stub(
-                    store,
-                    { ...req, ids: missing(req, saved), count: required - saved.size },
-                    input.seed,
-                ),
+                ...(fallback.ids?.length
+                    ? this.#stub(store, fallback, input.seed)
+                    : this.#stubBatches(store, fallback, input.seed, remaining)),
             ];
         }
         const dangling = this.#dangling(store, req, [...saved.values()]);
@@ -289,6 +323,68 @@ export class World {
         return made;
     }
 
+    #stubBatches(
+        store: WorldStore,
+        req: SynthesisRequest,
+        seed: number,
+        total: number,
+    ): Record<string, unknown>[] {
+        const records: Record<string, unknown>[] = [];
+        if (!Number.isSafeInteger(total) || total < 0 || total > MAX_BATCH_RECORDS) {
+            throw new Error(`requested ${total} sampled records, maximum is ${MAX_BATCH_RECORDS}`);
+        }
+
+        for (let remaining = total; remaining > 0; remaining -= MAX_RECORDS) {
+            const count = Math.min(remaining, MAX_RECORDS);
+
+            records.push(...this.#stub(store, { ...req, count }, seed + records.length));
+        }
+
+        return records;
+    }
+
+    #uniqueId(
+        record: Record<string, unknown>,
+        idField: string,
+        type: string | undefined,
+        collection: ReturnType<WorldStore['collection']>,
+    ): string | number {
+        const validate = type ? this.#opts.catalog.validator(type) : undefined;
+        const original = record[idField];
+
+        const valid = (candidate: string | number): boolean => {
+            if (collection.has(String(candidate))) {
+                return false;
+            }
+
+            if (!validate) {
+                return true;
+            }
+
+            return validate({ ...record, [idField]: candidate });
+        };
+
+        if ((typeof original === 'string' || typeof original === 'number') && valid(original)) {
+            return original;
+        }
+
+        const numeric = typeof original === 'number';
+
+        // Start beyond the existing collection size, then find the next
+        // available schema-valid value.
+        for (let offset = 1; offset <= 10_000; offset++) {
+            const index = collection.count() + offset;
+
+            const candidate = numeric ? index : `${String(original ?? 'id')}-${index}`;
+
+            if (valid(candidate)) {
+                return candidate;
+            }
+        }
+
+        throw new Error(`could not allocate a unique schema-valid ID for ${type ?? idField}`);
+    }
+
     #stub(store: WorldStore, req: SynthesisRequest, seed: number): Record<string, unknown>[] {
         const idField = req.idField ?? 'id';
         if (!req.ids?.length) {
@@ -299,25 +395,42 @@ export class World {
             : req.collection === ACCOUNTS
               ? ACCOUNT_SCHEMA
               : undefined;
-        const n = req.ids?.length ?? Math.max(0, Math.min(req.count ?? 3, MAX_RECORDS));
+        const requested = req.count ?? req.min ?? 3;
+        const n = req.ids?.length ?? Math.max(0, Math.min(requested, MAX_RECORDS));
         const col = store.collection(req.collection);
         const out: Record<string, unknown>[] = [];
-        for (let i = 0; i < n; i++) {
+        let attempts = 0;
+        const maxAttempts = Math.max(n * 100, 100);
+        while (out.length < n) {
+            if (attempts >= maxAttempts) {
+                throw new Error(`could not generate ${n} unique records for ${req.collection}`);
+            }
+
+            const i = attempts++;
+
             const made = schema ? sample(schema, this.#opts.catalog.types, seed * 31 + i + 1) : {};
+
             const record: Record<string, unknown> =
                 typeof made === 'object' && made !== null && !Array.isArray(made)
                     ? (made as Record<string, unknown>)
                     : {};
+
             Object.assign(record, req.where ?? {});
-            const want = req.ids?.[i];
-            // A path segment is text; a schema that calls the id a number gets a number.
-            record[idField] =
-                want !== undefined
-                    ? typeof record[idField] === 'number' && /^-?\d+$/.test(String(want))
+
+            const want = req.ids?.[out.length];
+
+            if (want !== undefined) {
+                record[idField] =
+                    typeof record[idField] === 'number' && /^-?\d+$/.test(String(want))
                         ? Number(want)
-                        : want
-                    : (record[idField] ?? `${req.collection}-${seed}-${col.count() + i + 1}`);
-            col.put(String(record[idField]), record);
+                        : want;
+            } else {
+                record[idField] = this.#uniqueId(record, idField, req.type, col);
+            }
+
+            const id = String(record[idField]);
+
+            col.put(id, record);
             out.push(record);
         }
         return out;

@@ -370,6 +370,179 @@ export default (req: any) => {
         });
         expect(b.log.at(-1)).toContain('cut pagination at max pages (2)');
     });
+
+    it('serves 200 pages with unique records and tokens', async () => {
+        const paged = `
+export default (req: any, ctx: any) => {
+    const records = Array.from({ length: 400 }, (_, i) => ({
+        id: 'machine-' + (i + 1),
+        name: 'Machine ' + (i + 1),
+    }));
+
+    const page = ctx.page(records, {
+        token: req.query.cursor,
+        size: 2,
+    });
+
+    return {
+        results: page.items,
+        cursor: page.nextToken,
+        has_more: page.hasMore,
+    };
+};`;
+
+        b = await boot('paged.yaml', every(paged), {
+            server: { maxPages: 200 },
+        });
+
+        const seenTokens = new Set<string>();
+        const seenIds = new Set<string>();
+        let cursor: string | null = null;
+
+        for (let page = 1; page <= 200; page++) {
+            const url = new URL('/machines', b.base);
+
+            if (cursor !== null) {
+                url.searchParams.set('cursor', cursor);
+            }
+
+            const response = await fetch(url);
+            expect(response.status).toBe(200);
+
+            const body = (await response.json()) as {
+                results: { id: string; name: string }[];
+                cursor: string | null;
+                has_more: boolean;
+            };
+
+            expect(body.results).toHaveLength(2);
+
+            for (const record of body.results) {
+                expect(seenIds.has(record.id)).toBe(false);
+                seenIds.add(record.id);
+            }
+
+            if (page < 200) {
+                expect(body.has_more).toBe(true);
+                expect(body.cursor).not.toBeNull();
+
+                const token = body.cursor!;
+                expect(seenTokens.has(token)).toBe(false);
+                seenTokens.add(token);
+                cursor = token;
+            } else {
+                expect(body.cursor).toBeNull();
+                expect(body.has_more).toBe(false);
+            }
+        }
+
+        expect(seenIds.size).toBe(400);
+        expect(seenTokens.size).toBe(199);
+    });
+
+    it('applies different pagination limits to different operations', async () => {
+        const machineHandler = `
+    export default (req: any) => {
+        const n = req.query.cursor ? Number(req.query.cursor) : 1;
+
+        return {
+            results: [{ id: 'm' + n, name: 'Machine ' + n }],
+            cursor: n < 200 ? String(n + 1) : null,
+            has_more: n < 200,
+        };
+    };`;
+
+        const auditHandler = `
+    export default (req: any) => {
+        const n = req.body?.cursor ? Number(req.body.cursor) : 1;
+
+        return {
+            results: ['audit' + n],
+            cursor: String(n + 1),
+            has_more: true,
+        };
+    };`;
+
+        b = await boot(
+            'paged.yaml',
+            {
+                listMachines: machineHandler,
+                collectAuditLogs: auditHandler,
+            },
+            {
+                server: {
+                    maxPages: (operationKey) =>
+                        operationKey ===
+                        b?.r.operations.find(
+                            (operation) => operation.operationId === 'listMachines',
+                        )?.key
+                            ? 200
+                            : 2,
+                },
+            },
+        );
+
+        const machineKey = b.r.operations.find(
+            (operation) => operation.operationId === 'listMachines',
+        )?.key;
+
+        expect(machineKey).toBeDefined();
+
+        let cursor: string | null = null;
+        const ids = new Set<string>();
+
+        for (let page = 1; page <= 200; page++) {
+            const url = new URL('/machines', b.base);
+
+            if (cursor !== null) {
+                url.searchParams.set('cursor', cursor);
+            }
+
+            const response = await fetch(url);
+            expect(response.status).toBe(200);
+
+            const body = (await response.json()) as {
+                results: { id: string; name: string }[];
+                cursor: string | null;
+                has_more: boolean;
+            };
+
+            for (const item of body.results) {
+                ids.add(item.id);
+            }
+
+            if (page < 200) {
+                expect(body.cursor).toBe(String(page + 1));
+                expect(body.has_more).toBe(true);
+                cursor = body.cursor;
+            } else {
+                expect(body.cursor).toBeNull();
+                expect(body.has_more).toBe(false);
+            }
+        }
+
+        expect(ids.size).toBe(200);
+
+        const firstAudit = await fetch(`${b.base}/audit-logs`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+
+        const firstBody = await firstAudit.json();
+        expect(firstBody.cursor).toBe('2');
+
+        const secondAudit = await fetch(`${b.base}/audit-logs`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ cursor: '2' }),
+        });
+
+        const secondBody = await secondAudit.json();
+
+        expect(secondBody.cursor).toBeNull();
+        expect(secondBody.has_more).toBe(false);
+    });
 });
 
 // ---------------------------------------------------------------------------
