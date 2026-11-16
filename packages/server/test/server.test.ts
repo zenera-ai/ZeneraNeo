@@ -58,6 +58,8 @@ process.env.ZENERA_HOME = join(root, 'zenera-home');
 
 // --- a model: call run_command, then answer with what it printed ---------------------------
 let script = 'echo hello';
+// What the model was last asked by the person, as the provider received it.
+let lastAsked = '';
 const model = createHttpServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -65,6 +67,10 @@ const model = createHttpServer(async (req, res) => {
         messages: { role: string; content?: unknown }[];
         stream?: boolean;
     };
+    const asked = body.messages.findLast((m) => m.role === 'user')?.content;
+    lastAsked = Array.isArray(asked)
+        ? asked.map((p: { text?: string }) => p.text ?? '').join('\n')
+        : String(asked ?? '');
     const tool = body.messages.findLast((m) => m.role === 'tool');
     const delta = tool
         ? { role: 'assistant', content: `done: ${String(tool.content).slice(0, 200)}` }
@@ -457,6 +463,110 @@ describe('a turn', () => {
         expect((await call(`${url}/api/sessions/${thread}/runs`)).status).toBe(404);
         ({ url } = await start({ debug: true }));
         expect((await call(`${url}/api/sessions/${thread}/runs`)).status).toBe(200);
+    });
+
+    describe('attached files', () => {
+        async function upload(url: string, thread: string, name: string, body: string) {
+            const res = await call(
+                `${url}/api/sessions/${thread}/uploads?name=${encodeURIComponent(name)}&type=text%2Fplain`,
+                {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/octet-stream' },
+                    body,
+                },
+            );
+            return { status: res.status, body: (await res.json()) as { id: string } };
+        }
+        const fileParts = (...ids: string[]) =>
+            ids.map((id) => ({
+                type: 'document',
+                source: { type: 'file', value: id, provider: 'zenera' },
+            }));
+        async function send(url: string, thread: string, content: unknown) {
+            const res = await call(`${url}/api/sessions/${thread}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ messages: [{ id: 'm1', role: 'user', content }] }),
+            });
+            const evs = res.status === 200 ? await events(res) : [];
+            for (let i = 0; i < 50 && (await activity(url)); i++) {
+                await new Promise((r) => setTimeout(r, 20));
+            }
+            return { res, evs };
+        }
+
+        it('moves a message’s files into the workspace and tells the agent where they are', async () => {
+            const { url, serverRoot } = await start();
+            const thread = randomUUID();
+            const a = await upload(url, thread, 'notes.json', '{"a":1}');
+            expect(a.status).toBe(201);
+            expect(a.body).toMatchObject({ name: 'notes.json', size: 7, mimeType: 'text/plain' });
+            const b = await upload(url, thread, 'notes.json', 'second');
+            const dropped = await upload(url, thread, 'dropped.txt', 'x');
+            const del = await call(`${url}/api/sessions/${thread}/uploads/${dropped.body.id}`, {
+                method: 'DELETE',
+            });
+            expect(del.status).toBe(204);
+
+            const session = join(serverRoot, 'users', ANN, 'sessions', thread);
+            const { res, evs } = await send(url, thread, [
+                { type: 'text', text: 'Compare these' },
+                ...fileParts(a.body.id, b.body.id),
+            ]);
+            expect(res.status).toBe(200);
+            const started = evs.find((e) => e.type === EventType.RUN_STARTED) as {
+                input: { messages: { content: unknown }[] };
+            };
+            const content = started.input.messages[0].content as {
+                type: string;
+                text?: string;
+                source?: { value: string };
+                metadata?: { name: string };
+            }[];
+            expect(content[0]).toEqual({ type: 'text', text: 'Compare these' });
+            const paths = content.slice(1).map((p) => p.source!.value);
+            expect(paths).toEqual([
+                expect.stringMatching(/^\/workspace\/uploads\/[\w-]+\/notes\.json$/),
+                expect.stringMatching(/^\/workspace\/uploads\/[\w-]+\/notes \(2\)\.json$/),
+            ]);
+            expect(content.slice(1).map((p) => p.metadata!.name)).toEqual([
+                'notes.json',
+                'notes (2).json',
+            ]);
+            expect(lastAsked).toContain('Compare these');
+            expect(lastAsked).toContain(`- ${paths[0]} (text/plain, 7 B)`);
+            const onDisk = join(session, paths[1].replace(/^\/workspace/, 'workspace'));
+            expect(readFileSync(onDisk, 'utf8')).toBe('second');
+            expect(readdirSync(join(session, '.data', 'uploads'))).toEqual([]);
+
+            // Sent once: naming it again is refused before any run starts.
+            const again = await send(url, thread, fileParts(a.body.id));
+            expect(again.res.status).toBe(410);
+            expect(await again.res.json()).toMatchObject({ code: 'upload_gone' });
+        });
+
+        it('takes a message of files alone, titled by their names', async () => {
+            const { url } = await start();
+            const thread = randomUUID();
+            const a = await upload(url, thread, 'report.txt', 'hi');
+            const { res } = await send(url, thread, fileParts(a.body.id));
+            expect(res.status).toBe(200);
+            expect(lastAsked).toMatch(/^<attachments>\n- \/workspace\/uploads\/.+report\.txt/);
+            const { sessions } = await (await call(`${url}/api/sessions`)).json();
+            expect(sessions[0]).toMatchObject({ id: thread, title: 'report.txt' });
+        });
+
+        it('refuses a file sent as JSON, and one with no name', async () => {
+            const { url } = await start();
+            const thread = randomUUID();
+            const json = await call(`${url}/api/sessions/${thread}/uploads?name=a.json`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: '{}',
+            });
+            expect(json.status).toBe(415);
+            expect((await upload(url, thread, '', 'x')).status).toBe(400);
+        });
     });
 
     it('reports itself', async () => {

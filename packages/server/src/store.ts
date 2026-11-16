@@ -3,8 +3,10 @@
 // ChatStore says where a thread's things are and who it belongs to.
 //   privateStore - each user's chats, under that user's own folder:
 //     <root>/users/<user>/sessions/<thread id>/  - one zen session per chat thread, as `zen run`
-//                                                  keeps one: .data/ (state), runs/ (the engine's
-//                                                  records), workspace/, and agui/ (its runs'
+//                                                  keeps one: .data/ (state; uploads/, attached
+//                                                  files waiting for their message), runs/ (the
+//                                                  engine's records), workspace/ (uploads/<batch>/,
+//                                                  the files sent), and agui/ (its runs'
 //                                                  AG-UI events, runLog.ts — never in the
 //                                                  sandbox's view)
 //     <root>/users/<user>/memory/                - the user's graph: a copy of the seed, made the
@@ -25,10 +27,12 @@ import {
     EXIT,
     openEngine,
     sessionPathsAt,
+    workspaceMount,
     type Engine,
     type RunIdentity,
     type SandboxSetup,
     type SessionPaths,
+    type UploadPlaces,
 } from '@zenera/engine';
 import {
     copyMemory,
@@ -78,6 +82,11 @@ export interface ChatStore {
     admit?(t: ChatThread): Promise<void>;
     /** After a run ended or the thread was deleted: the owner's data changed. */
     changed?(t: ChatThread, reason: 'run-end' | 'changed'): void;
+    /**
+     * Where the thread's attached files wait and land (uploads.ts); creates the session. A store
+     * without it takes no files.
+     */
+    uploads?(t: ChatThread): UploadPlaces;
 }
 
 /** Where one user's things are. */
@@ -173,6 +182,15 @@ export const privateStore: ChatStore = {
     ownerBusy: 'your other chats are still answering',
     admit: (t) => userStates.admit(t.owner),
     changed: (t, reason) => userStates.changed(t.owner, reason),
+    uploads(t) {
+        const session = this.sessionFor(t);
+        return {
+            staging: join(session.data, 'uploads'),
+            dir: join(session.workspace, 'uploads'),
+            workspace: session.workspace,
+            workdir: workspaceMount(settings().projectDir),
+        };
+    },
 };
 
 export function usesMemory(): boolean {

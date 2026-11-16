@@ -7,7 +7,9 @@
 //                           entries instead of a message: continue a run that stopped suspended,
 //                           sent only by zenera-app's interrupt service), GET /:tid/runs/:runId/events
 //                           (follow a run, or replay it once ended), POST /:tid/runs/:runId/cancel,
-//                           DELETE /:tid (the thread, its session and its run logs)
+//                           DELETE /:tid (the thread, its session and its run logs), and the
+//                           thread's file uploads (uploads.ts); a message may name uploaded files,
+//                           moved into the workspace as its run takes the thread
 //   runDebugRouter(store) - GET /:tid/runs, /:tid/runs/:runId, /:tid/runs/:runId/report: the
 //                           recorded runs, for the Test tab's Debug panel
 //   activeRuns   - how many runs are going; currentRun - the one on a thread, if any
@@ -18,7 +20,19 @@
 // ended or a thread was deleted: e.g. save the user, userState.ts).
 import type { AGUIEvent, ResumeEntry, RunAgentInput } from '@ag-ui/core';
 import * as engineLib from '@zenera/engine';
-import { runEngine, type Engine, type RunIdentity } from '@zenera/engine';
+import {
+    attachmentsText,
+    attachmentsTitle,
+    commitUploads,
+    MAX_MESSAGE_UPLOADS,
+    readSessionMeta,
+    runEngine,
+    sweepUploads,
+    writeSessionMeta,
+    type Engine,
+    type RunIdentity,
+    type UploadedFile,
+} from '@zenera/engine';
 import { turns, type AgentEvent } from '@zenera/neo';
 import { Router, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -44,6 +58,7 @@ import {
     type ChatStore,
     type ChatThread,
 } from './store.ts';
+import { contentOf, uploadHttpError, uploadIdOf, uploadsRouter } from './uploads.ts';
 
 const MAX_INPUT_CHARS = 100_000;
 const ID = /^[\w-]{1,80}$/;
@@ -119,11 +134,17 @@ export async function stopOwnerRuns(owner: string, message: string): Promise<voi
 
 interface UserMessage {
     id: string;
+    /** what the person wrote; empty when they only sent files */
     text: string;
+    /** the staged files it carries (uploads.ts) */
+    uploads: string[];
+    /** those files, once the run moved them into the workspace */
+    files?: UploadedFile[];
 }
 
 // The newest user message of an AG-UI RunAgentInput; the thread's history is the runtime's own.
-function inputOf(body: unknown): UserMessage {
+// Its parts are text, and media parts naming uploaded files (`withFiles`).
+function inputOf(body: unknown, withFiles: boolean): UserMessage {
     const messages = (body as { messages?: unknown })?.messages;
     const last = Array.isArray(messages) ? messages.at(-1) : undefined;
     if (!last || last.role !== 'user') {
@@ -132,21 +153,37 @@ function inputOf(body: unknown): UserMessage {
     const parts: unknown[] =
         typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content;
     if (!Array.isArray(parts)) throw new HttpError(400, 'message content must be text');
-    const text = parts
-        .map((p) => {
-            const part = p as { type?: unknown; text?: unknown };
-            if (part?.type !== 'text' || typeof part.text !== 'string') {
-                throw new HttpError(400, 'only text messages are supported');
-            }
-            return part.text;
-        })
-        .join('\n')
-        .trim();
-    if (!text) throw new HttpError(400, 'the message is empty');
+    const texts: string[] = [];
+    const uploads: string[] = [];
+    for (const p of parts) {
+        const part = p as { type?: unknown; text?: unknown };
+        const upload = withFiles ? uploadIdOf(p) : undefined;
+        if (upload) {
+            if (!uploads.includes(upload)) uploads.push(upload);
+        } else if (part?.type === 'text' && typeof part.text === 'string') {
+            texts.push(part.text);
+        } else {
+            throw new HttpError(
+                400,
+                withFiles
+                    ? 'only text and uploaded files are supported'
+                    : 'only text messages are supported',
+            );
+        }
+    }
+    const text = texts.join('\n').trim();
+    if (!text && !uploads.length) throw new HttpError(400, 'the message is empty');
     if (text.length > MAX_INPUT_CHARS) {
         throw new HttpError(413, `the message is longer than ${MAX_INPUT_CHARS} characters`);
     }
-    return { id: typeof last.id === 'string' && ID.test(last.id) ? last.id : randomUUID(), text };
+    if (uploads.length > MAX_MESSAGE_UPLOADS) {
+        throw new HttpError(400, `a message carries at most ${MAX_MESSAGE_UPLOADS} files`);
+    }
+    return {
+        id: typeof last.id === 'string' && ID.test(last.id) ? last.id : randomUUID(),
+        text,
+        uploads,
+    };
 }
 
 // The answers zenera-app sends to resume a suspended run (AG-UI ResumeEntry), checked.
@@ -267,6 +304,18 @@ function follow(res: Response, log: RunLog): void {
     });
 }
 
+// What the agent is given: the text, then where each file is. A chat begun with files alone is
+// titled by their names, not by the block that lists them.
+async function engineInput(engine: Engine, message: UserMessage): Promise<string> {
+    const files = message.files ?? [];
+    if (files.length && !message.text) {
+        const meta = await readSessionMeta(engine.session);
+        if (!meta.title)
+            writeSessionMeta(engine.session, { ...meta, title: attachmentsTitle(files) });
+    }
+    return attachmentsText(message.text, files);
+}
+
 // Never throws: whatever ends the run is written to its log as the run's last event.
 async function execute(
     store: ChatStore,
@@ -289,7 +338,13 @@ async function execute(
         runId,
         messages:
             'message' in turn
-                ? [{ id: turn.message.id, role: 'user', content: turn.message.text }]
+                ? [
+                      {
+                          id: turn.message.id,
+                          role: 'user',
+                          content: contentOf(turn.message.text, turn.message.files ?? []),
+                      },
+                  ]
                 : [],
         ...('resume' in turn ? { resume: turn.resume } : {}),
         tools: [],
@@ -338,7 +393,12 @@ async function execute(
         };
         const outcome =
             'message' in turn
-                ? await runEngine(engine, turn.message.text, onEvent, controller.signal)
+                ? await runEngine(
+                      engine,
+                      await engineInput(engine, turn.message),
+                      onEvent,
+                      controller.signal,
+                  )
                 : await resumeEngineFn()(
                       engine,
                       answersFor(engine.state, turn.resume),
@@ -400,10 +460,20 @@ export async function stopAllRuns(timeoutMs: number): Promise<void> {
 export function runsRouter(store: ChatStore): Router {
     const router = Router();
 
+    router.use(
+        uploadsRouter(store, () =>
+            stopping
+                ? 'the server is stopping, try again shortly'
+                : refusing
+                  ? 'this server is draining, try again shortly'
+                  : null,
+        ),
+    );
+
     router.post('/:tid/runs', async (req, res) => {
         const t = store.thread(req);
         const resume = resumeOf(req.body);
-        const turn = resume ? { resume } : { message: inputOf(req.body) };
+        const turn = resume ? { resume } : { message: inputOf(req.body, Boolean(store.uploads)) };
         const runId = ID.test(req.body?.runId ?? '') ? String(req.body.runId) : randomUUID();
         // Over its storage quota, a user gets no new run (checked before the slot is taken).
         await store.admit?.(t);
@@ -448,6 +518,19 @@ export function runsRouter(store: ChatStore): Router {
         }
         const mine = [...runs.values()].filter((r) => r.owner === t.owner).length;
         if (mine >= store.maxOwnerRuns) throw new HttpError(409, store.ownerBusy);
+
+        // The message's files move into the workspace now, all or none: a file gone (taken off,
+        // or waiting longer than staging keeps it) refuses the message before it takes the slot.
+        const message = turn.message;
+        if (message?.uploads.length) {
+            const places = store.uploads!(t);
+            try {
+                message.files = commitUploads(places, message.uploads);
+            } catch (err) {
+                throw uploadHttpError(err);
+            }
+            sweepUploads(places.staging);
+        }
 
         // Nothing awaited from the checks above to here: the thread's slot is taken at once.
         const dir = store.runsDir(t);

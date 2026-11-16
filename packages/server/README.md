@@ -215,10 +215,33 @@ Session routes operate only on the JWT subject's own sessions.
 | `GET /api/sessions/:tid/runs/:runId/events`    | Follow or replay a run.                        |
 | `POST /api/sessions/:tid/runs/:runId/cancel`   | Cancel a run.                                  |
 | `DELETE /api/sessions/:tid`                    | Delete a session and its files.                |
+| `POST /api/sessions/:tid/uploads?name=&type=`  | Stage one file for the next message.           |
+| `DELETE /api/sessions/:tid/uploads/:id`        | Take a staged file off before sending.         |
 
 Runs continue after a client disconnects and can be followed again. Defaults:
 4 concurrent runs total, 2 per user (`ZEN_RUNTIME_MAX_RUNS`,
 `ZEN_RUNTIME_MAX_USER_RUNS`).
+
+### Attached files
+
+Upload each file first, as the raw body with `Content-Type: application/octet-stream`
+(its real type goes in `type`); the answer is `{ id, name, size, mimeType }`. A file
+waits in the session's `.data/uploads/`, which the agent cannot see, for up to 24
+hours. Then name the files in the user message as media parts whose source is the
+upload's handle:
+
+```json
+{ "type": "document", "source": { "type": "file", "value": "<id>", "provider": "zenera" } }
+```
+
+Starting the run moves them to `workspace/uploads/<batch>/`, one folder per message
+(a repeated name becomes `report (2).pdf`). The agent gets the text followed by an
+`<attachments>` block listing each file's path in the sandbox, type and size. The
+run's `RUN_STARTED` event records the text and one part per file, its `source` the
+path and its `metadata` the name and size. A file that is gone (sent already, taken
+off, or expired) refuses the message with `410` and `code: "upload_gone"`. Limits:
+100 MB per file and 20 files per message. Uploads count toward
+`ZEN_RUNTIME_USER_DISK_MB`.
 
 For deployment and sandbox details, see [agent-image architecture](../../docs/agent-image.md).
 To rebuild the bundled test page, run `npm run build:chat` from ZeneraLite's root;

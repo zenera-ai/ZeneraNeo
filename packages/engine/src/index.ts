@@ -10,3 +10,4 @@ export * from './plugins.ts';
 export * from './projects.ts';
 export * from './sandbox.ts';
 export * from './session.ts';
+export * from './uploads.ts';

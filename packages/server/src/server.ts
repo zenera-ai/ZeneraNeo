@@ -127,6 +127,9 @@ export function createServer(opts: ServerOptions): AgentServer {
                 server = app.listen(port, host, (err?: Error) =>
                     err ? reject(err) : resolve(server!),
                 );
+                // A file upload (up to 100 MB) arrives at its sender's pace: Node's 5 minutes to
+                // receive a whole request would cut it off on a slow link.
+                server.requestTimeout = 30 * 60_000;
             });
         },
         stop: async (graceMs = 20_000, saveMs = 60_000) => {
