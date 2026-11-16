@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { ensureSandboxBases } from './base.ts';
+import { ensureSandboxBases, SAME_PYTHON_CHECK } from './base.ts';
 import { SandboxError, type BuildSpec, type PrepareOptions } from './contract.ts';
 import { runProcess, type ProcResult, type Runner } from './process.ts';
 
@@ -239,6 +239,30 @@ async function obtain(
             throw new ImageBuildError(
                 `could not build ${build.dockerfile}`,
                 last(built) || 'run the build by hand to see what the engine says',
+            );
+        }
+        // The tag existing is what skips the next build, so an image that fails this is removed.
+        const same = await run(
+            engine,
+            [
+                'run',
+                '--rm',
+                '--network',
+                'none',
+                '--entrypoint',
+                '/bin/sh',
+                target.image,
+                '-c',
+                SAME_PYTHON_CHECK,
+            ],
+            { timeoutMs: 120_000, signal: opts.signal },
+        );
+        if (same.code !== 0) {
+            await run(engine, ['rmi', '--force', target.image], { timeoutMs: 60_000 });
+            throw new ImageBuildError(
+                `${build.dockerfile}: \`python\` and \`python3\` are not the same interpreter`,
+                "start FROM zen's sandbox base, or install python3 and link python to it: " +
+                    '`ln -sf "$(command -v python3)" /usr/local/bin/python`',
             );
         }
         return;

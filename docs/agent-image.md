@@ -231,6 +231,8 @@ copies in with one `COPY --link`:
   distroless) without `apt`/`dnf` in the generated Dockerfile. Needs no setuid (unprivileged user
   namespaces). Built in the release workflow per arch, version pinned, checksum recorded.
 - Node is the only glibc dependency: glibc bases only for now (musl variant later if asked).
+- `python` and `python3` are one interpreter in every agent image: the build links `python` to
+  `python3` when the base has none (or another one), and fails on a base without `python3`.
 - Built and pushed by the release workflow (`ghcr.io/zenera-ai/runtime:<version>`, `linux/amd64,linux/arm64`).
 
 ### N7. `zen image build`

@@ -127,7 +127,26 @@ describe('ensurePodmanImage', () => {
         const f = engine();
         const build = { dockerfile: '/p/D', context: '/p' };
         await ensurePodmanImage({ image: 'local:f', build }, { exec: f.run }, { force: true });
-        expect(f.seen).toEqual(['podman build --tag local:f --file /p/D /p']);
+        expect(f.seen).toEqual([
+            'podman build --tag local:f --file /p/D /p',
+            expect.stringMatching(
+                /^podman run --rm --network none --entrypoint \/bin\/sh local:f -c /,
+            ),
+        ]);
+    });
+
+    it('refuses, and removes, a built image whose python is not its python3', async () => {
+        const f = engine({
+            'podman image exists': { code: 1 },
+            'podman run --rm': { code: 1 },
+        });
+        const build = { dockerfile: '/p/D', context: '/p' };
+        const err = await ensurePodmanImage({ image: 'local:py', build }, { exec: f.run }).catch(
+            (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(ImageBuildError);
+        expect((err as ImageBuildError).message).toContain('not the same interpreter');
+        expect(f.seen.at(-1)).toBe('podman rmi --force local:py');
     });
 
     it('refuses to build when the host says images are built elsewhere', async () => {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
     ensurePodmanImage,
     ensureSandboxBases,
+    SAME_PYTHON_CHECK,
     SANDBOX_BASE_REPO,
     sandboxBaseDockerfile,
     sandboxBasesOf,
@@ -107,8 +108,25 @@ describe('sandbox base', () => {
         // An ARG busts the cache of every RUN after it: only the zen install may follow it.
         const arg = dockerfile.indexOf('ARG ZEN_VERSION');
         expect(dockerfile.indexOf('@lancedb/lancedb')).toBeLessThan(arg);
-        // HTTP clients for agents' scripts, cached with the slow layers, require()-able in Node.
-        expect(dockerfile.indexOf('pip install --no-cache-dir "requests')).toBeLessThan(arg);
+        // Tools and libraries for agents' scripts, cached with the slow layers, require()-able in Node.
+        expect(dockerfile.indexOf('apt-get install -y --no-install-recommends')).toBeLessThan(arg);
+        for (const tool of ['ca-certificates', 'curl', 'jq', 'ripgrep', 'unzip']) {
+            expect(dockerfile).toMatch(new RegExp(`--no-install-recommends .*\\b${tool}\\b`));
+        }
+        for (const lib of [
+            'requests',
+            'jsonschema',
+            'pyyaml',
+            'python-dateutil',
+            'beautifulsoup4',
+        ]) {
+            expect(dockerfile.indexOf(`"${lib}>=`)).toBeGreaterThan(-1);
+            expect(dockerfile.indexOf(`"${lib}>=`)).toBeLessThan(arg);
+        }
+        expect(dockerfile).toContain(`&& ${SAME_PYTHON_CHECK} \\`);
+        expect(dockerfile).toContain(
+            'python -c "import bs4, dateutil, jsonschema, requests, yaml"',
+        );
         expect(dockerfile.indexOf('npm install -g "axios@')).toBeLessThan(arg);
         expect(dockerfile).toContain('ENV NODE_PATH=/usr/local/lib/node_modules');
         expect(dockerfile).toContain('LABEL zenera.sandbox-base=1 zenera.version=$ZEN_VERSION');

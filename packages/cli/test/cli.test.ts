@@ -3087,7 +3087,7 @@ describe('the sandbox check', () => {
     it('says a container started but could not be worked in', async () => {
         const e = engine();
         const mute: typeof runProcess = (bin, args, opts) =>
-            args.includes('/bin/sh')
+            args[0] === 'exec' && args.includes('/bin/sh')
                 ? Promise.resolve({
                       code: 1,
                       stdout: '',

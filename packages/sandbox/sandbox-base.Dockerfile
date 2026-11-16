@@ -8,6 +8,11 @@
 FROM docker.io/library/node:24-bookworm-slim AS node
 FROM docker.io/library/python:3.14-slim-bookworm
 
+# Command-line tools agents reach for first: fetching, JSON, searching, archives.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl jq ripgrep unzip \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy Node.js runtime and global modules from official Node image
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/include/node /usr/local/include/node
@@ -46,9 +51,18 @@ RUN npm install -g \
     "yazl@^3.3.1" \
     "zod@^4.6.7"
 
-# HTTP clients agents' scripts commonly reach for. Global npm packages resolve for require()
-# through NODE_PATH; ESM import does not read it (built-in fetch needs nothing).
-RUN pip install --no-cache-dir "requests>=2.32,<3" \
+# Libraries agents' scripts commonly reach for: HTTP clients, JSON Schema validation, YAML,
+# dates, HTML. `python` and `python3` must be one interpreter, the one pip installs into.
+# Global npm packages resolve for require() through NODE_PATH; ESM import does not read it
+# (built-in fetch needs nothing).
+RUN pip install --no-cache-dir \
+        "requests>=2.32,<3" \
+        "jsonschema>=4,<5" \
+        "pyyaml>=6,<7" \
+        "python-dateutil>=2.9,<3" \
+        "beautifulsoup4>=4.12,<5" \
+    && p3="$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')" && test -n "$p3" && test "$(python -c 'import os, sys; print(os.path.realpath(sys.executable))')" = "$p3" \
+    && python -c "import bs4, dateutil, jsonschema, requests, yaml" \
     && npm install -g "axios@^1"
 ENV NODE_PATH=/usr/local/lib/node_modules
 

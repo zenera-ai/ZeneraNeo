@@ -1,9 +1,12 @@
 # The container `run_command` runs in. Built by `zen run` and `zen check`, and
 # named by the `sandbox: build:` block in agents.yaml.
 #
-# It starts from zen's sandbox base: Python and Node, the packages zen's tools
-# need, the HTTP clients `requests` (Python) and `axios` (Node), and this `zen`
-# itself (the tag is its version - `zen check --fix` moves it after an upgrade).
+# It starts from zen's sandbox base: Python (`python` and `python3` are the
+# same interpreter - zen checks that after every build), Node, the packages zen's
+# tools need, `requests`, `jsonschema`, `pyyaml`, `python-dateutil` and
+# `beautifulsoup4` (Python), `axios` (Node), the command-line tools curl, jq,
+# ripgrep and unzip, and this `zen` itself (the tag is its version - `zen check
+# --fix` moves it after an upgrade).
 # Pulled once; built here if it cannot be pulled.
 #
 # Add what this project always needs below rather than letting an agent install
@@ -16,10 +19,10 @@ FROM ghcr.io/zenera-ai/zenera-sandbox:{{version}}
 # image once; later runs reuse it.
 #
 # Command-line tools for documents and data (Debian packages): PDF to text,
-# document conversion, JSON, SQLite, images, audio and video.
+# document conversion, SQLite, images, audio and video.
 # RUN apt-get update \
 #     && apt-get install -y --no-install-recommends \
-#        poppler-utils pandoc jq sqlite3 imagemagick ffmpeg \
+#        poppler-utils pandoc sqlite3 imagemagick ffmpeg \
 #     && rm -rf /var/lib/apt/lists/*
 #
 # Python libraries for analysis, charts, spreadsheets and PDFs:

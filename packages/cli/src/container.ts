@@ -17,7 +17,7 @@ import {
     writeRuntime,
 } from '@zenera/engine';
 import { DEFAULT_SANDBOX_IMAGE, readProjectConfig } from '@zenera/neo';
-import { runProcess } from '@zenera/sandbox';
+import { runProcess, SAME_PYTHON_CHECK } from '@zenera/sandbox';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -468,6 +468,14 @@ RUN cd /opt/zenera/app \\
 ${parts.join('\n')}
 COPY runtime/ /opt/zenera/runtime/
 COPY etc/ /opt/zenera/etc/
+# \`python\` and \`python3\` are one interpreter in every agent image: \`python\` is linked to
+# python3 when the base has none, or another one. A base without python3 fails here.
+RUN command -v python3 > /dev/null || { echo "zen: the sandbox image has no python3" >&2; exit 1; } \\
+ && if ! { ${SAME_PYTHON_CHECK}; } 2> /dev/null; then \\
+      p="$(command -v python || echo /usr/local/bin/python)" \\
+      && mkdir -p "$(dirname "$p")" && ln -sf "$(command -v python3)" "$p"; \\
+    fi \\
+ && ${SAME_PYTHON_CHECK}
 # Mount points: the image's root is read-only to every command. Node needs glibc: a base
 # without it fails here, not when the server starts.
 RUN mkdir -p /project /state /workspace /home/agent /home/zenera \\

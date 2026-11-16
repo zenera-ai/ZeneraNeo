@@ -25,6 +25,17 @@ export const SANDBOX_BASE_REPO = 'ghcr.io/zenera-ai/zenera-sandbox';
 const BASE_FROM =
     /^\s*FROM\s+(?:--platform=\S+\s+)?ghcr\.io\/zenera-ai\/zenera-sandbox:([^\s@]+)/gim;
 
+const REAL_EXECUTABLE = `-c 'import os, sys; print(os.path.realpath(sys.executable))'`;
+
+/**
+ * Shell that fails unless `python` and `python3` are both on PATH and are one interpreter:
+ * a script's `#!/usr/bin/env python` must run where `python3 -m pip install` put its packages.
+ * Every image zen builds passes it (the base, a project's sandbox image, an agent image).
+ */
+export const SAME_PYTHON_CHECK =
+    `p3="$(python3 ${REAL_EXECUTABLE})" && test -n "$p3" ` +
+    `&& test "$(python ${REAL_EXECUTABLE})" = "$p3"`;
+
 /**
  * The base image's Dockerfile, for `--build-arg ZEN_VERSION=<a published version>`.
  * packages/sandbox/sandbox-base.Dockerfile is this, kept in step by a test.
@@ -39,6 +50,11 @@ export function sandboxBaseDockerfile(): string {
 
 FROM docker.io/library/node:24-bookworm-slim AS node
 FROM docker.io/library/python:3.14-slim-bookworm
+
+# Command-line tools agents reach for first: fetching, JSON, searching, archives.
+RUN apt-get update \\
+    && apt-get install -y --no-install-recommends ca-certificates curl jq ripgrep unzip \\
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy Node.js runtime and global modules from official Node image
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
@@ -78,9 +94,18 @@ RUN npm install -g \\
     "yazl@^3.3.1" \\
     "zod@^4.6.7"
 
-# HTTP clients agents' scripts commonly reach for. Global npm packages resolve for require()
-# through NODE_PATH; ESM import does not read it (built-in fetch needs nothing).
-RUN pip install --no-cache-dir "requests>=2.32,<3" \\
+# Libraries agents' scripts commonly reach for: HTTP clients, JSON Schema validation, YAML,
+# dates, HTML. \`python\` and \`python3\` must be one interpreter, the one pip installs into.
+# Global npm packages resolve for require() through NODE_PATH; ESM import does not read it
+# (built-in fetch needs nothing).
+RUN pip install --no-cache-dir \\
+        "requests>=2.32,<3" \\
+        "jsonschema>=4,<5" \\
+        "pyyaml>=6,<7" \\
+        "python-dateutil>=2.9,<3" \\
+        "beautifulsoup4>=4.12,<5" \\
+    && ${SAME_PYTHON_CHECK} \\
+    && python -c "import bs4, dateutil, jsonschema, requests, yaml" \\
     && npm install -g "axios@^1"
 ENV NODE_PATH=/usr/local/lib/node_modules
 

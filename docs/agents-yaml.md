@@ -984,6 +984,13 @@ is the pin `zen check` reads: after an upgrade it warns `sandbox.pin.stale`, and
 Dockerfile, which is never rewritten; start yours `FROM` the base by hand to
 switch.
 
+**`python` and `python3` are one interpreter** in every image zen builds. The
+base guarantees it; a project's built image is checked right after the build,
+and one where `python` is missing or another interpreter fails the build (and
+is removed) with `` `python` and `python3` are not the same interpreter ``. A
+container agent image goes further: it links `python` to `python3` whatever
+the base, and refuses a base with no `python3` at all.
+
 **The tag is a hash of the content.** The image is tagged
 `localhost/zenera-sandbox:<digest>`, where the digest covers the Dockerfile and
 every file in the context. Editing either produces a different tag, and
