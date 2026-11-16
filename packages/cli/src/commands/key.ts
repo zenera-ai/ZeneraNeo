@@ -887,7 +887,9 @@ export const key: Command = {
         }
         const sub = SUBS[name];
         if (!sub) {
-            const near = closest(name, Object.keys(SUBS));
+            // Only names the hint advertises: suggesting the alias `list` while
+            // listing `ls` would be two answers to one question.
+            const near = closest(name, NAMES);
             throw usageError(
                 `unknown key command "${name}"`,
                 near ? `did you mean: zen key ${cyan(near)}?` : `try: ${cyan(NAMES.join(', '))}`,

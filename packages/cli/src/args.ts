@@ -57,7 +57,9 @@ export function describeParseError(err: Error & { code?: string }, options: Opti
     if (err.code !== 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
         return err.message;
     }
-    const flag = /Unknown option '([^']+)'/.exec(err.message)?.[1];
+    // The flag can itself hold a quote (`--foo'bar`), so read up to the quote
+    // that ends the message or starts Node's advice, not the first one.
+    const flag = /^Unknown option '(.+?)'(?:\. To specify|$)/.exec(err.message)?.[1];
     if (!flag) {
         return err.message;
     }

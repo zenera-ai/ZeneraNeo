@@ -201,6 +201,13 @@ describe('an unknown flag', () => {
         expect(message(['--nmae', 'x'])).toBe('unknown option --nmae (did you mean --name?)');
     });
 
+    it('reports a flag that holds a quote whole', () => {
+        expect(message(["--foo'bar"])).toBe(
+            "unknown option --foo'bar (to pass it as text, put it after --)",
+        );
+        expect(message(["--nam'e"])).toBe("unknown option --nam'e (did you mean --name?)");
+    });
+
     it('points at -- only when no flag is close', () => {
         expect(message(['--bogus'])).toBe(
             'unknown option --bogus (to pass it as text, put it after --)',
