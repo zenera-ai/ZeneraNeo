@@ -43,8 +43,70 @@ export function parse<T>(args: readonly string[], options: Options, usage: strin
         });
         return { values: values as T, positionals };
     } catch (err) {
-        throw usageError((err as Error).message, usage);
+        throw usageError(describeParseError(err as Error & { code?: string }, options), usage);
     }
+}
+
+/**
+ * `parseArgs` explains an unknown flag as if the reader meant a positional
+ * that starts with a dash, which is almost never the case: the usual cause is
+ * a typo. Say what was not recognised, offer the nearest flag the command does
+ * have, and mention `--` only when nothing is close.
+ */
+export function describeParseError(err: Error & { code?: string }, options: Options): string {
+    if (err.code !== 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+        return err.message;
+    }
+    const flag = /Unknown option '([^']+)'/.exec(err.message)?.[1];
+    if (!flag) {
+        return err.message;
+    }
+    const known = Object.entries(options).flatMap(([long, o]) =>
+        o.short ? [`--${long}`, `-${o.short}`] : [`--${long}`],
+    );
+    const near = closest(flag, known);
+    return near
+        ? `unknown option ${flag} (did you mean ${near}?)`
+        : `unknown option ${flag} (to pass it as text, put it after --)`;
+}
+
+/**
+ * The candidate a mistyped word most plausibly meant, or nothing when none is
+ * close. Distance counts insertions, deletions, substitutions and swaps of two
+ * neighbouring letters, so `inti` is one edit from `init`. Short words get
+ * less slack than long ones, or every three-letter typo would match something.
+ */
+export function closest(word: string, candidates: readonly string[]): string | undefined {
+    const bare = (s: string): string => s.replace(/^-+/, '').toLowerCase();
+    const w = bare(word);
+    const limit = w.length <= 4 ? 1 : 2;
+    let best: string | undefined;
+    let bestDistance = limit + 1;
+    for (const candidate of candidates) {
+        const d = distance(w, bare(candidate));
+        if (d < bestDistance) {
+            best = candidate;
+            bestDistance = d;
+        }
+    }
+    return best;
+}
+
+/** Optimal string alignment distance: Levenshtein plus adjacent transpositions. */
+function distance(a: string, b: string): number {
+    const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+        Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+    );
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+            if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return d[a.length][b.length];
 }
 
 /** Exactly one positional, or none. More than one is a mistake worth naming. */

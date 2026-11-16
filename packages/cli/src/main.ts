@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { extract, invokedAs, split } from './args.ts';
+import { closest, describeParseError, extract, invokedAs, split } from './args.ts';
 import { NEO_BANNER, printBanner } from './banner.ts';
 import { ALIASES, COMMANDS, EXTERNAL } from './commands/index.ts';
 import { cliManifest, versionOf } from './commands/version.ts';
@@ -85,7 +85,10 @@ async function main(argv: readonly string[]): Promise<number> {
             allowPositionals: false,
         }).values;
     } catch (e) {
-        fail((e as Error).message, `run ${bold(`${NAME} --help`)} for the options`);
+        fail(
+            describeParseError(e as Error & { code?: string }, GLOBAL),
+            `run ${bold(`${NAME} --help`)} for the options`,
+        );
         return EXIT.usage;
     }
 
@@ -131,7 +134,17 @@ async function main(argv: readonly string[]): Promise<number> {
     }
 
     if (!command && !external) {
-        fail(`unknown command "${parts.name}"`, `run ${bold(`${NAME} --help`)} for the list`);
+        const near = closest(parts.name ?? '', [
+            ...Object.keys(COMMANDS),
+            ...Object.keys(EXTERNAL),
+            ...Object.keys(ALIASES),
+        ]);
+        fail(
+            `unknown command "${parts.name}"`,
+            near
+                ? `did you mean: ${bold(`${NAME} ${near}`)}?`
+                : `run ${bold(`${NAME} --help`)} for the list`,
+        );
         return EXIT.usage;
     }
     // `-C` is consumed here so no command ever reads `process.cwd()` itself,
