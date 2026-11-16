@@ -108,6 +108,22 @@ export interface PageOptions {
     defaultSize?: number;
 }
 
+/**
+ * One operation told to serve a list of a chosen length, `zen gym serve --pages`.
+ * Not part of a handler's identity: the handler is the same code either way, and
+ * only `ctx.page` behaves differently, so no cache key moves.
+ */
+export interface LongList {
+    /** how many pages the list runs to, at whatever size the client asks for */
+    pages: number;
+    /**
+     * How an item's `id` may be changed to tell the copies apart, decided by the
+     * host from the response schema so a copy never breaks it: a suffix on a
+     * free-form string, a different uuid, a larger integer, or left alone.
+     */
+    id: 'suffix' | 'uuid' | 'number' | 'keep';
+}
+
 export interface HandlerContext {
     /**
      * The shared world, by type: `ctx.db.collection('Message').get(id)`. A
@@ -233,6 +249,7 @@ export function createContext(
     synthesize: Synthesize,
     bindings: Bindings = {},
     record: (use: Use) => void = () => {},
+    long?: LongList,
 ): HandlerContext {
     const at = (name: string, options: { type?: string; idField?: string } = {}) => {
         const where = resolve(name, options, bindings);
@@ -293,7 +310,7 @@ export function createContext(
             ctx.lookup<Account>(ACCOUNTS, OWNER, {
                 hint: 'the person whose mailbox, calendar and data this API serves',
             }),
-        page: (items, options = {}) => page(items, options),
+        page: (items, options = {}) => page(items, options, long),
         fail(status, body) {
             throw new HttpError(status, body);
         },
@@ -347,8 +364,11 @@ export function same(actual: unknown, wanted: unknown): boolean {
  * the next offset, it strictly advances, and it is absent on the last page. A
  * token that cannot be read is the end of the list, never the start of it.
  */
-export function page<T>(items: readonly T[], options: PageOptions): Page<T> {
+export function page<T>(items: readonly T[], options: PageOptions, long?: LongList): Page<T> {
     const size = clampSize(options.size, options.defaultSize ?? 10);
+    if (long && items.length > 0) {
+        return stretched(items, options, size, long);
+    }
     let start = 0;
     if (options.token !== undefined && options.token !== null && options.token !== '') {
         const decoded = decodeToken(String(options.token));
@@ -368,6 +388,87 @@ export function page<T>(items: readonly T[], options: PageOptions): Page<T> {
         total: items.length,
     };
 }
+
+/**
+ * The same rule over a list `long.pages` pages long that is never built: item
+ * `i` is a copy of real item `i mod n`, made only when its page is asked for.
+ * Everything a page needs is in the request and the token, so nothing is kept
+ * between requests and nothing is asked of the world agent. The token is the
+ * same strictly advancing offset as above, so it can never repeat, and the
+ * last page carries none. An empty list stays empty: a filter that matched
+ * nothing does not become two hundred pages of something.
+ */
+function stretched<T>(
+    items: readonly T[],
+    options: PageOptions,
+    size: number,
+    long: LongList,
+): Page<T> {
+    const total = Math.max(1, Math.floor(long.pages)) * size;
+    let start = 0;
+    if (options.token !== undefined && options.token !== null && options.token !== '') {
+        const decoded = decodeToken(String(options.token));
+        start = decoded === undefined ? total : decoded;
+    } else if (options.offset !== undefined && options.offset !== null && options.offset !== '') {
+        const n = Number(options.offset);
+        start = Number.isFinite(n) && n >= 0 ? Math.floor(n) : total;
+    }
+    start = Math.min(start, total);
+    const end = Math.min(start + size, total);
+    const span = idSpan(items);
+    const out: T[] = [];
+    for (let i = start; i < end; i++) {
+        const real = items[i % items.length]!;
+        const copy = Math.floor(i / items.length);
+        out.push(copy === 0 ? real : copyOf(real, copy, span, long.id));
+    }
+    const hasMore = end < total;
+    return {
+        items: out,
+        nextToken: hasMore ? encodeToken(end) : null,
+        nextOffset: hasMore ? end : null,
+        hasMore,
+        total,
+    };
+}
+
+/** One more than the largest numeric id, so `id + copy * span` never meets a real one. */
+function idSpan(items: readonly unknown[]): number {
+    let max = 0;
+    for (const item of items) {
+        const id = isRecord(item) ? item.id : undefined;
+        if (typeof id === 'number' && Number.isFinite(id)) {
+            max = Math.max(max, Math.abs(Math.floor(id)));
+        }
+    }
+    return max + 1;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Copy `copy` of `item`, its id told apart from every other in the way the schema allows. */
+function copyOf<T>(item: T, copy: number, span: number, how: LongList['id']): T {
+    const out = structuredClone(item);
+    if (!isRecord(out) || !('id' in out) || how === 'keep') {
+        return out;
+    }
+    const record = out as Record<string, unknown>;
+    const id = record.id;
+    if (how === 'number' && typeof id === 'number' && Number.isInteger(id)) {
+        record.id = id + copy * span;
+    } else if (how === 'uuid' && typeof id === 'string' && UUID.test(id)) {
+        // The last group is 48 bits; moving it by `copy` keeps the version and
+        // variant digits, which live in the third and fourth groups, as they are.
+        const tail = (BigInt(`0x${id.slice(24)}`) + BigInt(copy)) % (1n << 48n);
+        record.id = `${id.slice(0, 24)}${tail.toString(16).padStart(12, '0')}`;
+    } else if (how === 'suffix' && typeof id === 'string') {
+        record.id = `${id}-${copy}`;
+    }
+    return out;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
 
 function clampSize(asked: unknown, fallback: number): number {
     const n = Number(asked);

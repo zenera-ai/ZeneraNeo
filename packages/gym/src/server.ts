@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { WorkerUnavailable, type Box, type Outcome } from './box.ts';
 import { BuildFailed, type Cache } from './cache.ts';
-import type { HandlerRequest } from './runtime.ts';
+import type { HandlerRequest, LongList } from './runtime.ts';
 import { reason } from './generate.ts';
 import {
     formatLogLine,
@@ -66,6 +66,12 @@ export interface ServerOptions {
     limiter?: RegenerationLimiter;
     maxPages?: number | (() => number);
     paginationLimiter?: PaginationLimiter;
+    /**
+     * Operations that serve a list of a chosen length, by operationId: the
+     * number of pages each runs to (`zen gym serve --pages listMachines=200`).
+     * Every other operation keeps the default.
+     */
+    pages?: Readonly<Record<string, number>>;
 }
 
 export interface Listening {
@@ -390,9 +396,10 @@ async function handle(
         seed: seedFor(opts.seed, operation, pathParams, url.searchParams),
     };
 
+    const long = longListOf(operation, opts.pages);
     let outcome: Outcome;
     try {
-        outcome = await opts.box.run(operation.key, input);
+        outcome = await opts.box.run(operation.key, input, { long });
     } catch (err) {
         if (err instanceof WorkerUnavailable) {
             await workerDown(err, { requestBody: body, cacheStatus });
@@ -540,7 +547,7 @@ async function handle(
             );
 
             // Re-run the request with the newly regenerated handler
-            outcome = await opts.box.run(operation.key, input);
+            outcome = await opts.box.run(operation.key, input, { long });
             if (
                 outcome.ok &&
                 outcome.status === undefined &&
@@ -618,6 +625,7 @@ async function handle(
         body,
         opts.paginationLimiter,
         streamKey,
+        long?.pages,
     );
     opts.history!.recordSuccess(operation.key, input, outcome.value);
     if (!operation.success.schema) {
@@ -654,7 +662,8 @@ async function handle(
  * that costs the client rather than the mock: it hangs.
  *
  * In addition, pagination is tracked and capped to prevent infinite loops (random
- * 1-10 max pages by default) and repetitive cycling tokens.
+ * 1-10 max pages by default, or the operation's `--pages`) and repetitive cycling
+ * tokens.
  */
 function cut(
     operation: Operation,
@@ -663,6 +672,7 @@ function cut(
     body?: unknown,
     limiter?: PaginationLimiter,
     streamKey = 'default',
+    pages?: number,
 ): PaginationCutResult | undefined {
     const paging =
         operation.paging ?? pagingSeen(operation.params, operation.success.schema, query, body);
@@ -671,12 +681,73 @@ function cut(
     }
     const sent = getSentToken(query, body, paging);
     if (limiter) {
-        return limiter.process(operation.key, streamKey, sent, value, paging);
+        return limiter.process(operation.key, streamKey, sent, value, paging, pages);
     }
     if (sent !== undefined && cutLoop(value, paging, sent)) {
         return { cut: true, reason: 'cut a looping page token' };
     }
     return undefined;
+}
+
+/**
+ * The length one operation was asked to serve, and how its items' ids may be
+ * told apart. Read off the response schema here, on the host, because the
+ * worker never sees a schema and a copy whose id breaks one would be answered
+ * as a handler fault.
+ */
+export function longListOf(
+    operation: Operation,
+    pages: Readonly<Record<string, number>> | undefined,
+): LongList | undefined {
+    const n = pages?.[operation.operationId];
+    if (n === undefined) {
+        return undefined;
+    }
+    return { pages: n, id: idRule(itemIdSchema(operation)) };
+}
+
+function itemIdSchema(operation: Operation): Record<string, unknown> | undefined {
+    const items = operation.paging?.items;
+    const schema = operation.success.schema as Record<string, unknown> | undefined;
+    if (!items || !schema) {
+        return undefined;
+    }
+    // The items array sits on the body or one envelope down, as `pagingOf` finds it.
+    const holders = [schema, ...Object.values(propsOf(schema))];
+    for (const holder of holders) {
+        const list = propsOf(holder)[items];
+        const item = isRecordish(list) ? list.items : undefined;
+        const id = propsOf(item).id;
+        if (isRecordish(id)) {
+            return id;
+        }
+    }
+    return undefined;
+}
+
+function propsOf(schema: unknown): Record<string, unknown> {
+    return isRecordish(schema) && isRecordish(schema.properties) ? schema.properties : {};
+}
+
+const isRecordish = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Only ids the schema leaves room to change are changed; anything else is kept. */
+function idRule(id: Record<string, unknown> | undefined): LongList['id'] {
+    if (!id || 'enum' in id || 'const' in id) {
+        return 'keep';
+    }
+    const types = Array.isArray(id.type) ? id.type : [id.type];
+    if (types.includes('integer') && !('maximum' in id) && !('exclusiveMaximum' in id)) {
+        return 'number';
+    }
+    if (!types.includes('string') || 'pattern' in id || 'maxLength' in id) {
+        return 'keep';
+    }
+    if (id.format === 'uuid') {
+        return 'uuid';
+    }
+    return id.format === undefined ? 'suffix' : 'keep';
 }
 
 function check(
