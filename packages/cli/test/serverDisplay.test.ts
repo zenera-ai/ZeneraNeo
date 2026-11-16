@@ -7,6 +7,7 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ownVersion } from '../src/scaffold.ts';
 import {
     buildProgress,
     HOST_MANAGED_ENV,
@@ -98,6 +99,13 @@ describe('server startup display', () => {
     it('uses the ready heading for a direct runtime without a container', () => {
         printServerStarted({ ...info, image: undefined });
         expect(output.stderr).toContain('✓ Server ready');
+    });
+
+    it('reports the zen and node versions', () => {
+        printServerStarted(info);
+        expect(output.stderr).toMatch(
+            new RegExp(`Version\\s+zen ${ownVersion()} · node ${process.versions.node}`),
+        );
     });
 
     it('only suppresses duplicate host summaries inside a managed image', () => {

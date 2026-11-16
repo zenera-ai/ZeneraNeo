@@ -19,6 +19,7 @@ import { project as resolveProject } from '../resolve.ts';
 import { buildReleaseImage, checkRelease, parseAdd } from '../release.ts';
 import { preflight } from '../sandbox.ts';
 import { prepareMemorySeed } from '../seed.ts';
+import { ownVersion } from '../scaffold.ts';
 import { generateServerKeys } from '../serverKeys.ts';
 import { hostManagedOutput, printServerStarted } from '../serverDisplay.ts';
 import type { Command, Context } from '../command.ts';
@@ -433,7 +434,7 @@ async function start(ctx: Context, values: Flags): Promise<void> {
         });
         await app.listen(listen);
         if (managed) {
-            note(`  ${green('✓ HTTP listener ready')}`);
+            note(`  ${green('✓ HTTP listener ready')} ${dim(`zen ${ownVersion()}`)}`);
         } else {
             printServerStarted({
                 project: settings.projectId,

@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { AgentImage } from './container.ts';
+import { ownVersion } from './scaffold.ts';
 import {
     bold,
     CliError,
@@ -45,6 +46,7 @@ export function printServerStarted(info: ServerStartup): void {
     note();
     const rows: [string, string][] = [
         ['Project', bold(info.project)],
+        ['Version', `zen ${ownVersion()} ${dim(`· node ${process.versions.node}`)}`],
         ['HTTP', cyan(info.url)],
         [
             'Auth',
