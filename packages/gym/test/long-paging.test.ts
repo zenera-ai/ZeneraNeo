@@ -77,7 +77,7 @@ describe('a stretched list', () => {
         expect(ids).toHaveLength(2000);
         expect(new Set(ids).size).toBe(2000);
         expect(pages[0]!.slice(0, 3)).toEqual(MACHINES);
-        expect(pages[0]![3]).toEqual({ id: 'm-a-1', name: 'a' });
+        expect(pages[0]![3]).toEqual({ id: 'm-a--1', name: 'a' });
     });
 
     // Nothing is kept between requests: a page is a function of the request.
@@ -86,7 +86,7 @@ describe('a stretched list', () => {
         const again = page(MACHINES, { token: tokens[120] }, long);
         const fresh = page([...MACHINES], { token: tokens[120] }, { ...long });
         expect(again).toEqual(fresh);
-        expect(again.items[0]!.id).toBe(`m-${'abc'[1210 % 3]}-${Math.floor(1210 / 3)}`);
+        expect(again.items[0]!.id).toBe(`m-${'abc'[1210 % 3]}--${Math.floor(1210 / 3)}`);
     });
 
     it('pages by offset too', () => {
@@ -129,7 +129,7 @@ describe('a stretched list', () => {
             .pages.flat()
             .map((r) => r.id);
         expect(new Set(ids).size).toBe(20);
-        expect(ids.slice(0, 4)).toEqual([1, 7, 9, 15]);
+        expect(ids.slice(0, 4)).toEqual([1, 7, 8, 14]);
     });
 
     it('leaves an id alone when the schema has no room to change it', () => {
@@ -137,6 +137,59 @@ describe('a stretched list', () => {
             .pages.flat()
             .map((m) => m.id);
         expect(ids).toEqual(['m-a', 'm-b', 'm-c', 'm-a', 'm-b', 'm-c', 'm-a', 'm-b', 'm-c']);
+    });
+
+    // Review on #40: each of these could repeat an id or a token, or break a page.
+    it('never gives a copy an id a real item already has', () => {
+        const rows = [{ id: 'a' }, { id: 'a-1' }, { id: 'a--1' }];
+        const ids = walk(rows, { pages: 20, id: 'suffix' }, { size: 3 })
+            .pages.flat()
+            .map((r) => r.id);
+        expect(new Set(ids).size).toBe(60);
+    });
+
+    it('keeps integer copies apart when ids are negative', () => {
+        const ids = walk([{ id: -2 }, { id: 1 }], { pages: 20, id: 'number' }, { size: 2 })
+            .pages.flat()
+            .map((r) => r.id);
+        expect(new Set(ids).size).toBe(40);
+    });
+
+    it('keeps uuid copies apart when real tails sit next to each other', () => {
+        const rows = [
+            { id: '3f2b8c1e-9a4d-4e6f-8b7a-000000000001' },
+            { id: '3f2b8c1e-9a4d-4e6f-8b7a-000000000002' },
+        ];
+        const ids = walk(rows, { pages: 20, id: 'uuid' }, { size: 2 })
+            .pages.flat()
+            .map((r) => r.id);
+        expect(new Set(ids).size).toBe(40);
+    });
+
+    it('keeps the list the same length when the client changes size mid-walk', () => {
+        const first = page(MACHINES, { size: 4 }, long);
+        expect(first.total).toBe(800);
+        const second = page(MACHINES, { token: first.nextToken, size: 10 }, long);
+        expect(second.total).toBe(800);
+        const items: unknown[] = [...first.items, ...second.items];
+        let next = second.nextToken;
+        while (next) {
+            const p = page(MACHINES, { token: next, size: 10 }, long);
+            items.push(...p.items);
+            next = p.nextToken;
+        }
+        expect(items).toHaveLength(800);
+    });
+
+    it('ends on a token whose offset is not a whole number', () => {
+        const half = Buffer.from(JSON.stringify({ o: 1.5, t: 800 })).toString('base64url');
+        const p = page(MACHINES, { token: half }, long);
+        expect(p).toMatchObject({ items: [], hasMore: false, nextToken: null });
+    });
+
+    it('ends on a token claiming a length the list could not have', () => {
+        const huge = Buffer.from(JSON.stringify({ o: 0, t: 10 ** 9 })).toString('base64url');
+        expect(page(MACHINES, { token: huge }, long)).toMatchObject({ items: [], hasMore: false });
     });
 
     it('is the ordinary rule when nothing is stretched', () => {
@@ -208,6 +261,31 @@ describe('the backstop over a stretched list', () => {
         });
     });
 
+    it('keeps a long stream counted while many others fill the table', () => {
+        // Room for 8 entries; 50 short streams pass between every page of the long one.
+        const limiter = new PaginationLimiter(3, 8);
+        let sent: string | undefined;
+        let cut;
+        let n = 0;
+        while (!cut && n < 400) {
+            n++;
+            const b = { results: [n], cursor: `t${n}`, has_more: true };
+            cut = limiter.process('op', 'long', sent, b, paging, 200);
+            sent = b.cursor ?? undefined;
+            for (let k = 0; k < 50; k++) {
+                limiter.process(
+                    'other',
+                    `s${n}-${k}`,
+                    undefined,
+                    { results: [], cursor: `x${k}` },
+                    paging,
+                );
+            }
+        }
+        expect(n).toBe(200);
+        expect(cut).toEqual({ cut: true, reason: 'cut pagination at max pages (200)' });
+    });
+
     // ctx.page mints the same offset tokens for every list.
     it('keeps two lists that share tokens apart', () => {
         const limiter = new PaginationLimiter(3);
@@ -272,6 +350,37 @@ describe('--pages', () => {
         });
         expect(longListOf(ops.get('listEvents')!, { listMachines: 200 })).toBeUndefined();
         expect(longListOf(ops.get('listMachines')!, undefined)).toBeUndefined();
+    });
+
+    const shaped = (item: unknown): Operation =>
+        ({
+            operationId: 'listThings',
+            paging: { style: 'cursor', param: 'cursor', next: 'cursor', items: 'results' },
+            success: {
+                status: 200,
+                schema: {
+                    type: 'object',
+                    properties: { results: { type: 'array', items: item } },
+                    $defs: { Thing: { type: 'object', properties: { id: { type: 'string' } } } },
+                },
+            },
+        }) as unknown as Operation;
+    const ruleFor = (item: unknown) => longListOf(shaped(item), { listThings: 5 })?.id;
+
+    it('follows a $ref to the item type before choosing how ids change', () => {
+        expect(ruleFor({ $ref: '#/$defs/Thing' })).toBe('suffix');
+    });
+
+    it.each([
+        [{ type: 'object', properties: { id: { type: ['integer', 'string'] } } }, 'keep'],
+        [{ type: 'object', properties: { id: { type: ['string', 'null'] } } }, 'suffix'],
+        [{ type: 'object', properties: { id: { type: 'integer' } } }, 'number'],
+        [{ type: 'object', properties: { id: { type: 'integer', maximum: 9 } } }, 'keep'],
+        [{ type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, 'uuid'],
+        [{ type: 'object', properties: { id: { type: 'string', pattern: '^m-' } } }, 'keep'],
+        [{ type: 'object', properties: { name: { type: 'string' } } }, 'keep'],
+    ])('reads %j as %s', (item, rule) => {
+        expect(ruleFor(item)).toBe(rule);
     });
 
     // The pins in paging.test.ts stay as they are; this says why they must.

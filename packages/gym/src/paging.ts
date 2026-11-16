@@ -417,6 +417,8 @@ interface ActiveToken {
  */
 export class PaginationLimiter {
     readonly #tokens = new Map<string, ActiveToken>();
+    /** each stream's newest entry, which pruning by count never takes */
+    readonly #newest = new Map<string, string>();
     readonly #maxPagesFactory: () => number;
     readonly #maxEntries: number;
 
@@ -457,7 +459,7 @@ export class PaginationLimiter {
                 return undefined;
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(at(nextToken), {
+                this.#track(streamKey, at(nextToken), {
                     operationKey,
                     page: 2,
                     maxPages,
@@ -513,7 +515,7 @@ export class PaginationLimiter {
                 cutPaging(value, paging);
                 state.terminated = true;
                 if (nextToken !== undefined) {
-                    this.#tokens.set(at(nextToken), {
+                    this.#track(streamKey, at(nextToken), {
                         operationKey,
                         page: state.page + 1,
                         maxPages: state.maxPages,
@@ -532,7 +534,7 @@ export class PaginationLimiter {
             // Not yet at maxPages: advance to next page
             if (nextToken !== undefined) {
                 state.seenTokens.add(nextToken);
-                this.#tokens.set(at(nextToken), {
+                this.#track(streamKey, at(nextToken), {
                     operationKey,
                     page: state.page + 1,
                     maxPages: state.maxPages,
@@ -556,7 +558,7 @@ export class PaginationLimiter {
                 };
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(at(nextToken), {
+                this.#track(streamKey, at(nextToken), {
                     operationKey,
                     page: decodedPage + 1,
                     maxPages,
@@ -571,7 +573,7 @@ export class PaginationLimiter {
         // Untracked arbitrary string token (e.g. 'page-1' in server.test.ts)
         const maxPages = Math.max(2, limit());
         if (nextToken !== undefined) {
-            this.#tokens.set(at(nextToken), {
+            this.#track(streamKey, at(nextToken), {
                 operationKey,
                 page: 2,
                 maxPages,
@@ -583,20 +585,41 @@ export class PaginationLimiter {
         return undefined;
     }
 
+    #track(streamKey: string, key: string, entry: ActiveToken): void {
+        this.#tokens.set(key, entry);
+        this.#newest.set(streamKey, key);
+    }
+
+    /**
+     * Old entries go first, by age and then by count, but never a stream's
+     * newest: that is the token its next request will carry, and losing it
+     * would restart the stream's page count and forget its history, so a long
+     * list walked alongside many others could run past its limit.
+     */
     #prune(): void {
         const now = Date.now();
-        for (const [token, entry] of this.#tokens) {
+        for (const [key, entry] of this.#tokens) {
             if (now - entry.createdAt > 10 * 60 * 1000) {
-                this.#tokens.delete(token);
+                this.#drop(key, entry);
             }
         }
-        while (this.#tokens.size > this.#maxEntries) {
-            const first = this.#tokens.keys().next().value;
-            if (first !== undefined) {
-                this.#tokens.delete(first);
-            } else {
+        if (this.#tokens.size <= this.#maxEntries) {
+            return;
+        }
+        for (const [key, entry] of this.#tokens) {
+            if (this.#tokens.size <= this.#maxEntries) {
                 break;
             }
+            if (this.#newest.get(entry.streamKey) !== key) {
+                this.#tokens.delete(key);
+            }
+        }
+    }
+
+    #drop(key: string, entry: ActiveToken): void {
+        this.#tokens.delete(key);
+        if (this.#newest.get(entry.streamKey) === key) {
+            this.#newest.delete(entry.streamKey);
         }
     }
 }

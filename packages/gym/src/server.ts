@@ -708,19 +708,43 @@ export function longListOf(
 
 function itemIdSchema(operation: Operation): Record<string, unknown> | undefined {
     const items = operation.paging?.items;
-    const schema = operation.success.schema as Record<string, unknown> | undefined;
-    if (!items || !schema) {
+    const root = operation.success.schema as Record<string, unknown> | undefined;
+    if (!items || !root) {
         return undefined;
     }
+    // A shared or recursive type is a local `$ref` into `$defs` after
+    // normalising, so every step resolves one before looking inside it.
+    const at = (node: unknown): Record<string, unknown> | undefined => deref(node, root);
     // The items array sits on the body or one envelope down, as `pagingOf` finds it.
-    const holders = [schema, ...Object.values(propsOf(schema))];
+    const body = at(root);
+    const holders = [body, ...Object.values(propsOf(body)).map(at)];
     for (const holder of holders) {
-        const list = propsOf(holder)[items];
-        const item = isRecordish(list) ? list.items : undefined;
-        const id = propsOf(item).id;
-        if (isRecordish(id)) {
+        const list = at(propsOf(holder)[items]);
+        const id = at(propsOf(at(list?.items)).id);
+        if (id) {
             return id;
         }
+    }
+    return undefined;
+}
+
+/** Follows local `#/...` references against `root`; anything else is returned as it is. */
+function deref(node: unknown, root: Record<string, unknown>): Record<string, unknown> | undefined {
+    let current = node;
+    for (let hops = 0; hops < 16 && isRecordish(current); hops++) {
+        const ref = current.$ref;
+        if (typeof ref !== 'string') {
+            return current;
+        }
+        if (!ref.startsWith('#')) {
+            return undefined;
+        }
+        let target: unknown = root;
+        for (const raw of ref.slice(1).split('/').filter(Boolean)) {
+            const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+            target = isRecordish(target) ? target[key] : undefined;
+        }
+        current = target;
     }
     return undefined;
 }
@@ -732,16 +756,23 @@ function propsOf(schema: unknown): Record<string, unknown> {
 const isRecordish = (v: unknown): v is Record<string, unknown> =>
     v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** Only ids the schema leaves room to change are changed; anything else is kept. */
+/**
+ * Only ids the schema leaves room to change are changed; anything else is kept.
+ * One type only: a copy can rewrite an integer or a string, not guess which
+ * branch of a union a value came from, so a union keeps its ids.
+ */
 function idRule(id: Record<string, unknown> | undefined): LongList['id'] {
-    if (!id || 'enum' in id || 'const' in id) {
+    if (!id || 'enum' in id || 'const' in id || 'multipleOf' in id) {
         return 'keep';
     }
-    const types = Array.isArray(id.type) ? id.type : [id.type];
-    if (types.includes('integer') && !('maximum' in id) && !('exclusiveMaximum' in id)) {
-        return 'number';
+    const types = (Array.isArray(id.type) ? id.type : [id.type]).filter((t) => t !== 'null');
+    if (types.length !== 1) {
+        return 'keep';
     }
-    if (!types.includes('string') || 'pattern' in id || 'maxLength' in id) {
+    if (types[0] === 'integer') {
+        return 'maximum' in id || 'exclusiveMaximum' in id ? 'keep' : 'number';
+    }
+    if (types[0] !== 'string' || 'pattern' in id || 'maxLength' in id) {
         return 'keep';
     }
     if (id.format === 'uuid') {
