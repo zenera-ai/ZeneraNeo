@@ -13,6 +13,55 @@
 // them.
 // ---------------------------------------------------------------------------
 
+// A row is measured in terminal columns, which `.length` is not: a CJK
+// character is one unit and two columns, a combining mark is a unit and none.
+const NARROW = /^[ -~]*$/;
+const ZERO =
+    /[\p{Mn}\p{Me}\p{Cf}\p{Default_Ignorable_Code_Point}\u{1160}-\u{11FF}\u{D7B0}-\u{D7FF}]/u;
+const EMOJI = /\p{Emoji_Presentation}/u;
+// East Asian Wide and Fullwidth. Ambiguous width counts as narrow.
+const WIDE =
+    /[\u{1100}-\u{115F}\u{2329}\u{232A}\u{2630}-\u{2637}\u{268A}-\u{268F}\u{2E80}-\u{303E}\u{3041}-\u{3247}\u{3250}-\u{A4CF}\u{A960}-\u{A97F}\u{AC00}-\u{D7A3}\u{F900}-\u{FAFF}\u{FE10}-\u{FE19}\u{FE30}-\u{FE6F}\u{FF01}-\u{FF60}\u{FFE0}-\u{FFE6}\u{16FE0}-\u{18DFF}\u{1AFF0}-\u{1B2FF}\u{1D300}-\u{1D376}\u{1F200}-\u{1F2FF}\u{20000}-\u{3FFFD}]/u;
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** The columns of one grapheme. An emoji is two, however many code points spell it. */
+function cell(grapheme: string): number {
+    if (EMOJI.test(grapheme) || (grapheme.length > 1 && grapheme.includes('\u{FE0F}'))) {
+        return 2;
+    }
+    let n = 0;
+    for (const ch of grapheme) {
+        n += ZERO.test(ch) ? 0 : WIDE.test(ch) ? 2 : 1;
+    }
+    return n;
+}
+
+/** How many terminal columns `text` occupies on one row. */
+function columnsOf(text: string): number {
+    if (NARROW.test(text)) {
+        return text.length;
+    }
+    let n = 0;
+    for (const { segment } of GRAPHEMES.segment(text)) {
+        n += cell(segment);
+    }
+    return n;
+}
+
+/** The longest head of `text` within `width` columns, cut between graphemes. */
+function fit(text: string, width: number): string {
+    let n = 0;
+    let end = 0;
+    for (const { segment } of GRAPHEMES.segment(text)) {
+        n += cell(segment);
+        if (n > width) {
+            break;
+        }
+        end += segment.length;
+    }
+    return text.slice(0, end);
+}
+
 /**
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
  * that the terminal will not wrap it again.
@@ -41,7 +90,7 @@ export function windowOf(text: string, width: number, rows: number): string[] {
 export function clip(text: string, width: number): string {
     const flat = text.replace(/\s+/g, ' ').trim();
     const w = Math.max(1, width);
-    return flat.length <= w ? flat : `${flat.slice(0, w - 1)}…`;
+    return columnsOf(flat) <= w ? flat : `${fit(flat, w - 1)}…`;
 }
 
 /** Word wrap. Every returned row is at most `width` columns wide. */
@@ -54,17 +103,22 @@ export function wrap(text: string, width: number): string[] {
             // A word wider than the terminal has to be broken somewhere, and
             // anywhere is as good as anywhere else.
             let rest = word;
-            while (rest.length > w) {
+            while (columnsOf(rest) > w) {
+                // Nothing fits when one character is wider than the row.
+                const head = fit(rest, w);
+                if (!head) {
+                    break;
+                }
                 if (line) {
                     out.push(line);
                     line = '';
                 }
-                out.push(rest.slice(0, w));
-                rest = rest.slice(w);
+                out.push(head);
+                rest = rest.slice(head.length);
             }
             if (!line) {
                 line = rest;
-            } else if (line.length + 1 + rest.length <= w) {
+            } else if (columnsOf(line) + 1 + columnsOf(rest) <= w) {
                 line += ` ${rest}`;
             } else {
                 out.push(line);
@@ -209,11 +263,11 @@ export function boxWidth(text: string, columns: number): number {
         // A fence is drawn behind a `│ ` gutter; a table row is not.
         const lines =
             block.kind === 'code'
-                ? (block.lines ?? []).map((l) => l.length + 6)
+                ? (block.lines ?? []).map((l) => columnsOf(l) + 6)
                 : block.kind === 'table'
                   ? textOf(block)
                         .split('\n')
-                        .map((l) => l.length + 4)
+                        .map((l) => columnsOf(l) + 4)
                   : [];
         for (const width of lines) {
             rigid = Math.max(rigid, width);
@@ -959,7 +1013,7 @@ export function blocksOf(text: string): Block[] {
 // ---------------------------------------------------------------------------
 
 /** What a run of spans measures, which is the text and never the styling. */
-const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + s.text.length, 0);
+const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + columnsOf(s.text), 0);
 
 /** A cell in its column, set where the rule row asked for it. */
 function padOf(spans: Span[], width: number, align: Align): Span[] {
