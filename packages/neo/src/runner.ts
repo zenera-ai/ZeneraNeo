@@ -759,6 +759,7 @@ export class AgentRunner<TCtx = unknown> {
                 isError: false,
                 durationMs: Date.now() - started,
                 effects: effects.length ? effects : undefined,
+                media: isToolReturn(out) ? out.media : undefined,
             };
         } catch (e) {
             return fail(`error: ${e instanceof Error ? e.message : String(e)}`);

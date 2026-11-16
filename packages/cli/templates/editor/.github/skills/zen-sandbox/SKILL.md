@@ -84,6 +84,14 @@ agents:
 
 An agent with no `sandbox:*` tools never triggers an image pull, container creation, or VM startup.
 
+`files:view_image` (included in `files:*`) opens screenshots, charts and other
+images saved under `/workspace` or a declared read-only mount without starting
+a container. It sends PNG, JPEG, GIF or WebP bytes to a vision-capable model,
+up to 4 MiB; use it instead of `read_file` or shell base64 output to inspect an
+image. Resize or convert unsupported/oversized images to a workspace copy using
+an available sandbox command first. SVG source is text and uses `read_file`.
+Grant `view_image` explicitly when an agent has a selective list of file tools.
+
 ---
 
 ## 3. Filesystem and Mount Layout

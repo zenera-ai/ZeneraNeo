@@ -10,6 +10,7 @@ import { InMemoryPayloadStore } from '../src/payload-stores/in-memory.ts';
 import { exportRun, importRun, type Payload } from '../src/payload.ts';
 import { promptFile } from '../src/prompt.ts';
 import { AgentRunner } from '../src/runner.ts';
+import { fileTools } from '../src/tools/files.ts';
 import { StaticSkillProvider } from '../src/skill-providers/static.ts';
 import { assertState, turns, type AgentState } from '../src/state.ts';
 import {
@@ -100,6 +101,76 @@ function findNode<T extends TrajectoryNode['type']>(
 // ---------------------------------------------------------------------------
 
 describe('smoke', () => {
+    it('delivers view_image as replayable visual input after a parallel tool batch', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'zen-view-image-'));
+        const png = Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+            'base64',
+        );
+        writeFileSync(join(root, 'pixel.png'), png);
+        writeFileSync(join(root, 'note.txt'), 'a note');
+        const image = {
+            type: 'image',
+            url: `data:image/png;base64,${png.toString('base64')}`,
+            mimeType: 'image/png',
+        };
+        const model = new RuleModel((req) => {
+            if (hasToolResult(req, 'view_image')) {
+                expect(req.messages.map((m) => m.role)).toEqual([
+                    'user',
+                    'assistant',
+                    'tool',
+                    'tool',
+                    'user',
+                ]);
+                const attachment = req.messages.at(-1);
+                expect(attachment?.role === 'user' && attachment.content).toContainEqual(image);
+                const result = req.messages.find(
+                    (m) => m.role === 'tool' && m.name === 'view_image',
+                );
+                expect(result?.content).not.toContain('base64');
+                return say('image received');
+            }
+            return {
+                text: '',
+                stopReason: 'tool_calls',
+                toolCalls: [
+                    { id: 'image-call', name: 'view_image', args: '{"path":"pixel.png"}' },
+                    { id: 'text-call', name: 'read_file', args: '{"path":"note.txt"}' },
+                ],
+            };
+        });
+        try {
+            const runner = new AgentRunner({ model });
+            runner.agent({ name: 'viewer', tools: fileTools({ root, readOnly: true }) });
+            const result = await runner.run('viewer', 'Look at the image').final();
+            expect(result.output).toBe('image received');
+            const node = result.state.trajectory.find(
+                (n) => n.type === 'tool_result' && n.name === 'view_image',
+            );
+            expect(node?.type === 'tool_result' && node.media).toEqual([image]);
+            // JSON round-trip the trajectory; no workspace file is needed to replay it.
+            const recorded: TrajectoryNode[] = JSON.parse(JSON.stringify(result.state.trajectory));
+            const projection = await projectMessages(recorded, runner.services.payloads);
+            expect(
+                projection.messages.some(
+                    (m) =>
+                        m.role === 'user' &&
+                        m.content.some((p) => p.type === 'image' && p.url === image.url),
+                ),
+            ).toBe(true);
+            const withoutCall = recorded.filter((n) => n.type !== 'llm_call');
+            const orphaned = await projectMessages(withoutCall, runner.services.payloads);
+            expect(
+                orphaned.messages.some(
+                    (m) => m.role === 'user' && m.content.some((p) => p.type === 'image'),
+                ),
+            ).toBe(false);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     it('runs a handoff and a tool call end to end', async () => {
         const add = tool<{ a: number; b: number }>({
             name: 'add',

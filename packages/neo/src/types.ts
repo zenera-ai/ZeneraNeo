@@ -195,6 +195,7 @@ export interface ToolOutcome {
     isError: boolean;
     durationMs?: number;
     effects?: ToolEffect[];
+    media?: MediaPart[];
 }
 
 export type ToolEffect =
@@ -212,10 +213,16 @@ export interface ToolReturn {
     [TOOL_RETURN]: true;
     output: unknown;
     effects: ToolEffect[];
+    media?: MediaPart[];
 }
 
 export function withEffects(output: unknown, ...effects: ToolEffect[]): ToolReturn {
     return { [TOOL_RETURN]: true, output, effects };
+}
+
+/** Media is delivered as model input, not stringified into the tool's text. */
+export function withMedia(output: unknown, ...media: MediaPart[]): ToolReturn {
+    return { [TOOL_RETURN]: true, output, effects: [], media };
 }
 
 export function isToolReturn(v: unknown): v is ToolReturn {

@@ -875,6 +875,7 @@ export async function applyToolResult(
         result: await put(env, outcome.output),
         isError: outcome.isError,
         durationMs: outcome.durationMs,
+        media: outcome.isError ? undefined : outcome.media,
     });
 
     for (const effect of outcome.effects ?? []) {

@@ -1,5 +1,5 @@
 import { extname } from 'node:path';
-import { tool, type AnyTool, type ToolContext } from '../types.ts';
+import { tool, withMedia, type AnyTool, type ToolContext } from '../types.ts';
 import type { FsDriver, FsStat } from '@zenera/sandbox';
 import { Workspace, type WorkspaceOptions } from './workspace.ts';
 
@@ -29,6 +29,7 @@ export {
 
 /** Reads are capped so one `cat` of a log file cannot fill the context. */
 const MAX_READ = 256 * 1024;
+const MAX_IMAGE = 4 * 1024 * 1024;
 const MAX_WRITE = 1024 * 1024;
 const MAX_ENTRIES = 500;
 /** Nothing is pulled into memory whole beyond this; bigger files are read by the head. */
@@ -120,6 +121,23 @@ function looksBinary(buf: Buffer, partial: boolean): boolean {
         return true;
     }
     return view.toString('utf8').includes('\uFFFD');
+}
+
+function imageMime(buf: Buffer): string | undefined {
+    if (buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+        return 'image/png';
+    }
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+        return 'image/jpeg';
+    }
+    const gif = buf.toString('latin1', 0, 6);
+    if (gif === 'GIF87a' || gif === 'GIF89a') {
+        return 'image/gif';
+    }
+    if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') {
+        return 'image/webp';
+    }
+    return undefined;
 }
 
 function countLines(buf: Buffer): number {
@@ -705,7 +723,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         name: 'read_file',
         group: GROUP,
         description:
-            'Reads a UTF-8 text file from the workspace. ' +
+            'Reads a UTF-8 text file from the workspace. Use view_image for images. ' +
             scope +
             ' Give start_line/end_line (1-based, inclusive) to read a range; without them ' +
             'the file is read from the top until the size cap, and `truncated` says whether ' +
@@ -732,6 +750,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                     error: `${ws.show(at)} is not a text file`,
                     format: shape.format,
                     bytes: info.size,
+                    hint: shape.format === 'image' ? 'use view_image' : undefined,
                 };
             }
             const { body, whole } = await readText(fs, at, info.size);
@@ -1140,10 +1159,53 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
         },
     });
 
+    const viewImage = tool<{ path: string }, TCtx>({
+        name: 'view_image',
+        group: GROUP,
+        description:
+            'Opens a PNG, JPEG, GIF or WebP file as image input for a vision-capable model, ' +
+            'not text or base64 prose. Maximum 4 MiB; no resizing or conversion. ' +
+            scope,
+        parameters: {
+            type: 'object',
+            properties: { path: { type: 'string', description: inside } },
+            required: ['path'],
+            additionalProperties: false,
+        },
+        execute: async ({ path }) => {
+            const at = await ws.within(path);
+            const info = await fs.stat(at);
+            if (info.isDirectory()) {
+                throw new Error(`${ws.show(at)} is a directory; use list_dir`);
+            }
+            if (info.size > MAX_IMAGE) {
+                throw new Error(`${ws.show(at)} exceeds the 4 MiB image limit; resize it first`);
+            }
+            const bytes = await fs.readHead(at, MAX_IMAGE + 1);
+            if (bytes.length > MAX_IMAGE) {
+                throw new Error(`${ws.show(at)} exceeds the 4 MiB image limit; resize it first`);
+            }
+            const mimeType = imageMime(bytes);
+            if (!mimeType) {
+                throw new Error(
+                    `${ws.show(at)} is not a supported image; use PNG, JPEG, GIF or WebP (read_file for SVG text)`,
+                );
+            }
+            return withMedia(
+                { path: ws.show(at), mimeType, bytes: bytes.length },
+                {
+                    type: 'image',
+                    url: `data:${mimeType};base64,${bytes.toString('base64')}`,
+                    mimeType,
+                },
+            );
+        },
+    });
+
     return named(
         ws,
         opts.readOnly
-            ? [readFileTool, listDir, findFiles]
+            ? [readFileTool, listDir, findFiles, viewImage]
             : [
                   readFileTool,
                   listDir,
@@ -1153,6 +1215,7 @@ export function fileTools<TCtx = unknown>(opts: WorkspaceOptions): AnyTool<TCtx>
                   copyPath,
                   movePath,
                   deleteFile,
+                  viewImage,
               ],
     );
 }

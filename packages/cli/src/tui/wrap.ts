@@ -347,6 +347,7 @@ interface Shape {
 
 const CALLS: Record<string, Shape> = {
     read_file: { verb: 'read', of: ['path'] },
+    view_image: { verb: 'view image', of: ['path'] },
     list_dir: { verb: 'list', of: ['path'] },
     find_files: { verb: 'find', of: ['pattern'] },
     write_file: { verb: 'write', of: ['path'] },

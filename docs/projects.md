@@ -305,10 +305,15 @@ const project = await loadProject('./my-project', {
 });
 ```
 
-- `fileTools({ root, readOnly, mount, mounts })` - `read_file`, `list_dir`,
+- `fileTools({ root, readOnly, mount, mounts })` - `read_file`, `view_image`, `list_dir`,
   `find_files`, and `write_file`, `apply_patch`, `copy_file`, `move_file`,
   `delete_file` when it is writable. Everything is contained to `root`,
   resolving symlinks first.
+- `view_image({ path })` sends PNG, JPEG, GIF or WebP files (up to 4 MiB)
+  as visual input to a vision-capable model. It recognizes file signatures,
+  works on read-only mounts, and neither resizes nor converts images. SVG uses
+  `read_file`. Media is recorded with the tool result for replay; the projection
+  delivers it as a user media message after the tool batch, not base64 tool text.
 - `sandboxTools(pool)` - `run_command`, `run_command_background`,
   `read_command_output`, `stop_command`, all in group `sandbox`.
 - `identityTools(user)` - `current_user`, in group `identity`: who the run acts for. Pass

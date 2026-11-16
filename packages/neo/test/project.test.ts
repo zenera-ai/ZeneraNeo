@@ -268,6 +268,7 @@ describe('conditional house rules', () => {
                     'agents:\n' +
                     '  - name: full\n    tools: [files:*]\n' +
                     '  - name: readonly\n    tools: [files:*, -write_file, -apply_patch, -copy_file, -move_file, -delete_file]\n' +
+                    '  - name: viewer\n    tools: [files:view_image]\n' +
                     '  - name: legacy\n    tools: [workspace:*]\n' +
                     '  - name: none\n    tools: [sandbox:*]\n',
                 'agents/files-instructions.md': '---\nrequires: [files]\n---\nRead carefully.',
@@ -280,6 +281,7 @@ describe('conditional house rules', () => {
             'agents/write-instructions.md',
         ]);
         expect(srcs(p, 'readonly')).toEqual(['agents/files-instructions.md']);
+        expect(srcs(p, 'viewer')).toEqual(['agents/files-instructions.md']);
         expect(srcs(p, 'legacy')).toEqual([
             'agents/files-instructions.md',
             'agents/write-instructions.md',

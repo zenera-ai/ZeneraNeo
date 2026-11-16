@@ -6,13 +6,14 @@ import {
     realpathSync,
     rmSync,
     symlinkSync,
+    truncateSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Workspace, fileTools } from '../src/tools/files.ts';
-import { selectTools } from '../src/types.ts';
+import { isToolReturn, selectTools } from '../src/types.ts';
 
 describe('workspace containment', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-')));
@@ -302,7 +303,11 @@ describe('a mounted tree', () => {
 
 describe('the file tools', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'zen-ws-tools-')));
-    afterAll(() => rmSync(root, { recursive: true, force: true }));
+    const outsideImages = realpathSync(mkdtempSync(join(tmpdir(), 'zen-images-')));
+    afterAll(() => {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outsideImages, { recursive: true, force: true });
+    });
 
     // The tools only ever touch `args`; the ToolContext is inert here.
     const tools = fileTools({ root });
@@ -317,7 +322,7 @@ describe('the file tools', () => {
     it('withholds the mutating tools when read-only', () => {
         const names = (readOnly: boolean): string[] =>
             fileTools({ root, readOnly }).map((t) => t.name);
-        expect(names(true)).toEqual(['read_file', 'list_dir', 'find_files']);
+        expect(names(true)).toEqual(['read_file', 'list_dir', 'find_files', 'view_image']);
         expect(names(false)).toEqual([
             'read_file',
             'list_dir',
@@ -327,6 +332,7 @@ describe('the file tools', () => {
             'copy_file',
             'move_file',
             'delete_file',
+            'view_image',
         ]);
     });
 
@@ -402,6 +408,72 @@ describe('the file tools', () => {
         const out = await call('read_file', { path: 'blob.bin' });
         expect(out.error).toContain('not a text file');
         expect(out.format).toBe('binary');
+    });
+
+    it('returns image bytes as media, even when the extension is misleading', async () => {
+        const png = Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+            'base64',
+        );
+        writeFileSync(join(root, 'pixel.dat'), png);
+        const out: unknown = await call('view_image', { path: 'pixel.dat' });
+        expect(isToolReturn(out)).toBe(true);
+        if (!isToolReturn(out)) {
+            throw new Error('expected a media tool result');
+        }
+        expect(out.output).toEqual({ path: 'pixel.dat', mimeType: 'image/png', bytes: png.length });
+        expect(out.media).toEqual([
+            {
+                type: 'image',
+                url: `data:image/png;base64,${png.toString('base64')}`,
+                mimeType: 'image/png',
+            },
+        ]);
+    });
+
+    it('rejects unsupported, empty and oversized image input explicitly', async () => {
+        writeFileSync(join(root, 'fake.png'), 'not an image');
+        writeFileSync(join(root, 'vector.svg'), '<svg/>');
+        writeFileSync(join(root, 'empty.png'), '');
+        for (const path of ['fake.png', 'vector.svg', 'empty.png']) {
+            await expect(call('view_image', { path })).rejects.toThrow('not a supported image');
+        }
+        await expect(call('view_image', { path: '.' })).rejects.toThrow('is a directory');
+        writeFileSync(
+            join(root, 'large.png'),
+            Buffer.from(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+                'base64',
+            ),
+        );
+        truncateSync(join(root, 'large.png'), 4 * 1024 * 1024);
+        const atLimit: unknown = await call('view_image', { path: 'large.png' });
+        expect(isToolReturn(atLimit) && atLimit.output).toMatchObject({
+            bytes: 4 * 1024 * 1024,
+        });
+        truncateSync(join(root, 'large.png'), 4 * 1024 * 1024 + 1);
+        await expect(call('view_image', { path: 'large.png' })).rejects.toThrow('4 MiB');
+        await expect(call('view_image', { path: '../escape.png' })).rejects.toThrow();
+    });
+
+    it('views images from read-only mounts but refuses symlink escapes', async () => {
+        writeFileSync(
+            join(outsideImages, 'pixel.gif'),
+            Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'),
+        );
+        const mounted = fileTools({
+            root,
+            readOnly: true,
+            mount: '/workspace',
+            mounts: [{ host: outsideImages, at: '/assets' }],
+        }).find((t) => t.name === 'view_image')!;
+        const out: unknown = await mounted.execute({ path: '/assets/pixel.gif' }, {} as never);
+        expect(isToolReturn(out) && out.output).toMatchObject({
+            path: '/assets/pixel.gif',
+            mimeType: 'image/gif',
+        });
+        symlinkSync(join(outsideImages, 'pixel.gif'), join(root, 'escape.gif'));
+        await expect(call('view_image', { path: 'escape.gif' })).rejects.toThrow();
     });
 
     it('describes what it lists', async () => {

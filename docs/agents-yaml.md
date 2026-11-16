@@ -1242,7 +1242,7 @@ exception to the line above it:
 tools: [files:*, -delete_file, -move_file, policy_lookup]
 ```
 
-Groups come from the tool, not from config: `fileTools()` tags its eight with
+Groups come from the tool, not from config: `fileTools()` tags its nine with
 `files` (with `workspace` recognized as an alias), `sandboxTools()` tags its four
 with `sandbox`, and a host's own tools can carry any `group` they like. The
 model never sees a group - it gets the same flat list of names either way.
@@ -1252,16 +1252,21 @@ registered on its provider.
 
 The two groups the CLI registers:
 
-| Group                        | Tools                                                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `files:*` (or `workspace:*`) | `read_file`, `list_dir`, `find_files`, `write_file`, `apply_patch`, `copy_file`, `move_file`, `delete_file` |
-| `sandbox:*`                  | `run_command`, `run_command_background`, `read_command_output`, `stop_command`                              |
+| Group                        | Tools                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `files:*` (or `workspace:*`) | `read_file`, `view_image`, `list_dir`, `find_files`, `write_file`, `apply_patch`, `copy_file`, `move_file`, `delete_file` |
+| `sandbox:*`                  | `run_command`, `run_command_background`, `read_command_output`, `stop_command`                                            |
 
 Declaring file tools makes the operations available. How to discover files, read
 ranges without blowing context, and safely patch files is in the house rules
 `agents/files-instructions.md`, carrying `requires: [files]`. An agent with
 file tools whose project has deleted that file gets the file schemas and no
 explanation - `zen check` reports that as `files.uninstructed`.
+
+`view_image` is read-only and can be granted alone as `tools: [files:view_image]`.
+It sends local PNG, JPEG, GIF or WebP files up to 4 MiB to a vision-capable model.
+Workspace containment and declared read-only mounts apply; remote URLs, automatic
+conversion and resizing are not supported. Use `read_file` for SVG source.
 
 Naming `sandbox:*` is what makes a project need a container engine. See
 [`sandbox:`](#sandbox).

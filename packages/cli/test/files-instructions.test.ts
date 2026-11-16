@@ -29,6 +29,7 @@ describe('the condition that delivers the files house rules', () => {
     it('names the file tools so an author sees the full set', () => {
         for (const name of [
             'read_file',
+            'view_image',
             'list_dir',
             'find_files',
             'write_file',
@@ -119,5 +120,20 @@ describe('the copy a scaffold leaves behind', () => {
         writeFileSync(path, 'corrupted');
         refreshShared(dir);
         expect(readFileSync(path, 'utf8')).toBe(rules);
+    });
+
+    it('requires file instructions for an agent granted only view_image', async () => {
+        const dir = project('zen-image-rules-');
+        writeFileSync(
+            join(dir, 'agents.yaml'),
+            'agents:\n  - name: viewer\n    tools: [files:view_image]\n',
+        );
+        const withRules = await validateProject({ dir });
+        expect(withRules.agents.find((a) => a.name === 'viewer')?.instructions).toContain(
+            'agents/files-instructions.md',
+        );
+        rmSync(join(dir, 'agents', 'files-instructions.md'));
+        const withoutRules = await validateProject({ dir });
+        expect(withoutRules.findings.some((f) => f.code === 'files.uninstructed')).toBe(true);
     });
 });

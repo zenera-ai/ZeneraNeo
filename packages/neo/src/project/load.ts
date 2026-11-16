@@ -412,6 +412,7 @@ interface HouseRule {
 
 const FILE_TOOLS = [
     'read_file',
+    'view_image',
     'list_dir',
     'find_files',
     'write_file',
