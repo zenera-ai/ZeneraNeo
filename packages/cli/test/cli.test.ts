@@ -800,6 +800,15 @@ describe('the streaming window', () => {
         expect(rows).toEqual(['界'.repeat(5), '界'.repeat(5), '界'.repeat(5)]);
     });
 
+    it('keeps a long ZWJ grapheme intact while selecting the streaming tail', () => {
+        const family = '👨‍👩‍👧‍👦';
+        expect(windowOf(family.repeat(30), 10, 3)).toEqual([
+            family.repeat(5),
+            family.repeat(5),
+            family.repeat(5),
+        ]);
+    });
+
     it('asks for no more rows than there are', () => {
         expect(windowOf('one\ntwo', 40, 6)).toEqual(['one', 'two']);
     });

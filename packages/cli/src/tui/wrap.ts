@@ -17,17 +17,15 @@
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
  * that the terminal will not wrap it again.
  *
- * Only the tail is ever wanted, so only the tail is wrapped: `width * rows * 2`
- * characters is more than enough to fill the window whatever the wrapping does,
- * and bounds the work per keystroke on a stream that never stops growing.
+ * Only the tail is ever wanted. Retain a few windows' worth of grapheme cells
+ * so wrapping can discard a partially filled first row without losing content.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
     const n = Math.max(1, rows);
     // Trailing blank rows are never information, and a stream that ends on a
     // paragraph break would spend one of the few rows it has on nothing.
-    const tail = text
-        .slice(-w * n * 2)
+    const tail = tailByCells(text, w * n * 2)
         .replace(/\n{2,}/g, '\n')
         .trimEnd();
     return wrap(tail, w).slice(-n);
@@ -78,6 +76,30 @@ function clusters(text: string): string[] {
 
 function cells(text: string): number {
     return clusters(text).reduce((sum, cluster) => sum + cellWidth(cluster), 0);
+}
+
+/** Keep a bounded suffix, always cutting at a grapheme boundary. */
+function tailByCells(text: string, limit: number): string {
+    let start = Math.max(0, text.length - limit * 2);
+    while (start > 0) {
+        // Start on a code-point boundary before asking Segmenter whether this
+        // offset also falls inside a grapheme (for example, after a ZWJ).
+        if (text.charCodeAt(start) >= 0xdc00 && text.charCodeAt(start) <= 0xdfff) start--;
+        const previousStart =
+            start > 1 && text.charCodeAt(start - 1) >= 0xdc00 && text.charCodeAt(start - 1) <= 0xdfff
+                ? start - 2
+                : start - 1;
+        const previous = text.slice(previousStart, start);
+        const tail = text.slice(start);
+        const first = graphemes.segment(previous + tail)[Symbol.iterator]().next().value?.segment;
+        const boundary = first === previous;
+        if (boundary && cells(tail) >= limit) return tail;
+
+        // Expand geometrically; long ZWJ sequences can be much longer in
+        // UTF-16 than their terminal-cell width suggests.
+        start = Math.max(0, start - Math.max(limit * 2, text.length - start));
+    }
+    return text;
 }
 
 /**
