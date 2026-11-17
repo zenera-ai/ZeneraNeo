@@ -49,7 +49,7 @@ import type { AddressInfo } from 'node:net';
 import { platform, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { extract, split } from '../src/args.ts';
+import { closest, extract, parse, split } from '../src/args.ts';
 import { bannerLines, NEO_BANNER } from '../src/banner.ts';
 import { Cache, cacheKey } from '../src/cache.ts';
 import {
@@ -158,6 +158,60 @@ describe('splitting the command line', () => {
     it('leaves everything after -- alone', () => {
         const { rest } = extract(['--', '--json', '--help']);
         expect(rest).toEqual(['--json', '--help']);
+    });
+});
+
+describe('suggesting what a typo meant', () => {
+    const commands = ['init', 'list', 'run', 'open', 'key', 'check', 'inspect'];
+
+    it('forgives one edit, a swap included', () => {
+        expect(closest('inti', commands)).toBe('init');
+        expect(closest('chek', commands)).toBe('check');
+        expect(closest('runn', commands)).toBe('run');
+        expect(closest('kye', commands)).toBe('key');
+    });
+
+    it('offers nothing when nothing is close', () => {
+        expect(closest('frobnicate', commands)).toBeUndefined();
+        expect(closest('xyz', commands)).toBeUndefined();
+    });
+
+    it('does not guess at a one- or two-letter word', () => {
+        expect(closest('-x', ['-h', '-v', '-C'])).toBeUndefined();
+        expect(closest('rn', commands)).toBeUndefined();
+    });
+
+    it('compares flags without their dashes and returns them as written', () => {
+        expect(closest('--nmae', ['--name', '--model', '--force'])).toBe('--name');
+    });
+});
+
+describe('an unknown flag', () => {
+    const options = { name: { type: 'string' }, force: { type: 'boolean' } } as const;
+    const message = (args: string[]): string => {
+        try {
+            parse(args, options, 'zen init [dir]');
+        } catch (e) {
+            return (e as Error).message;
+        }
+        throw new Error('parsed');
+    };
+
+    it('names the flag it was probably meant to be', () => {
+        expect(message(['--nmae', 'x'])).toBe('unknown option --nmae (did you mean --name?)');
+    });
+
+    it('reports a flag that holds a quote whole', () => {
+        expect(message(["--foo'bar"])).toBe(
+            "unknown option --foo'bar (to pass it as text, put it after --)",
+        );
+        expect(message(["--nam'e"])).toBe("unknown option --nam'e (did you mean --name?)");
+    });
+
+    it('points at -- only when no flag is close', () => {
+        expect(message(['--bogus'])).toBe(
+            'unknown option --bogus (to pass it as text, put it after --)',
+        );
     });
 });
 
