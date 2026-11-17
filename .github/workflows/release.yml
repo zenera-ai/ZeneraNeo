@@ -104,11 +104,11 @@ jobs:
                     - name: zenera-agent-runtime
                       dir: packages/cli
                       dockerfile: agent-runtime.Dockerfile
-                      needs: '@zenera/cli'
+                      needs: '@zenera/cli @zenera/rag @zenera/server @zenera/sandbox'
                     - name: zenera-sandbox
                       dir: packages/sandbox
                       dockerfile: sandbox-base.Dockerfile
-                      needs: '@zenera/cli @zenera/rag'
+                      needs: '@zenera/cli @zenera/rag @zenera/sandbox'
         steps:
             - uses: actions/checkout@v5
               with:
