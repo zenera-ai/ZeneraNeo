@@ -78,6 +78,7 @@ interface Flags {
     'max-body'?: string;
     'regen-limit'?: string;
     'requests-dir'?: string;
+    pages?: string[];
     rebuild?: boolean;
     reset?: boolean;
     'no-cache'?: boolean;
@@ -104,6 +105,7 @@ const OPTIONS = {
     'max-body': { type: 'string' },
     'regen-limit': { type: 'string' },
     'requests-dir': { type: 'string' },
+    pages: { type: 'string', multiple: true },
     rebuild: { type: 'boolean' },
     reset: { type: 'boolean' },
     'no-cache': { type: 'boolean' },
@@ -155,6 +157,10 @@ export const command: Command = {
             ['  --max-body <n>', dim('Largest request body accepted, in bytes.')],
             ['  --regen-limit <n>', dim('Maximum regenerations per URL on error. Default 3.')],
             ['  --requests-dir <dir>', dim('Where to save request/response .md files.')],
+            [
+                '  --pages <op>=<n>',
+                dim("Serve this operation's list as exactly n pages, e.g. listMachines=200."),
+            ],
             ['  --rebuild', dim('Ignore what is cached and write it again.')],
             ['  --no-cache', dim('Do not record what is written.')],
             [
@@ -202,7 +208,9 @@ export const command: Command = {
 
 async function serve(args: readonly string[], ctx: Context): Promise<void> {
     const { values, positionals } = parse<Flags>(args, OPTIONS, SERVE_USAGE);
+    const asked = parsePages(values.pages);
     const setup = await start(values, positionals, ctx, 'serve');
+    const pages = asked && pagesFor(asked, setup.router.operations);
 
     const host = values.host ?? '127.0.0.1';
     const requestsDir = values['requests-dir']
@@ -218,6 +226,7 @@ async function serve(args: readonly string[], ctx: Context): Promise<void> {
             maxBody: number(values['max-body'], 'max-body'),
             requestsDir,
             regenLimit: number(values['regen-limit'], 'regen-limit'),
+            pages,
             onRequest: values.quiet ? undefined : (line) => note(line),
         },
         host,
@@ -738,6 +747,55 @@ async function start(
         printInputs(setup);
     }
     return setup;
+}
+
+/** The most pages one list may be asked for: far past any client's patience, short of absurd. */
+export const MAX_PAGES = 100_000;
+
+const PAGES_USAGE = '--pages <operationId>=<n>, e.g. --pages listMachines=200';
+
+/** `--pages listMachines=200`, repeatable, as operationId → pages. Checked before anything loads. */
+export function parsePages(raw: readonly string[] | undefined): Record<string, number> | undefined {
+    if (!raw?.length) {
+        return undefined;
+    }
+    const out: Record<string, number> = {};
+    for (const entry of raw) {
+        const m = /^([^=\s]+)=(\d+)$/.exec(entry.trim());
+        const n = m ? Number(m[2]) : NaN;
+        if (!m || !Number.isSafeInteger(n) || n < 1 || n > MAX_PAGES) {
+            throw usageError(
+                `--pages wants <operationId>=<n> with n from 1 to ${MAX_PAGES}, got "${entry}"`,
+                PAGES_USAGE,
+            );
+        }
+        if (m[1]! in out) {
+            throw usageError(`--pages names ${m[1]} twice`, PAGES_USAGE);
+        }
+        out[m[1]!] = n;
+    }
+    return out;
+}
+
+/** Every operation named must exist and page; a typo should not quietly change nothing. */
+export function pagesFor(
+    asked: Readonly<Record<string, number>>,
+    operations: readonly Operation[],
+): Record<string, number> {
+    const byId = new Map(operations.map((o) => [o.operationId, o]));
+    for (const id of Object.keys(asked)) {
+        const op = byId.get(id);
+        if (!op) {
+            throw usageError(`--pages names ${id}, which no loaded spec defines`, PAGES_USAGE);
+        }
+        if (!op.paging) {
+            throw usageError(
+                `--pages names ${id}, which declares no paging parameter`,
+                'only an operation with a cursor, token or offset parameter can serve pages',
+            );
+        }
+    }
+    return { ...asked };
 }
 
 function number(raw: string | undefined, what: string): number | undefined {

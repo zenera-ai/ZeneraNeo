@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { Bindings, HandlerRequest, SynthesisRequest, Use } from './runtime.ts';
+import type { Bindings, HandlerRequest, LongList, SynthesisRequest, Use } from './runtime.ts';
 import type { FromWorker, ToWorker } from './worker.ts';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,8 @@ export interface RunOptions {
     probe?: boolean;
     /** bindings to run with instead of the current ones */
     bindings?: Bindings;
+    /** serve this operation's list at a chosen length; see `LongList` */
+    long?: LongList;
 }
 
 /**
@@ -145,6 +147,7 @@ export class Box {
             db: opts.db ?? this.db,
             input,
             bindings: opts.bindings ?? this.#bindings(),
+            long: opts.long,
         };
         return new Promise<Outcome>((settle) => {
             const call: Call = {
