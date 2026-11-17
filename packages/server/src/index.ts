@@ -49,6 +49,7 @@ export {
     stopOwnerRuns,
 } from './runs.ts';
 export { historyRouter, toMessages } from './history.ts';
+export { filesRouter } from './files.ts';
 export { traceRouter, openTrace, stepParam } from './trace.ts';
 export { memoryRouter } from './memory.ts';
 export { AguiTranslator, clip } from './agui.ts';

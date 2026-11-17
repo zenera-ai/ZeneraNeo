@@ -10,6 +10,7 @@
 //   GET  /api/activity                    - whether a run is going (idle stop asks this)
 //   GET  /api/sessions                    - the caller's sessions, newest activity first
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
+//   GET  /api/sessions/:tid/files?path=   - a file the chat names, from its workspace or /assets
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   /api/admin/{users,users/:sub/release,drain,undrain} - the host's view of this server's users
 // Every /api/sessions request first has the caller's data loaded (userState.ts): a store plugin
@@ -21,6 +22,7 @@ import express, { type Express } from 'express';
 import type { Server } from 'node:http';
 import { configure, DEFAULTS, type ServerSettings } from './config.ts';
 import { historyRouter } from './history.ts';
+import { filesRouter } from './files.ts';
 import { errorHandler, notFound } from './http.ts';
 import { requireCaller } from './auth.ts';
 import { inAgentImage } from './config.ts';
@@ -103,6 +105,7 @@ export function createServer(opts: ServerOptions): AgentServer {
     app.use('/api/sessions', sessionsRouter());
     app.use('/api/sessions', runsRouter(privateStore));
     app.use('/api/sessions', historyRouter(privateStore));
+    app.use('/api/sessions', filesRouter(privateStore));
     if (settings.debug) {
         app.use('/api/sessions', runDebugRouter(privateStore));
         app.use('/api/sessions', traceRouter(privateStore));

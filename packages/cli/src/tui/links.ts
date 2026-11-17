@@ -1,3 +1,4 @@
+import { agentFilePath } from '@zenera/engine';
 import { RootedFs, type Workspace } from '@zenera/neo';
 import { statSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -58,18 +59,13 @@ const TRAILING = /[.,;:!?'"]+$/;
 
 /** The host `file:` url a mounted path names, or nothing. */
 export function mountUrl(token: string, mounts: Mounts): string | undefined {
-    let path = token;
+    let path: string | undefined = token;
     let fragment = '';
-    if (path.startsWith(FILE)) {
-        path = path.slice(FILE.length);
-        const cut = path.search(/[?#]/);
-        if (cut >= 0) {
-            fragment = path.slice(cut);
-            path = path.slice(0, cut);
-        }
-        try {
-            path = decodeURIComponent(path);
-        } catch {
+    if (token.startsWith(FILE)) {
+        // Read as a chat's file route reads it (@zenera/engine), keeping the fragment.
+        fragment = /[?#].*$/.exec(token.slice(FILE.length))?.[0] ?? '';
+        path = agentFilePath(token);
+        if (!path) {
             return undefined;
         }
     }

@@ -217,6 +217,7 @@ Session routes operate only on the JWT subject's own sessions.
 | `DELETE /api/sessions/:tid`                    | Delete a session and its files.                |
 | `POST /api/sessions/:tid/uploads?name=&type=`  | Stage one file for the next message.           |
 | `DELETE /api/sessions/:tid/uploads/:id`        | Take a staged file off before sending.         |
+| `GET /api/sessions/:tid/files?path=`           | A file the chat names, for links and images.   |
 
 Runs continue after a client disconnects and can be followed again. Defaults:
 4 concurrent runs total, 2 per user (`ZEN_RUNTIME_MAX_RUNS`,
@@ -242,6 +243,25 @@ path and its `metadata` the name and size. A file that is gone (sent already, ta
 off, or expired) refuses the message with `410` and `code: "upload_gone"`. Limits:
 100 MB per file and 20 files per message. Uploads count toward
 `ZEN_RUNTIME_USER_DISK_MB`.
+
+### Files a chat names
+
+An answer names files the way the sandbox sees them: `file:///workspace/chart.png`,
+`/workspace/out/report.csv`, `/assets/logo.svg`. A client shows them as links and
+images by asking `GET /api/sessions/:tid/files?path=<that name>` (the `file:` url or
+the path, as written; a relative path is in the workspace). Only the session's
+workspace (`sandbox.workdir`, `/workspace` by default) and the project's `/assets`
+are reached, with the file tools' containment: no skills, no dot-folders (`.data`,
+`.env`), no symlink out. Missing: `404`; outside or hidden: `403`.
+
+The answer streams the file with `ETag` and `Last-Modified` (`304` when unchanged)
+and one byte range (`206`), for Parquet readers and video. Workspace files are
+`Cache-Control: private, no-cache`, since agents rewrite them; assets
+`private, max-age=300`. What an agent wrote may have been steered by what it read,
+so every answer is `nosniff` with `Content-Security-Policy: sandbox` (except a pdf),
+and anything not plainly viewable (html, svg, scripts) is sent as an attachment;
+an `<img>` still shows an svg. The browser cannot sign the request: a host such as
+zenera-app checks the thread is the user's and forwards it.
 
 For deployment and sandbox details, see [agent-image architecture](../../docs/agent-image.md).
 To rebuild the bundled test page, run `npm run build:chat` from ZeneraLite's root;

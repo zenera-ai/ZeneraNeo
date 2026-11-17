@@ -583,6 +583,49 @@ describe('a turn', () => {
     });
 });
 
+describe('files a chat names', () => {
+    // Made for this block only: other tests run the project without assets.
+    const assets = join(projectDir, 'assets');
+    afterEach(() => rmSync(assets, { recursive: true, force: true }));
+
+    it('sends the caller’s own workspace files and the project’s assets, nothing else', async () => {
+        mkdirSync(assets, { recursive: true });
+        writeFileSync(join(assets, 'logo.png'), 'logo');
+        const { url, serverRoot } = await start();
+        const thread = randomUUID();
+        const file = (path: string, as = ANN, t = thread) =>
+            call(`${url}/api/sessions/${t}/files?path=${encodeURIComponent(path)}`, { as });
+
+        // No session yet: nothing to show, and asking makes none.
+        expect((await file('/workspace/x.png')).status).toBe(404);
+        const session = join(serverRoot, 'users', ANN, 'sessions', thread);
+        expect(existsSync(session)).toBe(false);
+
+        await turn(url, thread);
+        mkdirSync(join(session, 'workspace', 'out'), { recursive: true });
+        writeFileSync(join(session, 'workspace', 'out', 'a b.csv'), 'x,y\n1,2\n');
+
+        const csv = await file('file:///workspace/out/a%20b.csv');
+        expect(csv.status).toBe(200);
+        expect(await csv.text()).toBe('x,y\n1,2\n');
+        expect(csv.headers.get('content-type')).toBe('text/csv; charset=utf-8');
+        const etag = csv.headers.get('etag')!;
+        const again = await call(
+            `${url}/api/sessions/${thread}/files?path=${encodeURIComponent('/workspace/out/a b.csv')}`,
+            { headers: { 'if-none-match': etag } },
+        );
+        expect(again.status).toBe(304);
+
+        expect(await (await file('/assets/logo.png')).text()).toBe('logo');
+        expect((await file('/workspace/../../../../etc/passwd')).status).toBe(403);
+        expect((await file('/workspace/.data/state.json')).status).toBe(403);
+        expect((await file('/workspace/missing.png')).status).toBe(404);
+        expect((await file('https://example.com/x.png')).status).toBe(400);
+        // Another user asking for the same thread finds nothing of Ann's.
+        expect((await file('/workspace/out/a b.csv', BOB)).status).toBe(404);
+    });
+});
+
 describe('jwt', () => {
     const get = async (url: string, token?: string) =>
         (await fetch(url, token ? { headers: { authorization: `Bearer ${token}` } } : {})).status;

@@ -2,6 +2,7 @@ export * from './audit.ts';
 export * from './engine.ts';
 export * from './env.ts';
 export * from './errors.ts';
+export * from './files.ts';
 export * from './home.ts';
 export * from './ids.ts';
 export * from './image.ts';
