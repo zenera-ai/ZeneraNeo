@@ -788,6 +788,18 @@ describe('the streaming window', () => {
         expect(wrap('x'.repeat(25), 10)).toEqual(['xxxxxxxxxx', 'xxxxxxxxxx', 'xxxxx']);
     });
 
+    it('wraps CJK and emoji by terminal cells without splitting graphemes', () => {
+        expect(wrap('界'.repeat(7), 6)).toEqual(['界界界', '界界界', '界']);
+        expect(wrap('😀'.repeat(4), 4)).toEqual(['😀😀', '😀😀']);
+        expect(wrap('e\u0301'.repeat(5), 3)).toEqual(['e\u0301e\u0301e\u0301', 'e\u0301e\u0301']);
+        expect(wrap('👨‍👩‍👧‍👦x', 3)).toEqual(['👨‍👩‍👧‍👦x']);
+    });
+
+    it('budgets the streaming window in terminal cells for wide characters', () => {
+        const rows = windowOf('界'.repeat(30), 10, 3);
+        expect(rows).toEqual(['界'.repeat(5), '界'.repeat(5), '界'.repeat(5)]);
+    });
+
     it('asks for no more rows than there are', () => {
         expect(windowOf('one\ntwo', 40, 6)).toEqual(['one', 'two']);
     });
