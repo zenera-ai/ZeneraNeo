@@ -104,11 +104,11 @@ jobs:
                     - name: zenera-agent-runtime
                       dir: packages/cli
                       dockerfile: agent-runtime.Dockerfile
-                      needs: '@zenera/cli'
+                      needs: '@zenera/cli @zenera/rag @zenera/server @zenera/sandbox @zenera/neo @zenera/view @zenera/engine'
                     - name: zenera-sandbox
                       dir: packages/sandbox
                       dockerfile: sandbox-base.Dockerfile
-                      needs: '@zenera/cli @zenera/rag'
+                      needs: '@zenera/cli @zenera/rag @zenera/sandbox'
         steps:
             - uses: actions/checkout@v5
               with:
@@ -121,12 +121,17 @@ jobs:
                   echo "version=$version" >> "$GITHUB_OUTPUT"
                   echo "image=ghcr.io/zenera-ai/${{ matrix.name }}:$version" >> "$GITHUB_OUTPUT"
 
-            # npm can take a minute to serve a version it has just accepted.
+            # npm can take a minute to serve a version it has just accepted, and the
+            # packument shows up before the CDN serves the tarball: `npm view` alone
+            # passed while the image's `npm install` still got a 404 for the .tgz.
             - name: Wait for the packages on npm
               run: |
                   for pkg in $NEEDS; do
                       for i in $(seq 1 120); do
-                          npm view "$pkg@$VERSION" version > /dev/null 2>&1 && continue 2
+                          tarball=$(npm view "$pkg@$VERSION" dist.tarball 2> /dev/null) \
+                              && [ -n "$tarball" ] \
+                              && curl -fsSLI -o /dev/null "$tarball" \
+                              && continue 2
                           sleep 10
                       done
                       echo "$pkg@$VERSION is not on npm" && exit 1
