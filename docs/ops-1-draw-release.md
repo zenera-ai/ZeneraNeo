@@ -1,0 +1,1 @@
+This observation shows that the script's direct `npm` invocation could not be resolved in the Windows environment used for this test. A possible improvement is to resolve the npm executable in a platform-aware way and make the version and lockfile update atomic, so failed runs do not leave partially modified manifests.
