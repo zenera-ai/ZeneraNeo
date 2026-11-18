@@ -161,8 +161,9 @@ const ATTEMPTS = 4;
 /**
  * `run`, retried while the engine could not be reached at all.
  *
- * Empty stdout is the guard that keeps this from retrying real work: a command
- * that produced output ran, whatever its stderr says afterwards. The wait is
+ * Empty stdout is one guard against retrying real work: a command that produced
+ * output ran, whatever its stderr says afterwards. A timeout is also terminal:
+ * the command may already have performed work without producing output. The wait is
  * jittered because the burst being backed off from is N clients arriving
  * together, and a fixed delay would only reassemble it.
  */
@@ -173,6 +174,7 @@ export function resilient(run: Runner, attempts = ATTEMPTS): Runner {
             if (
                 n >= attempts ||
                 res.code === 0 ||
+                res.timedOut ||
                 res.stdout !== '' ||
                 opts.signal?.aborted ||
                 !TRANSPORT.test(res.stderr)
