@@ -9,6 +9,8 @@ import {
     ensureSandboxBases,
     SAME_PYTHON_CHECK,
     SANDBOX_BASE_IMAGES,
+    SANDBOX_BASE_INVENTORY,
+    SANDBOX_BASE_RECORD,
     SANDBOX_BASE_REPO,
     SANDBOX_BASE_SNAPSHOT,
     sandboxBaseDockerfile,
@@ -275,5 +277,14 @@ describe('sandbox base, pinned', () => {
         expect(dockerfile).toContain(
             `org.opencontainers.image.base.digest=${SANDBOX_BASE_IMAGES.python.split('@')[1]}`,
         );
+    });
+
+    it('records what it installed, after the last install', () => {
+        const record = dockerfile.indexOf(`> ${SANDBOX_BASE_RECORD}`);
+        expect(record).toBeGreaterThan(dockerfile.indexOf('"@zenera/rag@$ZEN_VERSION"'));
+        expect(dockerfile).toContain(`{ ${SANDBOX_BASE_INVENTORY}; } > ${SANDBOX_BASE_RECORD}`);
+        for (const section of ['runtime', 'dpkg', 'pip', 'npm']) {
+            expect(SANDBOX_BASE_INVENTORY).toContain(`echo '[${section}]'`);
+        }
     });
 });

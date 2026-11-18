@@ -45,6 +45,17 @@ export const SANDBOX_BASE_IMAGES = {
     python: 'docker.io/library/python:3.14-slim-bookworm@sha256:3fe1a0b6c2d6b2ebb572906cdabeca75aeb558c0c17db5ffefbcf8094871c32b',
 } as const;
 
+/** Where the base records what it installed: SANDBOX_BASE_INVENTORY's output at build time. */
+export const SANDBOX_BASE_RECORD = '/usr/local/share/zenera/sandbox-base.txt';
+
+export const SANDBOX_BASE_INVENTORY = [
+    `echo '[runtime]' && node --version && python --version`,
+    `echo '[dpkg]' && dpkg-query -W -f '\${Package} \${Version} \${Architecture}\\n' | LC_ALL=C sort`,
+    `echo '[pip]' && python -m pip freeze --all --disable-pip-version-check | LC_ALL=C sort`,
+    `echo '[npm]' && npm ls -g --all --parseable --long 2> /dev/null` +
+        ` | sed -n 's|^/usr/local/lib/node_modules/||p' | LC_ALL=C sort`,
+].join(' && ');
+
 function debianSnapshot(iso: string): string {
     return iso.replace(/[-:]/g, '').replace(/\.\d+/, '');
 }
@@ -147,6 +158,11 @@ ARG ZEN_VERSION
 RUN test -n "$ZEN_VERSION" \\
     && published="$(${ZEN_PUBLISHED_AT})" \\
     && npm install -g --before="$published" "@zenera/cli@$ZEN_VERSION" "@zenera/rag@$ZEN_VERSION"
+
+# What this build installed, with versions, to compare two builds of one version:
+# node scripts/sandbox-base-diff.mjs <image> <image>
+RUN mkdir -p ${SANDBOX_BASE_RECORD.replace(/\/[^/]+$/, '')} \\
+    && { ${SANDBOX_BASE_INVENTORY}; } > ${SANDBOX_BASE_RECORD}
 
 LABEL zenera.sandbox-base=1 zenera.version=$ZEN_VERSION zenera.snapshot=${at} \\
       org.opencontainers.image.base.name=${python.split('@')[0]} \\

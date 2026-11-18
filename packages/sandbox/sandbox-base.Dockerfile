@@ -85,6 +85,11 @@ RUN test -n "$ZEN_VERSION" \
         console.log(at.sort().at(-1));' "$ZEN_VERSION")" \
     && npm install -g --before="$published" "@zenera/cli@$ZEN_VERSION" "@zenera/rag@$ZEN_VERSION"
 
+# What this build installed, with versions, to compare two builds of one version:
+# node scripts/sandbox-base-diff.mjs <image> <image>
+RUN mkdir -p /usr/local/share/zenera \
+    && { echo '[runtime]' && node --version && python --version && echo '[dpkg]' && dpkg-query -W -f '${Package} ${Version} ${Architecture}\n' | LC_ALL=C sort && echo '[pip]' && python -m pip freeze --all --disable-pip-version-check | LC_ALL=C sort && echo '[npm]' && npm ls -g --all --parseable --long 2> /dev/null | sed -n 's|^/usr/local/lib/node_modules/||p' | LC_ALL=C sort; } > /usr/local/share/zenera/sandbox-base.txt
+
 LABEL zenera.sandbox-base=1 zenera.version=$ZEN_VERSION zenera.snapshot=2026-11-18T20:45:00Z \
       org.opencontainers.image.base.name=docker.io/library/python:3.14-slim-bookworm \
       org.opencontainers.image.base.digest=sha256:3fe1a0b6c2d6b2ebb572906cdabeca75aeb558c0c17db5ffefbcf8094871c32b \
