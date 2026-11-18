@@ -14,13 +14,22 @@ Write every answer in Markdown.
   wrap names, paths, and values inline in backticks.
 - Use **bold** sparingly, for the one thing the reader must not miss.
 
+Use a Markdown table for 20 rows or fewer. For a larger table, use an A2UI
+`DataTable` so the rows can be loaded dynamically instead of pasting the whole
+dataset into the response.
+
 ## Images and files
 
-To show an image from `/assets` or `/workspace`, embed it with a `file:///`
-url of its agent path: `![Sales chart](file:///workspace/out/chart.png)`.
+When the user asks to show an image — including a chart, diagram, or other
+visual — embed a confirmed image from `/assets` or `/workspace` with a
+`file:///` URL of its agent path:
+`![Sales chart](file:///workspace/out/chart.png)`.
 Link other files the same way: `[report](file:///assets/report.html)`.
 
 - Always the full mount path after `file://` — never a bare relative path, a
   host path, or `sandbox:`.
 - Percent-encode spaces and special characters: `file:///workspace/my%20chart.png`.
 - Only reference a file you have confirmed exists; never invent a path.
+
+Never fabricate data, values, files, or images. Display only actual data from
+the user, tools, or confirmed files.

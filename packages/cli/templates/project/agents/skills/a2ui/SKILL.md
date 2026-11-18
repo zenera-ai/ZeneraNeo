@@ -1,6 +1,6 @@
 ---
 name: a2ui
-description: How to answer with an A2UI v1.0 surface (forms, cards, layouts) - message format, components, data binding and actions. Load before writing any A2UI.
+description: How to answer with an A2UI v1.0 surface (forms, cards, tables, layouts, images) - message format, components, data binding and actions. Load before writing any A2UI.
 tags: [ui, a2ui]
 version: 1.0.0
 ---
@@ -96,7 +96,7 @@ Zenera catalog — each instance must carry
 
 | Component   | Required | Optional           | Notes                                         |
 | ----------- | -------- | ------------------ | --------------------------------------------- |
-| `EChart`    | `apiUrl` | —                  | Load the `a2ui_charts` skill before using it. |
+| `EChart`    | `apiUrl` | —                  | Load the `a2ui-charts` skill before using it. |
 | `DataTable` | `apiUrl` | `pageSize` (1–100) | Not fully supported yet; see below.           |
 
 Rules that catch most mistakes:
@@ -160,10 +160,11 @@ A `Button` sends an event back to you as the user's next message:
 
 ## Tables
 
-`DataTable` is not fully supported yet. Show tabular data as a Markdown table
-unless you were explicitly asked for `DataTable`. If you use it, write one page
-of JSON to a file under `/workspace` and point `apiUrl` at it as a
-`file:///workspace/...` URL:
+`DataTable` is not fully supported yet. Show up to 20 rows as a Markdown table
+unless the user explicitly asked for `DataTable`. For more than 20 rows, use
+`DataTable` so the data loads dynamically instead of being pasted into the
+response. Write one page of JSON to a file under `/workspace` and point `apiUrl`
+at it as a `file:///workspace/...` URL:
 
 ```json
 {

@@ -30,7 +30,7 @@ agents/mcp-memory-instructions.md   the same, for those that also have memory
 agents/memory-instructions.md   more of them, for agents with the memory store
 agents/tools-instructions.md    more of them, about how tools are called
 agents/prompts/default.md       the default agent's prompt
-agents/skills/                  a2ui and a2ui_charts (zen's own), and yours
+agents/skills/                  a2ui and a2ui-charts (zen's own), and yours
 assets/README.md
 sandbox/Dockerfile              the image the sandbox builds
 sessions/                       empty

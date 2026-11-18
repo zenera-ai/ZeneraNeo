@@ -1,6 +1,6 @@
 ---
-name: a2ui_charts
-description: How to show a chart in an A2UI surface with Zenera's EChart component - choosing the chart type and writing the ECharts option file it loads. Load together with a2ui.
+name: a2ui-charts
+description: How to display charts in A2UI surfaces - choosing the right chart type, preparing its data, and rendering it. Load together with a2ui.
 tags: [ui, a2ui, charts]
 version: 1.0.0
 ---

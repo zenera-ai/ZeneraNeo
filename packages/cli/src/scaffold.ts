@@ -79,7 +79,7 @@ const A2UI_RULES = join('agents', 'a2ui-instructions.md');
 /** The A2UI skills those rules send an agent to: the protocol, and charts. */
 const A2UI_SKILLS = [
     join('agents', 'skills', 'a2ui', 'SKILL.md'),
-    join('agents', 'skills', 'a2ui_charts', 'SKILL.md'),
+    join('agents', 'skills', 'a2ui-charts', 'SKILL.md'),
 ];
 
 /**

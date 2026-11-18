@@ -48,7 +48,7 @@ strip_urls() {
 # sandbox runs, not text rendered into a prompt, and its paths are its own.
 #
 # The copies `zen` ships (a2ui-, files-, fork-, markdown-, mcp-, mcp-memory-, memory-,
-# tools-instructions.md, and the a2ui and a2ui_charts skills)
+# tools-instructions.md, and the a2ui and a2ui-charts skills)
 # are left out on purpose. They are full of worked examples, so they fail this
 # sweep by design, and the project cannot edit them anyway: `zen check` reports
 # any byte that differs as `rules.stale`.
@@ -60,7 +60,7 @@ files() {
             if [ -f "$file" ]; then echo "$file"; fi
         done
     } | grep -Ev '^agents/(a2ui|files|fork|markdown|mcp|mcp-memory|memory|tools)-instructions\.md$' |
-        grep -Ev '^agents/skills/(a2ui|a2ui_charts)/SKILL\.md$' | sort -u
+        grep -Ev '^agents/skills/(a2ui|a2ui-charts)/SKILL\.md$' | sort -u
 }
 
 # Every token in those files, urls removed first, and a sentence's full stop

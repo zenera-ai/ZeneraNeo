@@ -257,7 +257,7 @@ my-project/
 │   │   ├── intake.md             one agent's own brief
 │   │   └── adjuster.md
 │   └── skills/
-│       ├── a2ui/, a2ui_charts/   zen's own - A2UI forms and charts
+│       ├── a2ui/, a2ui-charts/   zen's own - A2UI forms and charts
 │       ├── house_style/
 │       │   ├── SKILL.md          the instructions
 │       │   └── examples.md       its own files, reachable at /skills/house_style
@@ -670,7 +670,7 @@ preloaded skill.
 Eight of these documents are **`zen`'s, not the project's** -
 `tools-instructions.md`, `files-instructions.md`, `memory-instructions.md`,
 `fork-instructions.md`, `mcp-instructions.md`, `mcp-memory-instructions.md`,
-`markdown-instructions.md` and `a2ui-instructions.md` - and so are the `a2ui` and `a2ui_charts` skills.
+`markdown-instructions.md` and `a2ui-instructions.md` - and so are the `a2ui` and `a2ui-charts` skills.
 They are replaced by `zen check --fix`, and a copy that
 differs is reported as `rules.stale`. This project's own rules on any of those
 subjects go in a topic file beside them - `agents/files-policy-instructions.md`,

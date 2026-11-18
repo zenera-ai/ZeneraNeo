@@ -108,7 +108,7 @@ confused by.
 | `agents/fork-<topic>-instructions.md`   | project's | `fork`                | **this project's** forking policy                         |
 | `agents/mcp-<topic>-instructions.md`    | project's | `tools:mcp`           | **this project's** services: which servers, for what      |
 
-The eight marked **ours**, with the `a2ui` and `a2ui_charts` skills they load, describe _this version of `zen`_ - how the memory
+The eight marked **ours**, with the `a2ui` and `a2ui-charts` skills they load, describe _this version of `zen`_ - how the memory
 graph works, how its tools are called, what survives a join, how files are safely
 handled, how Zenera's MCP tools behave. They land under `agents/` only because
 that is where a document has to be to reach a prompt. They are not the project's
