@@ -88,16 +88,20 @@ sandbox:
         allow: db.corp.internal:5432
 ```
 
-What `zen` creates for it, in order, all labelled `zenera=1` and `zenera.key=<key>` like the
-sandbox container today:
+What `zen` creates for it, in order. Each piece carries the labels the sandbox container has today:
+the `zen sandbox` commands list containers by `label=zenera=1` (`ownedContainers` in
+`packages/cli/src/podman.ts`), so they see the gateway, and the network can be found and removed by
+the same labels:
 
 ```sh
 # 1. a network of its own: no route out, no DNS server, isolated from every other bridge network
-podman network create --internal --disable-dns --opt isolate=strict zn-<name>-net
+podman network create --internal --disable-dns --opt isolate=strict \
+    --label zenera=1 --label zenera.key=<key> zn-<name>-net
 
 # 2. the gateway: on that network and on podman's default one, forwarding off, nothing writable,
 #    no capabilities, the host's uid, one upstream fixed at start
 podman run --detach --name zn-<name>-gw --network zn-<name>-net --network podman \
+    --label zenera=1 --label zenera.key=<key> \
     --read-only --cap-drop ALL --security-opt no-new-privileges --userns keep-id \
     --pids-limit 64 --memory 64m \
     --sysctl net.ipv4.ip_forward=0 --sysctl net.ipv6.conf.all.forwarding=0 \
@@ -110,6 +114,11 @@ podman run ... --network zn-<name>-net --add-host db.corp.internal:<gateway's ad
 
 The gateway's address is read back with `podman inspect` after step 2, so `zen` does not have to
 manage subnets.
+
+Teardown runs in reverse: sandbox, then gateway, then network. Startup undoes whatever it already
+created when a later step fails, so a failed start leaves no gateway attached to podman's default
+network. A crash between steps can still leave pieces behind; the labels are what let the next
+start, or a cleanup, find them by `zenera.key`.
 
 Properties that matter:
 
@@ -142,7 +151,9 @@ Properties that matter:
 
 ## What the agent sees
 
-Everything else fails at once, not after a timeout _(probe)_:
+In a sandbox with the routes podman gave it, everything else fails at once, not after a timeout
+_(probe)_. A process that can change its own routes (only with `NET_ADMIN`, which neither profile
+grants) gets nothing either, but waits for its client's timeout instead of failing at once:
 
 | What the code tries                    | What it gets                                              |
 | -------------------------------------- | --------------------------------------------------------- |
@@ -163,9 +174,11 @@ not logged anywhere.
 ## How the block is tested
 
 The probe ([`probe.sh`](probe.sh)) builds the whole arrangement against two local targets, an
-allowed and a forbidden one, so it needs no internet except for two checks that show the real world
+allowed and a forbidden one. Its setup needs `docker.io` and the Alpine package mirrors to build a
+small test image; after that, only two checks use the internet, on purpose, to show the real world
 _is_ reachable where it should be. It refuses to report anything unless the allowed path works
-first, because a probe that cannot connect at all "passes" every block. Results, 21 of 21 as
+first, because a probe that cannot connect at all "passes" every block. It exits non-zero when any
+check fails, and removes everything it created when it exits. Results, 21 of 21 as
 expected ([`probe-output.txt`](probe-output.txt)):
 
 - allowed host by name, through the gateway: works
@@ -180,6 +193,10 @@ expected ([`probe-output.txt`](probe-output.txt)):
 - another sandbox on its own internal network cannot reach this one
 - the gateway, hardened exactly as above (uid 1000, no capabilities, read-only, port 443), still
   carries the allowed connection, and still reaches the outside world through pasta
+
+Of six runs of this version of the probe, one had a single failing check, which I did not capture
+and could not reproduce in the four runs after it. The two checks that depend on the public
+internet are the likely candidates; I have not proven it.
 
 **Breaking it on purpose:** with `MUTATE=no-internal` the probe creates the same network without
 `--internal`, and four checks turn red - the public internet by name and by IP, and DNS both ways
@@ -230,11 +247,12 @@ In the repository this would become:
 
 ## Reproduce
 
-Any Linux machine with rootless podman and access to `docker.io`:
+Any Linux machine with rootless podman, with access to `docker.io` and the Alpine package mirrors
+for the test image:
 
 ```sh
-sh probe.sh                     # the design
-MUTATE=no-internal sh probe.sh  # the same without --internal: four checks must fail
+sh probe.sh                     # the design: exit 0 only if every check behaves
+MUTATE=no-internal sh probe.sh  # without --internal: exit 0 only if checks report the leak
 ```
 
 On a machine with only Docker, [`run-in-docker.sh`](run-in-docker.sh) runs the same probe as an

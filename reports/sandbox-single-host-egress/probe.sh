@@ -1,9 +1,10 @@
 #!/bin/sh
-# Checks the claims in README.md under ROOTLESS podman. Needs nothing but podman and network access
-# to docker.io (one alpine image). Every check prints PASS/FAIL against what the design expects;
-# the run refuses to report anything unless the allowed path works first.
-#   sh probe.sh                       # the design as proposed
-#   MUTATE=no-internal sh probe.sh    # the same with --internal removed: checks must report leaks
+# Checks the claims in README.md under ROOTLESS podman. Setup pulls docker.io/library/alpine and
+# installs packages from the Alpine mirrors; two checks then reach the public internet on purpose.
+# Every check prints PASS/FAIL against what the design expects, and the run refuses to report
+# anything unless the allowed path works first. Everything it creates is removed on exit.
+#   sh probe.sh                       # the design; exit 1 if any check fails
+#   MUTATE=no-internal sh probe.sh    # --internal removed; exit 1 unless some check reports a leak
 set -u
 NET=zn-egress-probe
 SUB=10.250.7.0/24
@@ -11,8 +12,18 @@ GW_IP=10.250.7.10
 T=5   # seconds; a blocked connect must fail fast, not hang
 
 say()  { printf '%s\n' "$*"; }
-expect_ok()   { if eval "$2" >/tmp/out 2>&1; then say "PASS  $1"; else say "FAIL  $1  -> $(head -c 300 /tmp/out | tr '\n' ' ')"; fi; }
-expect_fail() { if eval "$2" >/tmp/out 2>&1; then say "FAIL  $1  (it worked)  -> $(head -c 200 /tmp/out | tr '\n' ' ')"; else say "PASS  $1  -> $(head -c 160 /tmp/out | tr '\n' ' ')"; fi; }
+FAILS=0
+expect_ok()   { if eval "$2" >/tmp/out 2>&1; then say "PASS  $1"; else FAILS=$((FAILS + 1)); say "FAIL  $1  -> $(head -c 300 /tmp/out | tr '\n' ' ')"; fi; }
+expect_fail() { if eval "$2" >/tmp/out 2>&1; then FAILS=$((FAILS + 1)); say "FAIL  $1  (it worked)  -> $(head -c 200 /tmp/out | tr '\n' ' ')"; else say "PASS  $1  -> $(head -c 160 /tmp/out | tr '\n' ' ')"; fi; }
+
+# Fixed names, so remove leftovers from an interrupted run first, and everything again on exit.
+cleanup() {
+  podman rm -f -t 0 allowed forbidden gw sb sbdns peer sbstd other sbplain >/dev/null 2>&1
+  podman network rm -f outside $NET ${NET}-dns ${NET}-other >/dev/null 2>&1
+  return 0
+}
+cleanup
+trap cleanup EXIT
 
 say "== environment"
 podman info --format 'podman={{.Version.Version}} rootless={{.Host.Security.Rootless}} netbackend={{.Host.NetworkBackend}} cgroups={{.Host.CgroupsVersion}}' 2>/dev/null
@@ -124,4 +135,9 @@ expect_ok   "allowed path through the hardened gateway (port 443, no caps, read-
 expect_fail "NET_ADMIN sandbox -> public IP via the gateway (forwarding off)"       "podman exec sbstd curl --http0.9 -sS --max-time $T http://$PUB"
 expect_fail "NET_ADMIN sandbox -> pasta DNS via the gateway (forwarding off)"       "podman exec sbstd nslookup -timeout=3 example.com 169.254.1.1"
 
-say "== done"
+say "== summary: $FAILS check(s) did not behave as the design expects"
+if [ "${MUTATE:-}" = no-internal ]; then
+  [ "$FAILS" -gt 0 ] && { say "mutation caught: removing --internal is visible to the checks"; exit 0; }
+  say "mutation NOT caught: the checks did not notice --internal was removed"; exit 1
+fi
+[ "$FAILS" -eq 0 ] || exit 1

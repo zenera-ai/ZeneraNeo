@@ -1,7 +1,7 @@
 [1/4] Verify package files              100% |   0.0   B/s |   2.0   B |  00m00s
-[2/4] Prepare transaction               100% |  80.0   B/s |   2.0   B |  00m00s
-[3/4] Installing iptables-legacy-libs-0 100% |   3.3 MiB/s |  87.7 KiB |  00m00s
-[4/4] Installing iptables-legacy-0:1.8. 100% |  64.5 KiB/s | 105.8 KiB |  00m02s
+[2/4] Prepare transaction               100% |  86.0   B/s |   2.0   B |  00m00s
+[3/4] Installing iptables-legacy-libs-0 100% |   4.1 MiB/s |  87.7 KiB |  00m00s
+[4/4] Installing iptables-legacy-0:1.8. 100% |  46.5 KiB/s | 105.8 KiB |  00m02s
 iptables: iptables v1.8.11 (legacy)
 == environment
 podman=5.8.9 rootless=true netbackend=netavark cgroups=v1
@@ -21,7 +21,7 @@ fe00::	ip6-localnet
 ff00::	ip6-mcastprefix
 ff02::1	ip6-allnodes
 ff02::2	ip6-allrouters
-172.17.0.2	e5677f8afb18
+172.17.0.2	db5bb751be9c
 169.254.1.2	host.containers.internal host.docker.internal
 10.250.7.1	sb
 == checks (strict sandbox)
@@ -42,15 +42,15 @@ internal subnet route: 10.250.7.0/24
 default via 10.250.7.10 dev eth0 
 10.250.7.0/24 dev eth0 proto kernel scope link src 10.250.7.2 
 PASS  forbidden host after routing everything via the gateway container  -> curl: (28) Connection timed out after 5002 milliseconds 
-PASS  forbidden host after an on-link default route  -> curl: (7) Failed to connect to 10.89.0.3 port 8080 after 3137 ms: Could not connect to server 
+PASS  forbidden host after an on-link default route  -> curl: (7) Failed to connect to 10.89.0.3 port 8080 after 3153 ms: Could not connect to server 
 gateway container forwards packets? ip_forward=1
 == isolation between sandboxes (Netavark 2 default isolate=strict)
-a2f6452d04f69e8ea04915e154292a065315077aaca97b32fd0651541fc7ec6d
+ab033b0322a749d34f6e1343f78808a33c9adda3cfe126cbe75329cf81926214
 PASS  another sandbox reaches this one  -> curl: (7) Failed to connect to 10.250.7.1 port 9000 after 0 ms: Could not connect to server 
 == the gateway itself reaches the real world through pasta (path an internal host would take)
 PASS  gateway resolves and connects outward
 == adversarial 2: can the gateway container be used as a router to the PUBLIC internet?
-example.com resolves (on the gateway side) to 104.20.23.154
+example.com resolves (on the gateway side) to 172.66.147.243
 PASS  a STANDARD sandbox (podman default caps) changes its routes  -> RTNETLINK answers: Operation not permitted 
 gateway ip_forward=1 (as podman creates it)
 PASS  NET_ADMIN sandbox -> public IP via the gateway (gateway as created)  -> curl: (28) Connection timed out after 5002 milliseconds 
@@ -58,6 +58,6 @@ PASS  NET_ADMIN sandbox -> pasta DNS via the gateway (gateway as created)  -> ;;
 Resource limits are not supported and ignored on cgroups V1 rootless systems
 gateway ip_forward=0, uid=1000, caps=CapEff:0000000000000000
 PASS  allowed path through the hardened gateway (port 443, no caps, read-only)
-PASS  NET_ADMIN sandbox -> public IP via the gateway (forwarding off)  -> curl: (28) Connection timed out after 5002 milliseconds 
+PASS  NET_ADMIN sandbox -> public IP via the gateway (forwarding off)  -> curl: (28) Connection timed out after 5003 milliseconds 
 PASS  NET_ADMIN sandbox -> pasta DNS via the gateway (forwarding off)  -> ;; communications error to 169.254.1.1#53: timed out ;; communications error to 169.254.1.1#53: timed out ;; communications error to 169.254.1.1#53: timed out ;
-== done
+== summary: 0 check(s) did not behave as the design expects
