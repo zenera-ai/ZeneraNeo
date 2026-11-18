@@ -165,8 +165,10 @@ the skill is how you find out whether it is.
     agent with that capability must obey it).
 11. **Never edit** `agents.yaml`, `agents/memory-instructions.md`,
     `agents/tools-instructions.md`, `agents/fork-instructions.md`,
-    `agents/files-instructions.md`, `agents/mcp-instructions.md` or
-    `agents/mcp-memory-instructions.md`, nor anything outside `agents/`.
+    `agents/files-instructions.md`, `agents/mcp-instructions.md`,
+    `agents/mcp-memory-instructions.md`, `agents/markdown-instructions.md`,
+    `agents/a2ui-instructions.md` or the
+    `agents/skills/a2ui*/` skills, nor anything outside `agents/`.
 12. **Tidy up every file you touched** - the whole file, not only your lines.
     For each obligation in it, search the files the same agents read, and pick
     one move:

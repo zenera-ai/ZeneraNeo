@@ -624,6 +624,35 @@ describe('files a chat names', () => {
         // Another user asking for the same thread finds nothing of Ann's.
         expect((await file('/workspace/out/a b.csv', BOB)).status).toBe(404);
     });
+
+    it('takes ?user= for a file GET without a token, in insecure mode only', async () => {
+        const { url, serverRoot } = await start({ auth: { mode: 'insecure' } });
+        const thread = randomUUID();
+        await turn(url, thread);
+        const workspace = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace');
+        writeFileSync(join(workspace, 'a.txt'), 'hi');
+        const files = `${url}/api/sessions/${thread}/files`;
+        const query = (user: string) =>
+            `?path=${encodeURIComponent('/workspace/a.txt')}&user=${user}`;
+
+        const ok = await fetch(`${files}${query(ANN)}`);
+        expect(ok.status).toBe(200);
+        expect(await ok.text()).toBe('hi');
+        expect((await fetch(`${files}${query(ANN)}`, { method: 'HEAD' })).status).toBe(200);
+        // Only the thread's owner finds it; no user, no caller.
+        expect((await fetch(`${files}${query(BOB)}`)).status).toBe(404);
+        expect((await fetch(`${files}${query('')}`)).status).toBe(401);
+        // Any other route, or a write, still needs a token.
+        expect((await fetch(`${url}/api/sessions/${thread}?user=${ANN}`)).status).toBe(401);
+        expect((await fetch(`${url}/api/sessions?user=${ANN}`)).status).toBe(401);
+        expect(
+            (await fetch(`${url}/api/sessions/${thread}?user=${ANN}`, { method: 'DELETE' })).status,
+        ).toBe(401);
+
+        await start();
+        const secure = `${running!.url}/api/sessions/${thread}/files${query(ANN)}`;
+        expect((await fetch(secure)).status).toBe(401);
+    });
 });
 
 describe('jwt', () => {

@@ -7,7 +7,8 @@
 //
 // Checked, in `jwt` mode: the signature (EdDSA only), issuer, audience, age (at most 2 minutes,
 // 30 s of clock skew), `prj` (this project), `req` ("<METHOD> <url>" of this very request).
-// In `insecure` mode none of that: the token is only read. In both, `sub` names the user, and
+// In `insecure` mode none of that: the token is only read, and a file GET without one may name
+// its user in `?user=` (the standalone chat's images and links). In both, `sub` names the user, and
 // `thr`, `role` and `email`, when there, are checked by identity.ts.
 import type { NextFunction, Request, Response } from 'express';
 import { decodeJwt, importSPKI, jwtVerify, type JWTPayload } from 'jose';
@@ -41,8 +42,23 @@ function bearer(req: Request): string {
     return header.slice('Bearer '.length).trim();
 }
 
+// An <img> or link sends no header, so the standalone chat names its user in the file's URL.
+const FILE_ROUTE = /^\/api\/sessions\/[^/]+\/files$/;
+
+/** `insecure` only: a file GET with no token may name its user in `?user=`. */
+function fileUser(req: Request): string | undefined {
+    if (req.get('authorization') || (req.method !== 'GET' && req.method !== 'HEAD')) return;
+    if (!FILE_ROUTE.test(req.path)) return;
+    const user = req.query.user;
+    return typeof user === 'string' && user.trim() ? user.trim() : undefined;
+}
+
 export async function verifyCaller(req: Request): Promise<CallerClaims> {
     const s = settings();
+    if (s.auth.mode === 'insecure') {
+        const sub = fileUser(req);
+        if (sub) return { sub };
+    }
     const token = bearer(req);
     let payload: JWTPayload;
     if (s.auth.mode === 'insecure') {

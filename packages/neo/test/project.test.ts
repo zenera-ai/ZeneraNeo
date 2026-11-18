@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import type { Model, ModelRequest, ModelResponse } from '../src/model.ts';
 import {
     AgentProject,
@@ -382,6 +383,21 @@ describe('conditional house rules', () => {
         );
         expect(await systemOf(p)).toContain('Branches are runs.');
         expect(await systemOf(p, { maxForkDepth: 0 })).not.toContain('Branches are runs.');
+    });
+
+    it('drops text-output rules from a typed run', async () => {
+        const p = await loadProject(
+            project({
+                'agents.yaml': 'agents:\n  - name: solo\n',
+                'agents/instructions.md': 'Be terse.',
+                'agents/markdown-instructions.md':
+                    '---\nrequires: [text-output]\n---\nUse markdown.',
+            }),
+        );
+        expect(await systemOf(p)).toContain('Use markdown.');
+        const typed = await systemOf(p, { output: z.object({ ok: z.boolean() }) });
+        expect(typed).toContain('Be terse.');
+        expect(typed).not.toContain('Use markdown.');
     });
 });
 
@@ -840,7 +856,10 @@ async function toolNames(p: AgentProject): Promise<string[]> {
 }
 
 /** The system prompt the provider would have seen, for the entry agent. */
-async function systemOf(p: AgentProject, opts: { maxForkDepth?: number } = {}): Promise<string> {
+async function systemOf(
+    p: AgentProject,
+    opts: { maxForkDepth?: number; output?: z.ZodType } = {},
+): Promise<string> {
     let seen = '';
     const model: Model = {
         id: 'spy',
@@ -848,8 +867,10 @@ async function systemOf(p: AgentProject, opts: { maxForkDepth?: number } = {}): 
             seen = req.system ?? '';
             return Promise.resolve({
                 text: 'ok',
-                toolCalls: [],
-                stopReason: 'stop' as const,
+                toolCalls: opts.output
+                    ? [{ id: 'c1', name: 'final_output', args: '{"ok":true}' }]
+                    : [],
+                stopReason: (opts.output ? 'tool_calls' : 'stop') as 'tool_calls' | 'stop',
                 usage: zeroUsage(),
             });
         },

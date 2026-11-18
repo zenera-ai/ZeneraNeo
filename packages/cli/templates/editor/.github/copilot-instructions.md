@@ -60,10 +60,10 @@ change.
 
 **Load `zen-instructions` before writing, editing, reviewing or deleting any
 `agents/*instructions.md`.** They are the house rules, prepended to every
-agent's prompt, and six of them are `zen`'s own copies rather than the
+agent's prompt, and eight of them are `zen`'s own copies rather than the
 project's: an edit made inside one is lost at the next `zen check --fix`, `zen
 init` or `zen open`, with no diff to show for it. The skill is what says which
-six those are, where a project's own rules on the same subjects go instead,
+eight those are, where a project's own rules on the same subjects go instead,
 how `requires:` conditions a document, and what filename order decides. None of
 that is visible in the file being edited.
 Replacing generated copies with `zen check --fix` is maintenance, not manual
@@ -245,6 +245,8 @@ my-project/
 ├── agents.yaml                   who exists, what they may reach for
 ├── agents/
 │   ├── instructions.md            house rules, prepended to every agent
+│   ├── a2ui-instructions.md       and more - when to answer with a UI surface
+│   ├── markdown-instructions.md   and more - how a text answer is formatted
 │   ├── files-instructions.md      and more - how files are handled
 │   ├── fork-instructions.md       more of them - any `<topic>-instructions.md`
 │   ├── mcp-instructions.md        and more - how external services are called
@@ -255,6 +257,7 @@ my-project/
 │   │   ├── intake.md             one agent's own brief
 │   │   └── adjuster.md
 │   └── skills/
+│       ├── a2ui/, a2ui_charts/   zen's own - A2UI forms and charts
 │       ├── house_style/
 │       │   ├── SKILL.md          the instructions
 │       │   └── examples.md       its own files, reachable at /skills/house_style
@@ -664,9 +667,10 @@ follow. So:
 Target 20-60 lines each. If one exceeds ~100, split the stable half out into a
 preloaded skill.
 
-Six of these documents are **`zen`'s, not the project's** -
+Eight of these documents are **`zen`'s, not the project's** -
 `tools-instructions.md`, `files-instructions.md`, `memory-instructions.md`,
-`fork-instructions.md`, `mcp-instructions.md` and `mcp-memory-instructions.md`.
+`fork-instructions.md`, `mcp-instructions.md`, `mcp-memory-instructions.md`,
+`markdown-instructions.md` and `a2ui-instructions.md` - and so are the `a2ui` and `a2ui_charts` skills.
 They are replaced by `zen check --fix`, and a copy that
 differs is reported as `rules.stale`. This project's own rules on any of those
 subjects go in a topic file beside them - `agents/files-policy-instructions.md`,
@@ -1977,7 +1981,7 @@ Before finishing any change here:
 - [ ] If any agent has file tools, `agents/files-instructions.md` is present - §3.6
 - [ ] If any agent has `fork:`, `agents/fork-instructions.md` is present - zen-topology §8
 - [ ] If any agent has `mcp:*`, `agents/mcp-instructions.md` is present - zen-mcp
-- [ ] No `rules.stale`: the six files that are `zen`'s rather than yours say
+- [ ] No `rules.stale`: the files that are `zen`'s rather than yours say
       what this version of the runtime does, and `zen check --fix` replaces them
 - [ ] Any change to an `agents/*instructions.md` was made with the
       `zen-instructions` skill loaded, and nothing of this project's was written

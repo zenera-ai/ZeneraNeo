@@ -275,10 +275,22 @@ const FORK_RULES = 'agents/fork-instructions.md';
 const MCP_RULES = 'agents/mcp-instructions.md';
 /** What an MCP agent with a memory store may commit about those calls. */
 const MCP_MEMORY_RULES = 'agents/mcp-memory-instructions.md';
+/** How a text answer is formatted. */
+const MARKDOWN_RULES = 'agents/markdown-instructions.md';
+/** When to answer with an A2UI surface. */
+const A2UI_RULES = 'agents/a2ui-instructions.md';
 /** The tool group Zenera's MCP plugin registers. */
 const MCP_GROUP = 'mcp';
 /** The conditioned documents `zen` ships, which land whether or not they apply. */
-const OURS = new Set([FILE_RULES, MEMORY_RULES, FORK_RULES, MCP_RULES, MCP_MEMORY_RULES]);
+const OURS = new Set([
+    A2UI_RULES,
+    MARKDOWN_RULES,
+    FILE_RULES,
+    MEMORY_RULES,
+    FORK_RULES,
+    MCP_RULES,
+    MCP_MEMORY_RULES,
+]);
 const PROMPTS_DIR = 'agents/prompts';
 const SKILLS_DIR = 'agents/skills';
 const SKILL_FILE = 'SKILL.md';
@@ -366,6 +378,8 @@ const CAPABILITIES: Record<string, (spec: AgentConfig) => boolean> = {
     'files-write': (spec) => hasFileWriteTools(spec),
     workspace: (spec) => hasFileTools(spec),
     'workspace-write': (spec) => hasFileWriteTools(spec),
+    // Only a typed run rules it out, and agents.yaml cannot say whether a run is typed.
+    'text-output': () => true,
 };
 
 /** `tools:<group>`, the open-ended capability. Mirrors the loader's. */

@@ -1,6 +1,6 @@
 ---
 name: zen-instructions
-description: The house rules - `agents/instructions.md` and every `agents/<topic>-instructions.md` prepended to every agent's system prompt. How the set is discovered and ordered, the `requires:` frontmatter and its closed vocabulary (`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`, `tools:<group>`), which six documents are `zen`'s own and are replaced by `zen check --fix`, how a project writes its own customisable topic prompts beside them (`memory-policy-instructions.md`, `mcp-policy-instructions.md`, any `<topic>-policy-instructions.md`) without losing the copy, what belongs in a house rule as against an agent prompt or a skill, and every `zen check` finding these files can produce. Load before creating, editing, reviewing or deleting any `agents/*instructions.md`, before adding a capability whose rules arrive as one, and whenever `rules.stale`, `rules.unreached` or any `*.uninstructed` finding (`files`, `memory`, `fork`, `mcp`, `mcp-memory`) is reported.
+description: The house rules - `agents/instructions.md` and every `agents/<topic>-instructions.md` prepended to every agent's system prompt. How the set is discovered and ordered, the `requires:` frontmatter and its closed vocabulary (`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`, `tools:<group>`), which eight documents (and the `a2ui` skills) are `zen`'s own and are replaced by `zen check --fix`, how a project writes its own customisable topic prompts beside them (`memory-policy-instructions.md`, `mcp-policy-instructions.md`, any `<topic>-policy-instructions.md`) without losing the copy, what belongs in a house rule as against an agent prompt or a skill, and every `zen check` finding these files can produce. Load before creating, editing, reviewing or deleting any `agents/*instructions.md`, before adding a capability whose rules arrive as one, and whenever `rules.stale`, `rules.unreached` or any `*.uninstructed` finding (`files`, `memory`, `fork`, `mcp`, `mcp-memory`) is reported.
 user-invocable: false
 ---
 
@@ -100,19 +100,21 @@ confused by.
 | `agents/fork-instructions.md`           | **ours**  | `fork`                | what a branch is, what returns, when it is worth it       |
 | `agents/mcp-instructions.md`            | **ours**  | `tools:mcp`           | finding, describing and calling a service; connect pause  |
 | `agents/mcp-memory-instructions.md`     | **ours**  | `tools:mcp`, `memory` | commit MCP routes, never results                          |
+| `agents/markdown-instructions.md`       | **ours**  | `text-output`         | answers in Markdown; how files and images are linked      |
+| `agents/a2ui-instructions.md`           | **ours**  | `text-output`         | when to answer with an A2UI surface; which skill to load  |
 | `agents/tools-<topic>-instructions.md`  | project's | yours                 | **this project's** tool policy                            |
 | `agents/files-<topic>-instructions.md`  | project's | `files`               | **this project's** file policy                            |
 | `agents/memory-<topic>-instructions.md` | project's | `memory`              | **this project's** memory policy                          |
 | `agents/fork-<topic>-instructions.md`   | project's | `fork`                | **this project's** forking policy                         |
 | `agents/mcp-<topic>-instructions.md`    | project's | `tools:mcp`           | **this project's** services: which servers, for what      |
 
-The six marked **ours** describe _this version of `zen`_ - how the memory
+The eight marked **ours**, with the `a2ui` and `a2ui_charts` skills they load, describe _this version of `zen`_ - how the memory
 graph works, how its tools are called, what survives a join, how files are safely
 handled, how Zenera's MCP tools behave. They land under `agents/` only because
 that is where a document has to be to reach a prompt. They are not the project's
 to maintain:
 
-- `zen check --fix` **replaces all six** with the bytes this `zen` ships.
+- `zen check --fix` **replaces all of them** with the bytes this `zen` ships.
 - A copy that differs - edited in place, or scaffolded by an older `zen` - is
   reported as `rules.stale`, because prose about a runtime that has since moved
   reads exactly as authoritative as the version that is true.
@@ -216,7 +218,7 @@ It reads `agents/*instructions.md` and exits `1` on any candidate.
 | `house-rules.missing`     | note     | no house rules at all, which is allowed                                  |
 
 `zen check --fix` answers every `*.uninstructed` and `rules.stale` between them:
-it rewrites all six of ours and the whole `.github/` tree, then validates, so the
+it rewrites all of ours and the whole `.github/` tree, then validates, so the
 report and its exit code describe the repaired project.
 
 Two silences to know about. **There is no `tools.uninstructed`** - that document

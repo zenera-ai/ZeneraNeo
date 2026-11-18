@@ -1343,7 +1343,7 @@ terms of its domain.
 - A name that breaks the name pattern
 - `requires:` in a house-rules document naming something outside `files`,
   `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`,
-  `tools:<group>` (or aliases `workspace`, `workspace-write`)
+  `text-output`, `tools:<group>` (or aliases `workspace`, `workspace-write`)
 - `models.<alias>.provider` naming an undeclared provider
 - `agents[].tools` naming a tool not passed to `loadProject`, or a group with
   nothing in it

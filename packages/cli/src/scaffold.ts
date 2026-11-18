@@ -70,6 +70,18 @@ const MCP_RULES = join('agents', 'mcp-instructions.md');
 /** What an MCP agent with a store commits about its calls: routes, never results. */
 const MCP_MEMORY_RULES = join('agents', 'mcp-memory-instructions.md');
 
+/** How a text answer is formatted: Markdown, and how files and images are linked. */
+const MARKDOWN_RULES = join('agents', 'markdown-instructions.md');
+
+/** When to answer with an A2UI surface, and which skill to load to write one. */
+const A2UI_RULES = join('agents', 'a2ui-instructions.md');
+
+/** The A2UI skills those rules send an agent to: the protocol, and charts. */
+const A2UI_SKILLS = [
+    join('agents', 'skills', 'a2ui', 'SKILL.md'),
+    join('agents', 'skills', 'a2ui_charts', 'SKILL.md'),
+];
+
 /**
  * The project files that are ours rather than the project's.
  *
@@ -83,8 +95,11 @@ const MCP_MEMORY_RULES = join('agents', 'mcp-memory-instructions.md');
  * own beside them.
  */
 export const SHARED_RULES: readonly string[] = [
+    A2UI_RULES,
+    ...A2UI_SKILLS,
     FILE_RULES,
     FORK_RULES,
+    MARKDOWN_RULES,
     MCP_RULES,
     MCP_MEMORY_RULES,
     MEMORY_RULES,

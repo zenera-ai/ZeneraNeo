@@ -502,6 +502,9 @@ const CAPABILITIES: Record<string, (spec: AgentConfig) => PromptText['when'] | b
     'files-write': (spec) => hasFileWriteTools(spec),
     workspace: (spec) => hasFileTools(spec),
     'workspace-write': (spec) => hasFileWriteTools(spec),
+    // The answer is text rather than a `final_output` call. Whether a run is
+    // typed is the caller's choice, not the config's, so this is run-time only.
+    'text-output': () => (_ctx, run) => !run.outputSchema,
 };
 
 /**

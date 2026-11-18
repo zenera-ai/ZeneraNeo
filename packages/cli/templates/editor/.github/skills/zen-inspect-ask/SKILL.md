@@ -259,7 +259,8 @@ only a finding once the sentence is confirmed.
    phrase of it, then grep the project's `agents/` tree for the file to edit.
 3. **Check it is the project's file.** `fork-instructions.md`,
    `memory-instructions.md`, `tools-instructions.md`, `files-instructions.md`,
-   `mcp-instructions.md`, `mcp-memory-instructions.md` are zen's own copies; load
+   `mcp-instructions.md`, `mcp-memory-instructions.md`, `markdown-instructions.md`, `a2ui-instructions.md` and
+   the `a2ui` / `a2ui_charts` skills are zen's own copies; load
    **zen-instructions** before changing where that rule lives.
 4. **Second opinion only when justified.** A thin answer or `no instruction -
 my own default` does not itself justify more replay. In a whole-run audit,

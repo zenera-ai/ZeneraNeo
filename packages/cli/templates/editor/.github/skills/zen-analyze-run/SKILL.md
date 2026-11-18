@@ -644,7 +644,9 @@ Smaller cost observations below §7's threshold stay in section 3, not here.
 
 `agents/fork-instructions.md`, `agents/memory-instructions.md`,
 `agents/tools-instructions.md`, `agents/files-instructions.md`,
-`agents/mcp-instructions.md` and `agents/mcp-memory-instructions.md` are zen's
+`agents/mcp-instructions.md`, `agents/mcp-memory-instructions.md`,
+`agents/markdown-instructions.md`, `agents/a2ui-instructions.md` and the
+`agents/skills/a2ui*/` skills are zen's
 own copies, and so is every built-in
 tool description. Never propose editing them; propose the project's policy
 file or prompt, or say the change belongs upstream in zen.

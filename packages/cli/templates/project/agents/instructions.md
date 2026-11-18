@@ -1,10 +1,11 @@
-# House rules
+# Project instructions — configuration required
 
-Everything in this file is prepended to every agent's prompt, so it is the
-place for the things that are true regardless of who is answering: tone,
-constraints, what to do when the answer is not knowable.
+> **This is an unconfigured project. Replace this file with the project's
+> actual house rules before using its agents.**
 
-Replace this with yours.
+Everything in this file is prepended to every agent's prompt. Use it for rules
+that apply regardless of who is answering: tone, constraints, and what to do
+when an answer is not knowable.
 
 ## Reporting
 

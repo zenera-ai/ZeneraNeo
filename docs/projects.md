@@ -17,6 +17,8 @@ my-project/
     agents.yaml                      who exists, what they may reach for
     agents/
         instructions.md              house rules, prepended to every agent
+        a2ui-instructions.md         when to answer with an A2UI surface
+        markdown-instructions.md     how a text answer is formatted
         files-instructions.md        more of them, one topic at a time
         memory-instructions.md
         tools-instructions.md        how tools are called
@@ -168,7 +170,9 @@ Branches run at once and can exchange nothing...
 ```
 
 `requires:` takes a list, and all of it has to hold. The vocabulary is closed -
-`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`, and
+`files`, `files-write`, `fork`, `memory`, `memory-write`, `memory-forget`,
+`text-output` for an agent whose answer is text rather than a `final_output`
+call (it drops out of a run started with `output:`), and
 `tools:<group>` for an agent whose `tools:` grants any tool of a group (zen's
 `agents/mcp-instructions.md` uses `tools:mcp`) - and a name outside it is a
 load error rather than a rule that silently never fires. There is no `not`: a
