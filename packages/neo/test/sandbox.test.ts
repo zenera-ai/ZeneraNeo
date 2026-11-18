@@ -715,6 +715,61 @@ describe('a refused connection', () => {
         expect(res.code).toBe(125);
         expect(f.tries()).toBe(1);
     });
+
+    /**
+     * Exit 0 is proof the command ran, even with nothing on stdout. A probe
+     * like `nc -zv db 5432 || true` exits 0, prints nothing to stdout, and
+     * leaves "Connection refused" on stderr. The success answer in `flaky`
+     * carries stdout as well as exit 0, so the cases above would still pass
+     * if the exit-code check were removed. This one would not.
+     */
+    it('does not repeat a command that succeeded, whatever its stderr says', async () => {
+        let n = 0;
+        const run: Runner = () => {
+            n++;
+            return Promise.resolve(
+                answer({
+                    stderr: 'nc: connect to db port 5432 (tcp) failed: Connection refused\n',
+                }),
+            );
+        };
+        expect((await resilient(run)('podman', ['exec'])).code).toBe(0);
+        expect(n).toBe(1);
+    });
+
+    // The cases above call `resilient` by hand. These two go through the
+    // sandbox's `exec`, so the retry case also fails if the podman sandbox
+    // stops wrapping its runner in `resilient`.
+
+    it('is retried through the sandbox when the command never reached the container', async () => {
+        const f = fresh();
+        const b = box(f);
+        await b.start();
+        f.reply('/bin/sh -s', { code: 125, stderr: 'Error: ssh: handshake failed: EOF\n' });
+        f.reply('/bin/sh -s', { stdout: 'hi\n' });
+        const res = await b.exec('echo hi');
+
+        expect(res.exit_code).toBe(0);
+        expect(res.stdout).toBe('hi\n');
+        expect(f.calls.filter((c) => c.opts?.input === 'echo hi')).toHaveLength(2);
+    });
+
+    it('is not repeated through the sandbox once the command has printed something', async () => {
+        const f = fresh();
+        const b = box(f);
+        await b.start();
+        f.reply('/bin/sh -s', {
+            code: 255,
+            stdout: 'migrated 3 of 7\n',
+            stderr: 'client_loop: send disconnect: Connection reset by peer\n',
+        });
+        const res = await b.exec('npm run migrate');
+
+        // What the caller sees is what happened: partial output and the failure.
+        expect(res.exit_code).toBe(255);
+        expect(res.stdout).toBe('migrated 3 of 7\n');
+        expect(f.calls.filter((c) => c.opts?.input === 'npm run migrate')).toHaveLength(1);
+    });
 });
 
 // ---------------------------------------------------------------------------
