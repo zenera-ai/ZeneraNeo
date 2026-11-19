@@ -1,3 +1,5 @@
+import stringWidth from 'string-width';
+
 // ---------------------------------------------------------------------------
 // Measuring in rows
 //
@@ -8,29 +10,218 @@
 // viewport is the one thing Ink cannot erase (see tui/app.tsx).
 //
 // So the text is wrapped here, to a width we know, and measured in what comes
-// out. Plain text only: nothing that reaches these two functions has style
-// codes in it, so there is no need to carry the machinery for counting around
-// them.
+// out. Plain text only: nothing that reaches these functions has style codes
+// in it, so there is no need to carry the machinery for counting around them.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Measuring in columns
+//
+// A row is as wide as the cells the terminal fills, and `.length` is not that:
+// `日` is one code unit and two cells, `é` written as a letter and an accent is
+// two code units and one cell, and `😀` is two code units that must never be
+// separated. Measured by `.length`, a row of CJK is drawn twice as wide as it
+// was counted, and Ink — which truncates what does not fit — shows the first
+// half of every row and drops the second.
+//
+// Two rulers have to be satisfied at once, and they disagree:
+//
+//   - Ink's, which is `string-width` over the whole string. A row that is
+//     wider than its box by THIS ruler gets truncated.
+//   - The terminal's, which nobody here can ask. One that does not join a
+//     sequence draws `👨‍👩‍👧‍👦` as four people, eight cells, where `string-width`
+//     says two. And the second half of Thai `กำ` is a vowel with a cell of
+//     its own, so the pair is two cells where `string-width` says one. A row
+//     that is wider than the WINDOW by this ruler is wrapped by the terminal,
+//     the frame becomes taller than Ink counted, and the erase falls short.
+//
+// So a cluster is charged the larger of the two: what `string-width` says of
+// it whole, and what its code points come to apart. Over-charging costs a few
+// cells of ragged right edge on some terminals; under-charging costs text or a
+// corrupted frame, so every doubt is settled upward.
+//
+// Text is only ever cut between grapheme clusters, for the same reason: half a
+// surrogate pair is a replacement character, and an accent that opens a row
+// lands on whatever is drawn before it.
+// ---------------------------------------------------------------------------
+
+/** All of ASCII, which is one column a code unit, exactly as `.length` had it. */
+const ASCII = /^[\x00-\x7f]*$/;
+
+const CLUSTERS = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/**
+ * What clusters have already been found to take.
+ *
+ * `string-width` is thorough rather than quick, and the streaming block
+ * measures its whole window again on every repaint: uncached, a window of CJK
+ * cost tens of milliseconds a frame. A language's text is a few thousand
+ * distinct clusters said over and over, so remembering them is nearly all of
+ * the work. The table is emptied when it is full rather than aged — it refills
+ * in one frame — and a cluster too long to be a word's worth of anything
+ * (stacked accents) is not kept at all.
+ */
+const MEASURED = new Map<string, number>();
+const MEASURED_MAX = 8192;
+const MEASURED_KEY = 16;
+
+/** The columns one grapheme cluster may take: see the note above. */
+function clusterColumns(cluster: string): number {
+    const known = MEASURED.get(cluster);
+    if (known !== undefined) {
+        return known;
+    }
+    let apart = 0;
+    let points = 0;
+    for (const point of cluster) {
+        const code = point.codePointAt(0) as number;
+        // A control character keeps the one column `.length` gave it, and a
+        // lone surrogate is drawn as a replacement character.
+        apart += code < 0x80 || (code >= 0xd800 && code <= 0xdfff) ? 1 : stringWidth(point);
+        points += 1;
+    }
+    const columns = points === 1 ? apart : Math.max(apart, stringWidth(cluster));
+    if (cluster.length <= MEASURED_KEY) {
+        if (MEASURED.size >= MEASURED_MAX) {
+            MEASURED.clear();
+        }
+        MEASURED.set(cluster, columns);
+    }
+    return columns;
+}
+
+/** `text` as the pieces it may be cut between, each with the columns it takes. */
+function* clustersOf(text: string): Generator<readonly [cluster: string, columns: number]> {
+    for (const { segment } of CLUSTERS.segment(text)) {
+        yield [segment, clusterColumns(segment)];
+    }
+}
+
+/**
+ * The columns `text` may take on a terminal: never fewer than Ink will count
+ * for it, and never fewer than a terminal that joins nothing will draw.
+ *
+ * Plain text, one row: style codes and newlines are not looked for.
+ */
+export function columnsOf(text: string): number {
+    if (ASCII.test(text)) {
+        return text.length;
+    }
+    let total = 0;
+    for (const [, columns] of clustersOf(text)) {
+        total += columns;
+    }
+    return total;
+}
+
+/** The longest run of whole clusters from the start of `text` that fits `width` columns. */
+function headOf(text: string, width: number): string {
+    if (ASCII.test(text)) {
+        return text.slice(0, Math.max(0, width));
+    }
+    let used = 0;
+    let end = 0;
+    for (const [cluster, columns] of clustersOf(text)) {
+        if (used + columns > width) {
+            break;
+        }
+        used += columns;
+        end += cluster.length;
+    }
+    return text.slice(0, end);
+}
+
+/** A row, and the columns it was found to take while it was being cut. */
+type Piece = readonly [row: string, columns: number];
+
+/**
+ * `word` as rows of at most `width` columns, cut between clusters.
+ *
+ * A cluster that is wider than `width` on its own — a CJK character in a
+ * one-column box — still gets a row, because the alternative is to never get
+ * past it. That is the one case in which a row here is wider than was asked.
+ */
+function chunksOf(word: string, width: number): Piece[] {
+    const out: Piece[] = [];
+    if (ASCII.test(word)) {
+        for (let at = 0; at < word.length; at += width) {
+            const row = word.slice(at, at + width);
+            out.push([row, row.length]);
+        }
+        return out;
+    }
+    let row = '';
+    let used = 0;
+    for (const [cluster, columns] of clustersOf(word)) {
+        // A wide character does not straddle the edge: it moves down whole and
+        // the row it left is a column short.
+        if (row && used + columns > width) {
+            out.push([row, used]);
+            row = '';
+            used = 0;
+        }
+        row += cluster;
+        used += columns;
+    }
+    if (row) {
+        out.push([row, used]);
+    }
+    return out;
+}
+
+/** Whether `text` takes at least `columns`, reading no more of it than settles that. */
+function reaches(text: string, columns: number): boolean {
+    if (ASCII.test(text)) {
+        return text.length >= columns;
+    }
+    let total = 0;
+    for (const [, each] of clustersOf(text)) {
+        total += each;
+        if (total >= columns) {
+            return true;
+        }
+    }
+    return total >= columns;
+}
+
+/** How far back `windowOf` will look for enough text, as a multiple of the usual. */
+const TAIL_REACH = 16;
 
 /**
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
  * that the terminal will not wrap it again.
  *
  * Only the tail is ever wanted, so only the tail is wrapped: `width * rows * 2`
- * characters is more than enough to fill the window whatever the wrapping does,
- * and bounds the work per keystroke on a stream that never stops growing.
+ * COLUMNS of it is more than enough to fill the window whatever the wrapping
+ * does, and bounds the work per keystroke on a stream that never stops growing.
+ *
+ * The tail is taken in code units, because that is what a string can be cut by
+ * without reading all of it, and then checked in columns: text that spends
+ * several code units a column — accents written apart, emoji sequences — would
+ * otherwise fill fewer rows than the window has while there was more to show.
+ * The reach is bounded, so text made of nothing but stacked accents is shown
+ * short rather than read whole on every frame.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
     const n = Math.max(1, rows);
+    const wanted = w * n * 2;
+    let tail = '';
+    for (let reach = 1; reach <= TAIL_REACH; reach *= 2) {
+        tail = whole(text.slice(-wanted * reach));
+        if (wanted * reach >= text.length || reaches(tail, wanted)) {
+            break;
+        }
+    }
     // Trailing blank rows are never information, and a stream that ends on a
     // paragraph break would spend one of the few rows it has on nothing.
-    const tail = text
-        .slice(-w * n * 2)
-        .replace(/\n{2,}/g, '\n')
-        .trimEnd();
-    return wrap(tail, w).slice(-n);
+    return wrap(tail.replace(/\n{2,}/g, '\n').trimEnd(), w).slice(-n);
+}
+
+/** `tail` without the half of a surrogate pair that cutting it may have left in front. */
+function whole(tail: string): string {
+    const first = tail.charCodeAt(0);
+    return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
 }
 
 /**
@@ -41,34 +232,45 @@ export function windowOf(text: string, width: number, rows: number): string[] {
 export function clip(text: string, width: number): string {
     const flat = text.replace(/\s+/g, ' ').trim();
     const w = Math.max(1, width);
-    return flat.length <= w ? flat : `${flat.slice(0, w - 1)}…`;
+    return columnsOf(flat) <= w ? flat : `${headOf(flat, w - 1)}…`;
 }
 
-/** Word wrap. Every returned row is at most `width` columns wide. */
+/**
+ * Word wrap. Every returned row is at most `width` columns wide, by
+ * `columnsOf`, unless a single character is wider than that by itself.
+ */
 export function wrap(text: string, width: number): string[] {
     const w = Math.max(1, width);
     const out: string[] = [];
     for (const paragraph of text.split('\n')) {
         let line = '';
+        let used = 0;
         for (const word of paragraph.split(' ')) {
             // A word wider than the terminal has to be broken somewhere, and
-            // anywhere is as good as anywhere else.
-            let rest = word;
-            while (rest.length > w) {
+            // anywhere between two characters is as good as anywhere else.
+            // Cutting is also how a word is measured, so it is read once.
+            const pieces = chunksOf(word, w);
+            const [rest, size] = pieces.pop() ?? ['', 0];
+            if (pieces.length) {
                 if (line) {
                     out.push(line);
                     line = '';
+                    used = 0;
                 }
-                out.push(rest.slice(0, w));
-                rest = rest.slice(w);
+                for (const [row] of pieces) {
+                    out.push(row);
+                }
             }
             if (!line) {
                 line = rest;
-            } else if (line.length + 1 + rest.length <= w) {
+                used = size;
+            } else if (used + 1 + size <= w) {
                 line += ` ${rest}`;
+                used += 1 + size;
             } else {
                 out.push(line);
                 line = rest;
+                used = size;
             }
         }
         out.push(line);
@@ -209,11 +411,11 @@ export function boxWidth(text: string, columns: number): number {
         // A fence is drawn behind a `│ ` gutter; a table row is not.
         const lines =
             block.kind === 'code'
-                ? (block.lines ?? []).map((l) => l.length + 6)
+                ? (block.lines ?? []).map((l) => columnsOf(l) + 6)
                 : block.kind === 'table'
                   ? textOf(block)
                         .split('\n')
-                        .map((l) => l.length + 4)
+                        .map((l) => columnsOf(l) + 4)
                   : [];
         for (const width of lines) {
             rigid = Math.max(rigid, width);
@@ -497,8 +699,8 @@ export function gistOf(text: string, width: number): string {
 // is the one thing Ink cannot erase.
 //
 // Inline markup comes out as `Span`s, which carry their styling BESIDE the
-// text rather than inside it. The width of a row is therefore still the length
-// of its characters, and `boxWidth` cannot be lied to.
+// text rather than inside it. The width of a row is therefore still the width
+// of its characters — `columnsOf` — and `boxWidth` cannot be lied to.
 //
 // The scan is one pass and tolerant of anything half-written, because on a
 // stream everything is half-written at some point: a fence with no close, a
@@ -960,7 +1162,7 @@ export function blocksOf(text: string): Block[] {
 // ---------------------------------------------------------------------------
 
 /** What a run of spans measures, which is the text and never the styling. */
-const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + s.text.length, 0);
+const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + columnsOf(s.text), 0);
 
 /** A cell in its column, set where the rule row asked for it. */
 function padOf(spans: Span[], width: number, align: Align): Span[] {
@@ -977,7 +1179,7 @@ function padOf(spans: Span[], width: number, align: Align): Span[] {
  * A table as its rows, each one a single run of spans.
  *
  * Columns are laid out here and nowhere else, so the drawn table and the plain
- * one are the same table: a cell's width is the length of its text, which is
+ * one are the same table: a cell's width is the columns its text takes, which is
  * what a `Span` measures whatever styling rides beside it. Nothing a model
  * writes in a cell can move the cell after it.
  */
