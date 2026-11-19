@@ -28,6 +28,13 @@ provided by the user, tools, or files.
 Put A2UI messages in a fenced code block tagged `a2ui`. The fence must contain
 a JSON array; ordinary text stays outside the fence.
 
+The fence is a separate Markdown block, never inline with text:
+
+- Leave a blank line before the opening fence and after the closing fence.
+- The opening ` ```a2ui ` and the closing ` ``` ` each stand alone on
+  their own line, with nothing before or after them.
+- Wrong: `Hello```a2ui` or ` ```continue `.
+
 ````markdown
 Here is the requested form.
 
@@ -43,6 +50,8 @@ Here is the requested form.
   }
 ]
 ```
+
+Pick an option and press Save.
 ````
 
 Use strict JSON: double-quoted keys and strings, no comments, and no trailing

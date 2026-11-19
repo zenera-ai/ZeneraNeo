@@ -13,7 +13,10 @@ You write it; the user sees and uses it.
 ## Emitting it
 
 Put the messages in a fenced block tagged `a2ui` as a JSON array. The block may
-sit between ordinary Markdown paragraphs:
+sit between ordinary Markdown paragraphs, but always as its own block: a blank
+line before the opening fence and after the closing fence, and ` ```a2ui `
+and the closing ` ``` ` each alone on their own line. Never glue a fence to
+text, as in `Hello```a2ui` or ` ```continue `.
 
 ````markdown
 Here is the booking form.
@@ -30,6 +33,8 @@ Here is the booking form.
   }
 ]
 ```
+
+Fill it in and press Book.
 ````
 
 - The array contains complete JSON objects, each with `"version": "1.0"` and
