@@ -17,20 +17,89 @@
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
  * that the terminal will not wrap it again.
  *
- * Only the tail is ever wanted, so only the tail is wrapped: `width * rows * 2`
- * characters is more than enough to fill the window whatever the wrapping does,
- * and bounds the work per keystroke on a stream that never stops growing.
+ * Only the tail is ever wanted. Retain a few windows' worth of grapheme cells
+ * so wrapping can discard a partially filled first row without losing content.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
     const n = Math.max(1, rows);
     // Trailing blank rows are never information, and a stream that ends on a
     // paragraph break would spend one of the few rows it has on nothing.
-    const tail = text
-        .slice(-w * n * 2)
+    const tail = tailByCells(text, w * n * 2)
         .replace(/\n{2,}/g, '\n')
         .trimEnd();
     return wrap(tail, w).slice(-n);
+}
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** The number of terminal cells occupied by one grapheme cluster. */
+function cellWidth(cluster: string): number {
+    // Emoji sequences (including ZWJ families and flags) are one two-cell glyph.
+    if (
+        /\p{Emoji_Presentation}/u.test(cluster) ||
+        cluster.includes('\u200d') ||
+        cluster.includes('\ufe0f') ||
+        /[\u{1f1e6}-\u{1f1ff}]/u.test(cluster)
+    ) {
+        return 2;
+    }
+    let cells = 0;
+    for (const char of cluster) {
+        const cp = char.codePointAt(0)!;
+        if (/\p{Mark}/u.test(char) || cp === 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f)) continue;
+        cells += isWide(cp) ? 2 : 1;
+    }
+    return cells;
+}
+
+function isWide(cp: number): boolean {
+    return (
+        cp >= 0x1100 &&
+        (cp <= 0x115f ||
+            cp === 0x2329 ||
+            cp === 0x232a ||
+            (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+            (cp >= 0xac00 && cp <= 0xd7a3) ||
+            (cp >= 0xf900 && cp <= 0xfaff) ||
+            (cp >= 0xfe10 && cp <= 0xfe19) ||
+            (cp >= 0xfe30 && cp <= 0xfe6f) ||
+            (cp >= 0xff00 && cp <= 0xff60) ||
+            (cp >= 0xffe0 && cp <= 0xffe6) ||
+            (cp >= 0x20000 && cp <= 0x3fffd))
+    );
+}
+
+function clusters(text: string): string[] {
+    return [...graphemes.segment(text)].map(({ segment }) => segment);
+}
+
+function cells(text: string): number {
+    return clusters(text).reduce((sum, cluster) => sum + cellWidth(cluster), 0);
+}
+
+/** Keep a bounded suffix, always cutting at a grapheme boundary. */
+function tailByCells(text: string, limit: number): string {
+    let start = Math.max(0, text.length - limit * 2);
+    while (start > 0) {
+        // Start on a code-point boundary before asking Segmenter whether this
+        // offset also falls inside a grapheme (for example, after a ZWJ).
+        if (text.charCodeAt(start) >= 0xdc00 && text.charCodeAt(start) <= 0xdfff) start--;
+        const previousStart =
+            start > 1 && text.charCodeAt(start - 1) >= 0xdc00 && text.charCodeAt(start - 1) <= 0xdfff
+                ? start - 2
+                : start - 1;
+        const previous = text.slice(previousStart, start);
+        const tail = text.slice(start);
+        const first = graphemes.segment(previous + tail)[Symbol.iterator]().next().value?.segment;
+        const boundary = first === previous;
+        if (boundary && cells(tail) >= limit) return tail;
+
+        // Expand geometrically; long ZWJ sequences can be much longer in
+        // UTF-16 than their terminal-cell width suggests.
+        start = Math.max(0, start - Math.max(limit * 2, text.length - start));
+    }
+    return text;
 }
 
 /**
@@ -53,22 +122,36 @@ export function wrap(text: string, width: number): string[] {
         for (const word of paragraph.split(' ')) {
             // A word wider than the terminal has to be broken somewhere, and
             // anywhere is as good as anywhere else.
-            let rest = word;
-            while (rest.length > w) {
+            let rest = clusters(word);
+            if (cells(word) > w) {
                 if (line) {
                     out.push(line);
                     line = '';
                 }
-                out.push(rest.slice(0, w));
-                rest = rest.slice(w);
+                let part = '';
+                let used = 0;
+                const chunks: string[] = [];
+                for (const cluster of rest) {
+                    const next = cellWidth(cluster);
+                    if (part && used + next > w) {
+                        chunks.push(part);
+                        part = '';
+                        used = 0;
+                    }
+                    part += cluster;
+                    used += next;
+                }
+                rest = clusters(part);
+                out.push(...chunks);
             }
+            const remainder = rest.join('');
             if (!line) {
-                line = rest;
-            } else if (line.length + 1 + rest.length <= w) {
-                line += ` ${rest}`;
+                line = remainder;
+            } else if (cells(line) + 1 + cells(remainder) <= w) {
+                line += ` ${remainder}`;
             } else {
                 out.push(line);
-                line = rest;
+                line = remainder;
             }
         }
         out.push(line);
