@@ -54,7 +54,13 @@ agents:
       tools:
           - files:*
           - sandbox:*
-          {{exa}}
+          {{#if web}}
+          # exa:* is web search and page reading, here because this
+          # machine has an Exa key. The key is read from the environment
+          # when a tool is called, so a clone of this project without one
+          # still loads and only the call fails.
+          - exa:*
+          {{/if}}
           {{#if mcp}}
           # mcp:* reaches the external services this project is connected
           # to (GitHub, Linear, Notion, ...) as the signed-in user. Here

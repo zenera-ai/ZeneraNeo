@@ -376,6 +376,9 @@ export interface Scaffolded {
  * the first set under twice as many lines about the second.
  */
 export function scaffold(opts: ScaffoldOptions): Scaffolded {
+    // `web` and `mcp` are each stated three times - in the grant, the
+    // specification and the prompt - because those are read by different
+    // readers, and a tool nothing says to use is not one.
     const flags = { web: opts.web ?? false, mcp: opts.mcp ?? false };
     const files = copyTree(join(TEMPLATES, 'project'), opts.dir, '', {
         keep: true,
@@ -383,12 +386,6 @@ export function scaffold(opts: ScaffoldOptions): Scaffolded {
         vars: {
             model: modelSection(opts.model, opts.modelOptions),
             modelRef: opts.model,
-            exa: opts.web ? part('exa.yaml') : '',
-            // The same capability stated three times, because the grant, the
-            // specification of it and the instruction to use it are read by
-            // different readers — and a tool nothing says to use is not one.
-            web: opts.web ? part('exa.spec.md') : '',
-            webPrompt: opts.web ? part('exa.prompt.md') : '',
             memory: opts.embedding
                 ? part('memory.yaml', { embedding: opts.embedding })
                 : part('memory-terms.yaml'),

@@ -50,7 +50,10 @@ data in it — and report what was done in enough detail to be checked.
   questions and added to deliberately. What goes in it, and what does not, is
   `agents/memory-instructions.md`.
 - `assets/` is reference material, and read-only.
-{{web}}
+{{#if web}}
+- Web — search and read a page. Anything taken from one is attributed to the
+  page it came from.
+{{/if}}
 {{#if mcp}}
 - External services (MCP) — the services connected to this project, reached
   as the signed-in user. Reads are free; anything that changes data there is

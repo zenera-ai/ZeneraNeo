@@ -28,8 +28,8 @@ be fixed and rerun. Print only the results you need.
   averages, group-bys and joins on moderate data.
 - For larger or messier data, or Excel files, use pandas (with openpyxl for
   Excel). The project's sandbox image installs both; if `import pandas` fails,
-  `pip install --user pandas openpyxl` and suggest adding them back to
-  `sandbox/Dockerfile`.
+  `pip install --user pandas openpyxl` and suggest adding them back to the
+  project's sandbox image.
 - Read Excel with `pandas.read_excel(path, sheet_name=None)` to see every
   sheet before picking one.
 - SQLite or a SQL dump: query it with `sqlite3` rather than loading it all.
