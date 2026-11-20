@@ -1,4 +1,4 @@
-import { KeyStore, paths } from '@zenera/cli/lib';
+import { envNames, KeyStore, paths, PROVIDERS } from '@zenera/cli/lib';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,13 @@ describe('Gym setup', () => {
         root = mkdtempSync(join(tmpdir(), 'gym-setup-'));
         vi.stubEnv('ZENERA_HOME', root);
         vi.stubEnv('ZENERA_GYM_MODEL', undefined);
+        // The default model and embedding follow any provider with a key, one in
+        // the developer's shell or `.env` included. Start every test with none.
+        for (const provider of PROVIDERS) {
+            for (const name of envNames(provider)) {
+                vi.stubEnv(name, undefined);
+            }
+        }
     });
 
     afterEach(() => {
@@ -57,7 +64,6 @@ describe('Gym setup', () => {
 
     it('embeds the docs only when --embedding asks', async () => {
         const keys = await KeyStore.open();
-        vi.stubEnv('OPENAI_API_KEY', undefined);
         vi.stubEnv('ZENERA_GYM_EMBEDDING', undefined);
         await expect(chooseEmbedding('on', keys)).rejects.toThrow('no embedding model');
 
