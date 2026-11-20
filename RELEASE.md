@@ -112,6 +112,21 @@ workflow with the tag.
 > `npm run agent-runtime:dockerfile -w packages/cli` / `npm run sandbox-base:dockerfile -w
 packages/sandbox` (a test fails while they differ).
 
+> **The sandbox base is pinned**, so rebuilding a version (re-running a tag, or zen building
+> it when the pull fails) installs what its release did: the `node` and `python` images by
+> digest (`SANDBOX_BASE_IMAGES`), Debian, npm and PyPI as of `SANDBOX_BASE_SNAPSHOT`, and
+> `@zenera/cli`/`@zenera/rag` as of the moment that version was published. Nothing upstream
+> gets in until those move, security fixes included. To move them, in `packages/sandbox/src/base.ts`:
+>
+> - `SANDBOX_BASE_SNAPSHOT`: a recent UTC moment. A range in the npm list that nothing
+>   satisfied by then fails the build: move it when a `package.json` raises one.
+> - `SANDBOX_BASE_IMAGES`: `docker buildx imagetools inspect <name:tag>`, the top `Digest:`
+>   (the multi-platform index, not one platform's manifest).
+>
+> Each image records what it installed in `/usr/local/share/zenera/sandbox-base.txt`.
+> `node scripts/sandbox-base-diff.mjs <image> <image> [--platform linux/amd64] [--files]`
+> compares two builds (any two, older ones included) and exits 1 when they differ.
+
 > **CI has no npm token.** `NPM_TOKEN` is unset; the workflow authenticates with npm
 > **trusted publishing** (OIDC, `id-token: write` + npm >= 11.5.1), which also signs a
 > provenance statement automatically - the repository is public, so npm accepts it.
