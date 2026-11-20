@@ -15,21 +15,30 @@
 
 FROM ghcr.io/zenera-ai/zenera-sandbox:{{version}}
 
+# Command-line tools for documents and data (Debian packages): PDF to text,
+# document conversion, SQLite.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       poppler-utils pandoc sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python libraries for data analysis and spreadsheets.
+RUN pip install --no-cache-dir \
+        "pandas>=2,<3" \
+        "openpyxl>=3.1,<4" \
+    && python -c "import openpyxl, pandas"
+
 # Examples - uncomment and edit what this project needs. Each change rebuilds the
 # image once; later runs reuse it.
 #
-# Command-line tools for documents and data (Debian packages): PDF to text,
-# document conversion, SQLite, images, audio and video.
+# Images, audio and video:
 # RUN apt-get update \
-#     && apt-get install -y --no-install-recommends \
-#        poppler-utils pandoc sqlite3 imagemagick ffmpeg \
+#     && apt-get install -y --no-install-recommends imagemagick ffmpeg \
 #     && rm -rf /var/lib/apt/lists/*
 #
-# Python libraries for analysis, charts, spreadsheets and PDFs:
+# More Python libraries for analysis, charts and PDFs:
 # RUN pip install --no-cache-dir \
-#     pandas \
 #     numpy \
 #     matplotlib \
 #     scikit-learn \
-#     openpyxl \
 #     pypdf

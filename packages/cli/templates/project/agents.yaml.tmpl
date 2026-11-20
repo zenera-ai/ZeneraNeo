@@ -55,7 +55,16 @@ agents:
           - files:*
           - sandbox:*
           {{exa}}
+          {{#if mcp}}
+          # mcp:* reaches the external services this project is connected
+          # to (GitHub, Linear, Notion, ...) as the signed-in user. Here
+          # because the host that ran `zen init` provides the mcp tools; a
+          # machine without them fails to load this agent, so drop the
+          # line there.
+          - mcp:*
+          {{/if}}
       #
       # The skills in agents/skills, listed in the prompt for it to load when a
-      # case needs one — among them a2ui and a2ui-charts, for forms and charts.
+      # case needs one — among them a2ui and a2ui-charts, for forms and charts,
+      # and data-analysis.
       skills: {}

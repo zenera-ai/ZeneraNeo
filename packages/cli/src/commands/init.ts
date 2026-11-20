@@ -5,6 +5,7 @@ import {
     isProvider,
     keyId,
     KeyStore,
+    machinePluginTools,
     PROVIDERS,
     Registry,
     resolveBuild,
@@ -33,12 +34,14 @@ import {
     yellow,
 } from '../term.ts';
 
-const USAGE = 'zen init [dir] [--name <name>] [--model <ref>] [--force]';
+const USAGE = 'zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--force]';
 
 interface Flags {
     name?: string;
     model?: string;
     force?: boolean;
+    mcp?: boolean;
+    'no-mcp'?: boolean;
 }
 
 interface ModelChoice {
@@ -108,6 +111,34 @@ function defaultEmbedding(provider: Provider | undefined): string | undefined {
  */
 function providerOf(ref: string): Provider | undefined {
     return splitRef(ref).provider;
+}
+
+/**
+ * The configuration an explicit `--model` is scaffolded with.
+ *
+ * Taken as written, except for the one family whose knobs are known: an
+ * OpenAI reasoning model (gpt-5, o-series) gets the same responses API and
+ * reasoning summary as the default does, without which it thinks in silence
+ * and reads as a hang. Anything else gets no options, because guessing at
+ * knobs for a model nobody here has heard of is how a scaffold breaks.
+ */
+export function explicitModel(ref: string): ModelChoice {
+    const { provider, id } = splitRef(ref);
+    if (provider === 'openai' && /^(gpt-5|o\d)/.test(id)) {
+        return { ref, options: DEFAULT_MODEL.openai.options };
+    }
+    return { ref };
+}
+
+/**
+ * Whether the plugins this machine names in `ZEN_PLUGINS` provide the `mcp`
+ * tools — which is how a host such as Zenera Lite offers its users' connected
+ * services. Asked the way `zen check` asks, so a project granted `mcp:*` here
+ * is one that loads here. A plugin that fails says nothing, and the answer is no.
+ */
+export async function hasMcp(project: { dir: string; name: string }): Promise<boolean> {
+    const tools = await machinePluginTools(project, [], { warn: () => {} });
+    return tools.some((t) => t.group === 'mcp');
 }
 
 /**
@@ -187,8 +218,12 @@ export const init: Command = {
         'and describes the one that was just written. Say what you are building',
         'there, then run /spec-sync-project in your editor to make the rest match.',
         '',
-        'The default agent gets the file tools and a sandboxed shell, plus',
-        '`exa:*` when the keyring holds an Exa key. It keeps a memory of its',
+        'The default agent is a general-purpose assistant. It gets the file',
+        'tools and a sandboxed shell, plus `exa:*` when the keyring holds an',
+        'Exa key and `mcp:*` when a plugin in $ZEN_PLUGINS provides the mcp',
+        'tools (--mcp / --no-mcp decide instead). Its skills cover',
+        'data analysis and A2UI forms and charts, and web research and the',
+        'connected services when it has those tools. It keeps a memory of its',
         'own work in memory/, vectorised by the same provider as the model',
         'when that provider publishes embeddings. Without --model, the',
         'keyring is checked and the model is picked from a credential the',
@@ -204,9 +239,14 @@ export const init: Command = {
                 name: { type: 'string' },
                 model: { type: 'string' },
                 force: { type: 'boolean' },
+                mcp: { type: 'boolean' },
+                'no-mcp': { type: 'boolean' },
             },
             USAGE,
         );
+        if (values.mcp && values['no-mcp']) {
+            throw usageError('--mcp and --no-mcp contradict each other', USAGE);
+        }
 
         const dir = resolve(ctx.cwd, one(positionals, 'directory', USAGE) ?? '.');
         const name = values.name ?? basename(dir);
@@ -222,15 +262,21 @@ export const init: Command = {
         ensureHome();
         const store = await KeyStore.open();
         const provider = values.model ? undefined : await reachableProvider(store);
-        // An explicit --model is taken as written, options and all: guessing at
-        // knobs for a model nobody here has heard of is how a scaffold breaks.
         const choice: ModelChoice = values.model
-            ? { ref: values.model }
+            ? explicitModel(values.model)
             : DEFAULT_MODEL[provider ?? 'openai'];
         const model = choice.ref;
         const web = hasExa(store);
+        const mcp = values['no-mcp'] ? false : (values.mcp ?? (await hasMcp({ dir, name })));
         const embedding = defaultEmbedding(providerOf(model));
-        const written = scaffold({ dir, model, modelOptions: choice.options, web, embedding });
+        const written = scaffold({
+            dir,
+            model,
+            modelOptions: choice.options,
+            web,
+            mcp,
+            embedding,
+        });
 
         const registry = await Registry.open();
         registry.add(name, dir);
@@ -255,6 +301,7 @@ export const init: Command = {
                 editor: written.editor,
                 credential: provider ?? null,
                 web,
+                mcp,
                 sandbox,
             });
             return;
@@ -262,6 +309,12 @@ export const init: Command = {
 
         if (web) {
             note(`${green('exa key found')} ${dim('— the default agent gets web search')}`);
+            note();
+        }
+        if (mcp) {
+            note(
+                `${green('mcp tools found')} ${dim('— the default agent gets the connected services')}`,
+            );
             note();
         }
         // Said once, here, rather than left for the first run to discover: the

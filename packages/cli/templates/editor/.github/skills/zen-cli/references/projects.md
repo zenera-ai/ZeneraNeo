@@ -3,7 +3,7 @@
 ## `zen init`
 
 ```
-zen init [dir] [--name <name>] [--model <ref>] [--force]
+zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--force]
 ```
 
 Creates a project here, or in `<dir>`, and records it in the registry so `zen
@@ -13,7 +13,15 @@ list` and `zen open` can find it by name.
 | --------------- | ------------------------------------------------------- |
 | `--name <name>` | The registry name. Defaults to the directory's basename |
 | `--model <ref>` | The model to scaffold with, taken as written            |
+| `--mcp`         | Grant the default agent `mcp:*` and write the mcp skill |
+| `--no-mcp`      | Do not, even when a `ZEN_PLUGINS` plugin provides them  |
 | `--force`       | Write into a directory that already holds a project     |
+
+Without `--mcp` or `--no-mcp`, the `mcp` tools are granted when a plugin in
+`$ZEN_PLUGINS` provides them - which is how Zenera Lite's project pods offer the
+connected services. An explicit `--model` naming an OpenAI reasoning model
+(gpt-5, o-series) gets the same `api: responses` and reasoning summary as the
+default; any other is taken as written.
 
 What it writes:
 
@@ -29,8 +37,9 @@ agents/mcp-instructions.md      more of them, for agents granted the mcp tools
 agents/mcp-memory-instructions.md   the same, for those that also have memory
 agents/memory-instructions.md   more of them, for agents with the memory store
 agents/tools-instructions.md    more of them, about how tools are called
-agents/prompts/default.md       the default agent's prompt
-agents/skills/                  a2ui and a2ui-charts (zen's own), and yours
+agents/prompts/default.md       the default agent's prompt: a general-purpose assistant
+agents/skills/                  a2ui, a2ui-charts, data-analysis; web-research
+                                with an Exa key, mcp with the mcp tools; and yours
 assets/README.md
 sandbox/Dockerfile              the image the sandbox builds
 sessions/                       empty

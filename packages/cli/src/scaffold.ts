@@ -32,6 +32,9 @@ import { splitRef } from './modelref.ts';
 //                        which describe this version of `zen` to the editor and
 //                        are replaced every time.
 //   templates/parts/     fragments spliced into a template above.
+//   templates/skills/    skills for tools a project may not be given (`mcp`,
+//                        `web-research`), copied into `agents/skills/` only
+//                        alongside the grant.
 //
 // The trees are copied whole and nothing enumerates them, so adding a file to
 // a new project is adding a file to `templates/project/` and nothing else.
@@ -120,6 +123,9 @@ export function ownVersion(): string {
 
 type Vars = Record<string, string>;
 
+/** What `{{#if name}}` blocks are decided by. */
+type Flags = Record<string, boolean>;
+
 /**
  * Fills the `{{name}}` in a template, in the two shapes templates use.
  *
@@ -133,8 +139,13 @@ type Vars = Record<string, string>;
  * to be a paragraph of its own carries its own blank line as its first line.
  * That way the template needs no blank line around the placeholder, and dropping
  * the fragment leaves the surrounding paragraphs exactly as they were.
+ *
+ * Before any of that, `{{#if flag}}`, `{{else}}` and `{{/if}}` — each alone on
+ * its line, and not nested — keep one branch and drop the other along with the
+ * marker lines, so text that is there only with a capability is written in
+ * place rather than in a fragment of its own. An unknown flag throws too.
  */
-function render(text: string, vars: Vars): string {
+function render(text: string, vars: Vars, flags: Flags = {}): string {
     const value = (name: string): string => {
         const found = vars[name];
         if (found === undefined) {
@@ -142,7 +153,19 @@ function render(text: string, vars: Vars): string {
         }
         return found;
     };
+    const marker = (tag: string): string => String.raw`^[ \t]*\{\{${tag}\}\}[ \t]*(?:\r?\n|$)`;
+    const block = new RegExp(
+        String.raw`${marker(String.raw`#if (\w+)`)}([\s\S]*?)(?:${marker('else')}([\s\S]*?))?${marker('/if')}`,
+        'gm',
+    );
     return text
+        .replace(block, (_, name: string, then: string, otherwise: string | undefined) => {
+            const on = flags[name];
+            if (on === undefined) {
+                throw new Error(`template asks for {{#if ${name}}}, which nothing supplies`);
+            }
+            return on ? then : (otherwise ?? '');
+        })
         .replace(/^([ \t]*)\{\{(\w+)\}\}[ \t]*\r?\n/gm, (_, indent: string, name: string) => {
             const body = value(name).trimEnd();
             if (!body) {
@@ -179,6 +202,8 @@ function modelSection(ref: string, options?: string): string {
 export interface CopyOptions {
     /** values for the `{{...}}` in any template under this tree */
     vars?: Vars;
+    /** what decides the `{{#if ...}}` blocks in any template under this tree */
+    flags?: Flags;
     /** leave a file that is already there alone rather than replacing it */
     keep?: boolean;
 }
@@ -241,7 +266,7 @@ export function copyTree(from: string, dir: string, rel: string, opts: CopyOptio
             continue;
         }
         const body = entry.name.endsWith(TEMPLATE)
-            ? render(readFileSync(source, 'utf8'), opts.vars ?? {})
+            ? render(readFileSync(source, 'utf8'), opts.vars ?? {}, opts.flags)
             : readFileSync(source);
         const changed = writeIfChanged(join(dir, child), body);
         // The bytes are copied, not the file, so a script arrives unrunnable.
@@ -305,6 +330,16 @@ export function staleShared(dir: string): string[] {
     return stale;
 }
 
+/**
+ * Skills for tools a project may not be given, by the option that grants the
+ * tools: a guide to tools the agent does not have is one it can only misuse,
+ * so these are copied from `templates/skills/` only alongside the grant.
+ */
+const TOOL_SKILLS: Record<'web' | 'mcp', string> = {
+    web: 'web-research',
+    mcp: 'mcp',
+};
+
 export interface ScaffoldOptions {
     /** the project directory */
     dir: string;
@@ -313,6 +348,8 @@ export interface ScaffoldOptions {
     modelOptions?: string;
     /** give the default agent `exa:*` — set when a key for it is on hand */
     web?: boolean;
+    /** give the default agent `mcp:*` — set when a plugin provides the group */
+    mcp?: boolean;
     /**
      * What vectorises the memory graph, as a provider-prefixed ref. Left out
      * when the project's provider publishes no embeddings API — memory still
@@ -339,8 +376,10 @@ export interface Scaffolded {
  * the first set under twice as many lines about the second.
  */
 export function scaffold(opts: ScaffoldOptions): Scaffolded {
+    const flags = { web: opts.web ?? false, mcp: opts.mcp ?? false };
     const files = copyTree(join(TEMPLATES, 'project'), opts.dir, '', {
         keep: true,
+        flags,
         vars: {
             model: modelSection(opts.model, opts.modelOptions),
             modelRef: opts.model,
@@ -356,6 +395,14 @@ export function scaffold(opts: ScaffoldOptions): Scaffolded {
             version: ownVersion(),
         },
     });
+    for (const [flag, skill] of Object.entries(TOOL_SKILLS)) {
+        if (flags[flag as keyof typeof flags]) {
+            const rel = join('agents', 'skills', skill);
+            files.push(
+                ...copyTree(join(TEMPLATES, 'skills', skill), opts.dir, rel, { keep: true }),
+            );
+        }
+    }
 
     // The directories with no file to put in them: a skill is a folder someone
     // adds, sessions is written into on the first run, and `.tmp` is scratch —

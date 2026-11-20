@@ -68,6 +68,7 @@ import {
     type CatalogEntry,
 } from '../src/catalog.ts';
 import { COMMANDS, EXTERNAL, type External } from '../src/commands/index.ts';
+import { explicitModel } from '../src/commands/init.ts';
 import { cliManifest, versionOf } from '../src/commands/version.ts';
 import { editorFiles } from '../src/editor.ts';
 import { hasExternal, loadExternal } from '../src/external.ts';
@@ -85,7 +86,7 @@ import {
 } from '../src/podman.ts';
 import { parseRequest, readRequest } from '../src/request.ts';
 import { chooseWorkspace } from '../src/resolve.ts';
-import { scaffold } from '../src/scaffold.ts';
+import { copyTree, scaffold } from '../src/scaffold.ts';
 import * as term from '../src/term.ts';
 import { bytes, CliError, cut, EXIT, keysIn, pad, table } from '../src/term.ts';
 import {
@@ -2181,6 +2182,97 @@ describe('the scaffold', () => {
         // A granted tool no prompt mentions is a tool nothing uses.
         expect(readFileSync(join(wet, 'agents.yaml'), 'utf8')).toContain('exa:*');
         expect(readFileSync(join(wet, 'agents', 'prompts', 'default.md'), 'utf8')).toMatch(/web/i);
+    });
+
+    /**
+     * The skills, the grant, the specification and the prompt follow the
+     * tools: a guide to tools the agent was not given is one it can only
+     * misuse, and a granted tool nothing mentions is one nothing uses.
+     */
+    it('gives the mcp tools, and their skill, only when asked to', async () => {
+        const plain = join(root, 'no-mcp');
+        mkdirSync(plain, { recursive: true });
+        scaffold({ dir: plain, model: 'gpt-4o' });
+        const connected = join(root, 'mcp');
+        mkdirSync(connected, { recursive: true });
+        scaffold({ dir: connected, model: 'gpt-4o', mcp: true, web: true });
+
+        const read = (dir: string, rel: string) => readFileSync(join(dir, rel), 'utf8');
+        const skills = (dir: string) => readdirSync(join(dir, 'agents', 'skills')).sort();
+        expect(skills(plain)).toEqual(['a2ui', 'a2ui-charts', 'data-analysis']);
+        expect(skills(connected)).toEqual([
+            'a2ui',
+            'a2ui-charts',
+            'data-analysis',
+            'mcp',
+            'web-research',
+        ]);
+
+        for (const rel of ['agents.yaml', 'SPECIFICATION.md', 'agents/prompts/default.md']) {
+            expect(read(plain, rel)).not.toContain('{{');
+            expect(read(connected, rel)).not.toContain('{{');
+            expect(read(plain, rel)).not.toMatch(/mcp/i);
+        }
+        expect(read(connected, 'agents.yaml')).toMatch(/^ {10}- mcp:\*$/m);
+        expect(read(connected, 'SPECIFICATION.md')).toContain('External services (MCP)');
+        const prompt = read(connected, 'agents/prompts/default.md');
+        expect(prompt).toContain('`mcp_*` tools');
+        expect(prompt).toContain('- `mcp` —');
+        expect(prompt).toContain('- `web-research` —');
+
+        // Every skill listed is one the catalog has, and none is left out.
+        const report = await validateProject({ dir: plain, sandbox: { enabled: false } });
+        expect(report.findings.filter((f) => f.severity === 'error')).toEqual([]);
+        expect(report.skills.entries.map((s) => s.name).sort()).toEqual(skills(plain));
+        for (const name of skills(plain)) {
+            expect(read(plain, 'agents/prompts/default.md')).toContain(`- \`${name}\` —`);
+        }
+    });
+
+    it('keeps one branch of an {{#if}} block, and refuses a flag nothing supplies', () => {
+        const from = join(root, 'if-template');
+        mkdirSync(from, { recursive: true });
+        writeFileSync(
+            join(from, 'a.md.tmpl'),
+            'one\n  {{#if on}}\n  yes\n  {{else}}\n  no\n  {{/if}}\ntwo\n',
+        );
+        const read = (flags: Record<string, boolean>) => {
+            const dir = join(root, `if-${Object.values(flags).join('-')}`);
+            copyTree(from, dir, '', { flags });
+            return readFileSync(join(dir, 'a.md'), 'utf8');
+        };
+        expect(read({ on: true })).toBe('one\n  yes\ntwo\n');
+        expect(read({ on: false })).toBe('one\n  no\ntwo\n');
+        expect(() => read({})).toThrow('{{#if on}}');
+    });
+
+    /** The default agent is a finished assistant, not a placeholder pointing at the tooling. */
+    it('writes a default prompt that is ready to use', () => {
+        const dir = join(root, 'ready');
+        mkdirSync(dir, { recursive: true });
+        scaffold({ dir, model: 'gpt-4o' });
+
+        const prompt = readFileSync(join(dir, 'agents', 'prompts', 'default.md'), 'utf8');
+        expect(prompt).toContain('You are a helpful, capable assistant.');
+        expect(prompt).not.toMatch(/zen meta|not configured|<!--/);
+        expect(readFileSync(join(dir, 'agents', 'instructions.md'), 'utf8')).not.toMatch(
+            /configuration required/i,
+        );
+    });
+
+    /** A reasoning model named outright still shows its reasoning; others are taken as written. */
+    it('configures an explicit OpenAI reasoning model like the default one', () => {
+        expect(explicitModel('openai/gpt-5-mini').options).toContain('api: responses');
+        expect(explicitModel('openai:o4-mini').options).toContain('reasoningSummary: auto');
+        expect(explicitModel('openai/gpt-4o').options).toBeUndefined();
+        expect(explicitModel('vertex/claude-sonnet-5').options).toBeUndefined();
+
+        const dir = join(root, 'explicit');
+        mkdirSync(dir, { recursive: true });
+        const choice = explicitModel('openai/gpt-5-mini');
+        scaffold({ dir, model: choice.ref, modelOptions: choice.options });
+        expect(() => readProjectConfig(dir)).not.toThrow();
+        expect(readFileSync(join(dir, 'agents.yaml'), 'utf8')).toContain('api: responses');
     });
 
     /**

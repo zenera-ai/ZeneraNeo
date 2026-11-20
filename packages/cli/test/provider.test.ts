@@ -117,3 +117,38 @@ describe('zen check with a plugin that provides the sandbox', () => {
         expect(found?.message).toContain('npm ERR! 404');
     });
 });
+
+/** A plugin module providing the `mcp` group, the way Zenera Lite's does. */
+function mcpPlugin(): string {
+    const path = join(root, `mcp-${n++}.mjs`);
+    const tool = (name: string) =>
+        `{ name: '${name}', group: 'mcp', description: '${name}', parameters: { type: 'object', properties: {} }, execute: () => ({}) }`;
+    writeFileSync(
+        path,
+        `export default { name: 'mcp', tools: () => [${['mcp_servers', 'mcp_tools', 'mcp_describe', 'mcp_call'].map(tool).join(', ')}] };\n`,
+    );
+    return path;
+}
+
+describe('zen init on a machine whose plugins provide the mcp tools', () => {
+    it('finds them, and the project it then scaffolds loads with them', async () => {
+        vi.stubEnv('ZEN_PLUGINS', mcpPlugin());
+        const { hasMcp } = await import('../src/commands/init.ts');
+        const { scaffold } = await import('../src/scaffold.ts');
+        const { validateProject } = await import('../src/validate.ts');
+        const dir = join(root, `p${n++}`);
+        mkdirSync(dir, { recursive: true });
+
+        expect(await hasMcp({ dir, name: 'p' })).toBe(true);
+        scaffold({ dir, model: 'gpt-4o', mcp: true });
+        const report = await validateProject({ dir, sandbox: { enabled: false } });
+        expect(report.findings.filter((f) => f.severity === 'error')).toEqual([]);
+        expect(report.agents[0]?.instructions).toContain('agents/mcp-instructions.md');
+    });
+
+    it('finds nothing without them', async () => {
+        vi.stubEnv('ZEN_PLUGINS', plugin());
+        const { hasMcp } = await import('../src/commands/init.ts');
+        expect(await hasMcp({ dir: root, name: 'p' })).toBe(false);
+    });
+});

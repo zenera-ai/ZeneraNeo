@@ -50,17 +50,7 @@ describe('the copies a scaffold leaves behind', () => {
     function project(prefix: string, mcp: boolean): string {
         const dir = mkdtempSync(join(tmpdir(), prefix));
         dirs.push(dir);
-        scaffold({ dir, model: 'openai:gpt-5', embedding: 'openai:text-embedding-3-small' });
-        if (mcp) {
-            const config = join(dir, 'agents.yaml');
-            writeFileSync(
-                config,
-                readFileSync(config, 'utf8').replace(
-                    '- sandbox:*',
-                    '- sandbox:*\n          - mcp:*',
-                ),
-            );
-        }
+        scaffold({ dir, model: 'openai:gpt-5', embedding: 'openai:text-embedding-3-small', mcp });
         return dir;
     }
 
