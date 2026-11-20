@@ -1,10 +1,13 @@
 import { cacheItems, Cache as Store } from '@zenera/cli/lib';
 import type { Model } from '@zenera/neo';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { HANDLERS } from '../src/box.ts';
 import { GYM_KIND } from '../src/cache.ts';
 import { build, BuildFailed, reason, unfence, type BuildOptions } from '../src/generate.ts';
+import type { HandlerRequest } from '../src/runtime.ts';
+import type { Operation } from '../src/spec.ts';
 import {
     call,
     GET_USER,
@@ -30,6 +33,22 @@ const options = (r: Rig, model: Model, attempts = 3): BuildOptions => ({
     operations: r.operations,
     sourceOf: (o) => r.cache.getSource(o.key),
     attempts,
+});
+
+/** A getUserById that passes the judge and says which version it is by its email. */
+const answering = (email: string): string =>
+    `export default (req: any) => ({ user_id: Number(req.pathParams.user_id), email: '${email}' });`;
+
+/** A live request for one user, as the server would send it. */
+const asking = (operation: Operation, userId: string): HandlerRequest => ({
+    operationId: operation.operationId,
+    method: operation.method,
+    path: operation.path,
+    pathParams: { user_id: userId },
+    query: {},
+    headers: {},
+    body: undefined,
+    seed: 1,
 });
 
 describe('the handler agent', () => {
@@ -162,6 +181,41 @@ export default async function handle(req: any, ctx: any) {
         await expect(build(op(r, 'listMachines'), options(r, model))).resolves.toMatchObject({
             attempts: 1,
         });
+    });
+
+    // Candidates are judged away from the live key, so the pass has to be put there.
+    it('puts the handler the judge passed where live requests run it', async () => {
+        const model = scripted({
+            builder: writes(GET_USER_CONSTANT, answering('passed@northwind.io')),
+        });
+        r = await rig('petstore.yaml', model);
+        const operation = op(r, 'getUserById');
+        await r.box.write(operation.key, answering('old@northwind.io'));
+        const write = vi.spyOn(r.box, 'write');
+        await build(operation, options(r, model));
+        expect(await r.box.run(operation.key, asking(operation, '7'))).toMatchObject({
+            ok: true,
+            value: { user_id: 7, email: 'passed@northwind.io' },
+        });
+        // The live file changes once, to the pass, and never to a candidate on the way.
+        const live = write.mock.calls.filter(([key]) => key === operation.key);
+        expect(live).toEqual([[operation.key, answering('passed@northwind.io')]]);
+    });
+
+    it('leaves nothing of a candidate behind, whether it passed or not', async () => {
+        const failing = scripted({ builder: writes(GET_USER_CONSTANT, GET_USER_CONSTANT) });
+        r = await rig('petstore.yaml', failing);
+        const operation = op(r, 'getUserById');
+        const handlers = join(r.root, HANDLERS);
+        await expect(build(operation, options(r, failing, 2))).rejects.toBeInstanceOf(BuildFailed);
+        expect(readdirSync(handlers)).toEqual(['package.json']);
+
+        const passing = scripted({
+            builder: writes(GET_USER_CONSTANT, answering('passed@northwind.io')),
+        });
+        await build(operation, options(r, passing));
+        expect(readdirSync(handlers).sort()).toEqual([operation.key, 'package.json'].sort());
+        expect(readdirSync(join(r.root, 'scratch'))).toEqual([]);
     });
 });
 
@@ -475,6 +529,65 @@ describe('the cache', () => {
         r = await rig('petstore.yaml', model, { concurrency: 2, attempts: 1 });
         await Promise.allSettled(r.operations.map((o) => r!.cache.ensure(o)));
         expect(peak).toBeLessThanOrEqual(2);
+    });
+
+    it('runs the repaired handler once a repair passes', async () => {
+        const model = scripted({ builder: writes(answering('new@northwind.io')) });
+        r = await rig('petstore.yaml', model);
+        const operation = op(r, 'getUserById');
+        const OLD = answering('old@northwind.io');
+        await r.box.write(operation.key, OLD);
+        const repaired = await r.cache.regenerate(operation, {
+            currentSource: OLD,
+            failingInput: asking(operation, '5'),
+            fault: 'threw',
+        });
+        expect(await r.box.run(operation.key, asking(operation, '7'))).toMatchObject({
+            value: { user_id: 7, email: 'new@northwind.io' },
+        });
+        expect(await r.cache.getSource(operation.key)).toBe(repaired.source);
+    });
+
+    // Two repairs of one handler overlap. The one that fails last must not put
+    // the file it started from back over the one the other repair just kept.
+    it('keeps running the repaired handler when an overlapping repair fails after it', async () => {
+        let winnerKept!: () => void;
+        const kept = new Promise<void>((settle) => {
+            winnerKept = settle;
+        });
+        const model = scripted({
+            builder: async (turn) => {
+                if (!turn.brief.includes('FAULT: the losing repair')) {
+                    return writes(answering('new@northwind.io'))(turn);
+                }
+                if (turn.results.length > 0) {
+                    return say('done');
+                }
+                await kept;
+                return call('test_handler', { source: GET_USER_CONSTANT });
+            },
+        });
+        r = await rig('petstore.yaml', model, { attempts: 1 });
+        const operation = op(r, 'getUserById');
+        const OLD = answering('old@northwind.io');
+        await r.box.write(operation.key, OLD);
+        const repair = (fault: string) => ({
+            currentSource: OLD,
+            failingInput: asking(operation, '5'),
+            fault,
+        });
+
+        const losing = r.cache
+            .regenerate(operation, repair('the losing repair'))
+            .catch((err: unknown) => err);
+        const winning = await r.cache.regenerate(operation, repair('the winning repair'));
+        winnerKept();
+        expect(await losing).toBeInstanceOf(BuildFailed);
+
+        expect(await r.cache.getSource(operation.key)).toBe(winning.source);
+        expect(await r.box.run(operation.key, asking(operation, '7'))).toMatchObject({
+            value: { user_id: 7, email: 'new@northwind.io' },
+        });
     });
 });
 
