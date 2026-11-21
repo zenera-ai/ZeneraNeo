@@ -236,6 +236,42 @@ const TYPES: Record<string, string> = {
 const INLINE =
     /^(image\/(?!svg)|audio\/|video\/|text\/(plain|csv|tab-separated-values|markdown|yaml)$|application\/(pdf|json|geo\+json|x-ndjson)$)/;
 
+/**
+ * Where a page served for viewing may load scripts, styles and fonts from besides itself: the
+ * public npm CDNs charting libraries are published on.
+ */
+export const VIEW_CDNS: readonly string[] = [
+    'https://cdn.jsdelivr.net',
+    'https://unpkg.com',
+    'https://cdnjs.cloudflare.com',
+];
+
+/**
+ * The policy of a file served for viewing (`/v/<token>/...`): a page an agent wrote runs its
+ * scripts in an opaque origin of its own (`sandbox allow-scripts`: no cookies, storage or token
+ * of the chat's, no forms, no top navigation), reads the session's files it names by relative
+ * path (`'self'`), loads libraries from VIEW_CDNS and talks to nothing else. `frameAncestors`:
+ * who may show it in a frame (`'self'` when the chat is served from the same origin).
+ */
+export function viewCsp(frameAncestors: readonly string[] = ["'self'"]): string {
+    const cdns = VIEW_CDNS.join(' ');
+    return [
+        'sandbox allow-scripts allow-popups',
+        "default-src 'self'",
+        `script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: ${cdns}`,
+        `style-src 'self' 'unsafe-inline' ${cdns}`,
+        "img-src 'self' data: blob:",
+        `font-src 'self' data: ${cdns}`,
+        "media-src 'self' data: blob:",
+        "connect-src 'self'",
+        "worker-src 'self' blob:",
+        "object-src 'none'",
+        "form-action 'none'",
+        "base-uri 'self'",
+        `frame-ancestors ${frameAncestors.length ? frameAncestors.join(' ') : "'none'"}`,
+    ].join('; ');
+}
+
 /** The type a file is sent as, by its name. */
 export function contentTypeOf(name: string): string {
     const type = TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream';
@@ -311,6 +347,12 @@ function rangeOf(
 export interface SendFileOptions {
     /** default: workspace files revalidated every time, assets kept for 5 minutes */
     cacheControl?: string;
+    /**
+     * Served for viewing, as a page and the files it loads (`/v/<token>/...`): everything
+     * inline, under viewCsp, readable by the page's opaque origin (CORS `*`; no credentials
+     * ride along, the URL is the credential).
+     */
+    view?: { frameAncestors?: readonly string[] };
 }
 
 /**
@@ -318,7 +360,8 @@ export interface SendFileOptions {
  * one byte range when asked (206, or 416), HEAD without a body. What the agent wrote may be
  * steered by whatever it read, so nothing is let run as the page that shows it: `nosniff`,
  * a sandboxing CSP, and anything not plainly viewable (html, svg, scripts) sent as a download.
- * An `<img>` still shows an svg. Resolves when the response has ended.
+ * An `<img>` still shows an svg. In `view` mode a page does run, but only under viewCsp.
+ * Resolves when the response has ended.
  */
 export async function sendAgentFile(
     req: IncomingMessage,
@@ -343,7 +386,7 @@ export async function sendAgentFile(
         const current: AgentFile = { ...file, size: info.size, mtimeMs: info.mtimeMs };
         const etag = etagOf(current);
         const type = contentTypeOf(file.path);
-        const inline = INLINE.test(type);
+        const inline = opts.view !== undefined || INLINE.test(type);
         res.setHeader(
             'Cache-Control',
             opts.cacheControl ??
@@ -356,7 +399,13 @@ export async function sendAgentFile(
         // Chrome refuses to show a pdf under a sandboxing CSP; a pdf is shown by the browser's
         // own viewer, not as the page.
         if (type !== 'application/pdf') {
-            res.setHeader('Content-Security-Policy', 'sandbox');
+            res.setHeader(
+                'Content-Security-Policy',
+                opts.view ? viewCsp(opts.view.frameAncestors) : 'sandbox',
+            );
+        }
+        if (opts.view) {
+            res.setHeader('Access-Control-Allow-Origin', '*');
         }
         if (notModified(req, etag, current.mtimeMs)) {
             res.statusCode = 304;

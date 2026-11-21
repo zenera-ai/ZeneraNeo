@@ -11,6 +11,8 @@
 //   GET  /api/sessions                    - the caller's sessions, newest activity first
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
 //   GET  /api/sessions/:tid/files?path=   - a file the chat names, from its workspace or /assets
+//   GET  /v/<token>/<path>                - insecure mode only: a page the chat names and the
+//                                           files it loads, the token its credential (views.ts)
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   /api/admin/{users,users/:sub/release,drain,undrain} - the host's view of this server's users
 // Every /api/sessions request first has the caller's data loaded (userState.ts): a store plugin
@@ -42,6 +44,7 @@ import { privateStore } from './store.ts';
 import { sessionsRouter } from './sessions.ts';
 import { traceRouter } from './trace.ts';
 import { loadCaller, loadThread, userStateRouter, userStates } from './userState.ts';
+import { viewsRouter } from './views.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
     Pick<ServerSettings, 'projectId' | 'auth' | 'root'> & {
@@ -87,6 +90,10 @@ export function createServer(opts: ServerOptions): AgentServer {
                 if (err) next(err);
             });
         });
+    }
+    if (settings.auth.mode === 'insecure') {
+        // The token in the path is the caller (views.ts); in jwt mode the host serves /v/.
+        app.use(viewsRouter(privateStore));
     }
     app.use(requireCaller());
     app.use(express.json({ limit: '1mb' }));

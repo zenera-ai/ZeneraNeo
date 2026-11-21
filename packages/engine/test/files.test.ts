@@ -123,9 +123,13 @@ describe('sendAgentFile', () => {
     let url: string;
     beforeAll(async () => {
         server = createServer((req, res) => {
-            const path = new URL(req.url!, 'http://x').searchParams.get('path')!;
+            const query = new URL(req.url!, 'http://x').searchParams;
+            const path = query.get('path')!;
+            const view = query.has('view')
+                ? { frameAncestors: ['https://chat.example'] }
+                : undefined;
             try {
-                void sendAgentFile(req, res, resolveAgentFile(path, trees));
+                void sendAgentFile(req, res, resolveAgentFile(path, trees), { view });
             } catch (err) {
                 res.statusCode = agentFileStatus((err as AgentFileError).code);
                 res.end();
@@ -159,7 +163,22 @@ describe('sendAgentFile', () => {
             const res = await get(path);
             expect(res.headers.get('content-disposition')).toMatch(/^attachment;/);
             expect(res.headers.get('content-security-policy')).toBe('sandbox');
+            expect(res.headers.get('access-control-allow-origin')).toBeNull();
         }
+    });
+
+    it('serves a page for viewing in an opaque origin that reads only its own files', async () => {
+        const res = await fetch(`${url}${encodeURIComponent('/workspace/page.html')}&view`);
+        expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+        expect(res.headers.get('content-disposition')).toMatch(/^inline;/);
+        expect(res.headers.get('access-control-allow-origin')).toBe('*');
+        const csp = res.headers.get('content-security-policy')!.split('; ');
+        expect(csp[0]).toBe('sandbox allow-scripts allow-popups');
+        expect(csp).toContain("connect-src 'self'");
+        expect(csp).toContain("form-action 'none'");
+        expect(csp).toContain('frame-ancestors https://chat.example');
+        expect(csp.find((d) => d.startsWith('script-src'))).toContain('https://cdn.jsdelivr.net');
+        expect(csp.find((d) => d.startsWith('img-src'))).not.toContain('https:');
     });
 
     it('answers 304 to a client that has the file', async () => {

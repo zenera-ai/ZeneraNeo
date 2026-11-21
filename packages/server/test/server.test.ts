@@ -653,6 +653,82 @@ describe('files a chat names', () => {
         const secure = `${running!.url}/api/sessions/${thread}/files${query(ANN)}`;
         expect((await fetch(secure)).status).toBe(401);
     });
+
+    it('opens a page at a token URL its relative links resolve under, in insecure mode', async () => {
+        const { url, serverRoot } = await start({ auth: { mode: 'insecure' } });
+        const thread = randomUUID();
+        await turn(url, thread);
+        const workspace = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace');
+        mkdirSync(join(workspace, 'charts'), { recursive: true });
+        mkdirSync(join(workspace, 'data'), { recursive: true });
+        mkdirSync(join(workspace, '.data'), { recursive: true });
+        writeFileSync(join(workspace, 'charts', 'dash board.html'), '<script src="d.js"></script>');
+        writeFileSync(join(workspace, 'data', 'p.json'), '{"p":1}');
+        writeFileSync(join(workspace, '.data', 'state.json'), '{}');
+        const link = `${url}/api/sessions/${thread}/files?path=${encodeURIComponent(
+            'file:///workspace/charts/dash%20board.html',
+        )}&user=${ANN}`;
+
+        const moved = await fetch(link, { redirect: 'manual' });
+        expect(moved.status).toBe(303);
+        expect(moved.headers.get('cache-control')).toBe('no-store');
+        const location = moved.headers.get('location')!;
+        expect(location).toMatch(/^\/v\/[\w-]+\.[\w-]+\/workspace\/charts\/dash%20board\.html$/);
+        const page = new URL(location, url);
+
+        const res = await fetch(page);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+        expect(res.headers.get('content-disposition')).toMatch(/^inline;/);
+        expect(res.headers.get('content-security-policy')).toMatch(
+            /^sandbox allow-scripts allow-popups;.*frame-ancestors 'self'$/,
+        );
+        // What the page names by relative path, as its sandboxed origin asks for it.
+        const data = await fetch(new URL('../data/p.json', page), { headers: { origin: 'null' } });
+        expect(await data.json()).toEqual({ p: 1 });
+        expect(data.headers.get('access-control-allow-origin')).toBe('*');
+        expect((await fetch(new URL('../.data/state.json', page))).status).toBe(403);
+        expect((await fetch(new URL('d.js', page))).status).toBe(404);
+        const token = location.split('/')[2];
+        expect((await fetch(`${url}/v/${token}/etc/passwd`)).status).toBe(403);
+        expect((await fetch(`${url}/v/${token}/workspace/%2E%2E/%2E%2E/etc/passwd`)).status).toBe(
+            403,
+        );
+        expect((await fetch(`${url}/v/x${token}/workspace/data/p.json`)).status).toBe(403);
+        // Bob cannot reach Ann's thread through a token for his own.
+        const bob = await fetch(link.replace(`user=${ANN}`, `user=${BOB}`), { redirect: 'manual' });
+        expect(bob.status).toBe(404);
+
+        // With a host in front (jwt), it mints /v/ itself: here a page stays a download unless the
+        // host asks for it to be viewed, and /v/ is no route at all.
+        await start();
+        expect((await fetch(new URL(location, running!.url))).status).toBe(401);
+    });
+
+    it('sends a file for viewing when a host asks with view=1', async () => {
+        const { url, serverRoot } = await start();
+        const thread = randomUUID();
+        await turn(url, thread);
+        const workspace = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace');
+        writeFileSync(join(workspace, 'p.html'), '<p>hi</p>');
+        const file = (q: string) =>
+            call(`${url}/api/sessions/${thread}/files?path=%2Fworkspace%2Fp.html${q}`, {
+                redirect: 'manual',
+            });
+
+        const plain = await file('');
+        expect(plain.status).toBe(200);
+        expect(plain.headers.get('content-disposition')).toMatch(/^attachment;/);
+        const view = await file('&view=1');
+        expect(view.status).toBe(200);
+        expect(view.headers.get('content-disposition')).toMatch(/^inline;/);
+        expect(view.headers.get('content-security-policy')).toMatch(/^sandbox allow-scripts/);
+        expect(view.headers.get('access-control-allow-origin')).toBe('*');
+        // Still the signed caller's own thread only.
+        expect((await fetch(`${url}/api/sessions/${thread}/files?path=p.html&view=1`)).status).toBe(
+            401,
+        );
+    });
 });
 
 describe('jwt', () => {

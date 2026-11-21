@@ -205,19 +205,20 @@ volume for `/state`.
 
 Session routes operate only on the JWT subject's own sessions.
 
-| Route                                          | Use                                            |
-| ---------------------------------------------- | ---------------------------------------------- |
-| `GET /healthz`                                 | Public health probe.                           |
-| `GET /chat`                                    | Public test page, insecure mode only.          |
-| `GET /api/status` / `GET /api/activity`        | Runtime status / active runs.                  |
-| `GET /api/sessions` / `GET /api/sessions/:tid` | List sessions / load history.                  |
-| `POST /api/sessions/:tid/runs`                 | Start a turn, streaming AG-UI events over SSE. |
-| `GET /api/sessions/:tid/runs/:runId/events`    | Follow or replay a run.                        |
-| `POST /api/sessions/:tid/runs/:runId/cancel`   | Cancel a run.                                  |
-| `DELETE /api/sessions/:tid`                    | Delete a session and its files.                |
-| `POST /api/sessions/:tid/uploads?name=&type=`  | Stage one file for the next message.           |
-| `DELETE /api/sessions/:tid/uploads/:id`        | Take a staged file off before sending.         |
-| `GET /api/sessions/:tid/files?path=`           | A file the chat names, for links and images.   |
+| Route                                          | Use                                             |
+| ---------------------------------------------- | ----------------------------------------------- |
+| `GET /healthz`                                 | Public health probe.                            |
+| `GET /chat`                                    | Public test page, insecure mode only.           |
+| `GET /api/status` / `GET /api/activity`        | Runtime status / active runs.                   |
+| `GET /api/sessions` / `GET /api/sessions/:tid` | List sessions / load history.                   |
+| `POST /api/sessions/:tid/runs`                 | Start a turn, streaming AG-UI events over SSE.  |
+| `GET /api/sessions/:tid/runs/:runId/events`    | Follow or replay a run.                         |
+| `POST /api/sessions/:tid/runs/:runId/cancel`   | Cancel a run.                                   |
+| `DELETE /api/sessions/:tid`                    | Delete a session and its files.                 |
+| `POST /api/sessions/:tid/uploads?name=&type=`  | Stage one file for the next message.            |
+| `DELETE /api/sessions/:tid/uploads/:id`        | Take a staged file off before sending.          |
+| `GET /api/sessions/:tid/files?path=`           | A file the chat names, for links and images.    |
+| `GET /v/<token>/<path>`                        | `insecure` only: a page and the files it loads. |
 
 Runs continue after a client disconnects and can be followed again. Defaults:
 4 concurrent runs total, 2 per user (`ZEN_RUNTIME_MAX_RUNS`,
@@ -262,6 +263,42 @@ so every answer is `nosniff` with `Content-Security-Policy: sandbox` (except a p
 and anything not plainly viewable (html, svg, scripts) is sent as an attachment;
 an `<img>` still shows an svg. The browser cannot sign the request: a host such as
 zenera-app checks the thread is the user's and forwards it.
+
+### Pages a chat names
+
+An html page an agent wrote (a dashboard, a report) loads other files of its
+session by relative path: `<script src="data.js">`, `<img src="../img/a.png">`,
+`fetch('../data/prices.json')`. The browser cannot sign what such a page asks for,
+so the page and its files are served under a credential in the path:
+`/v/<token>/workspace/charts/dash.html`, where `../data/prices.json` resolves to
+`/v/<token>/workspace/data/prices.json`. The token names the user and the thread,
+HMAC-signed with a key in the server's root (`view.key`), and expires after an
+hour; opening the link from the chat again mints a new one. It reaches what the
+chat's file links reach and nothing more.
+
+- `insecure` mode (`zen server start --insecure` and its `/chat` page): asking
+  `files?path=` for an `.html` file answers `303` to `/v/<token>/...`, which the
+  server serves itself. The chat's links open the page in a new tab, or in a
+  frame on the chat page.
+- `jwt` mode: there is no `/v/` here. The host mints its own tokens, serves `/v/`,
+  and asks for each file with a signed `GET .../files?path=<file>&view=1`. A page
+  asked for without `view=1` is still a download.
+
+A file served for viewing is inline, with `Access-Control-Allow-Origin: *` (the
+URL is the credential; no cookie or token rides along), under:
+
+```
+sandbox allow-scripts allow-popups; default-src 'self';
+script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: <CDNs>; style-src 'self' 'unsafe-inline' <CDNs>;
+img-src 'self' data: blob:; font-src 'self' data: <CDNs>; connect-src 'self'; form-action 'none';
+frame-ancestors 'self'
+```
+
+where the CDNs are `cdn.jsdelivr.net`, `unpkg.com` and `cdnjs.cloudflare.com`. The
+page runs in an opaque origin of its own: it cannot read the chat's storage, token
+or cookies, submit forms, or navigate the window it is framed in, and it can fetch
+only its session's files. It can still navigate itself elsewhere, so a page can
+carry what it read out of the session, as freely as the agent that wrote it could.
 
 For deployment and sandbox details, see [agent-image architecture](../../docs/agent-image.md).
 To rebuild the bundled test page, run `npm run build:chat` from ZeneraLite's root;
