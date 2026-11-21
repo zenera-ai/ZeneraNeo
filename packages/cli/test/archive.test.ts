@@ -231,6 +231,11 @@ describe('where an entry may be written', () => {
         ['other/a.txt', 'a different root'],
         ['proj', 'the root and nothing else'],
         ['proj//a.txt', 'an empty segment'],
+        ['proj/a\u0000b.txt', 'a NUL byte'],
+        ['proj/a\nb.txt', 'a newline'],
+        ['proj/a\u001bb.txt', 'a terminal escape'],
+        [`proj/${'a'.repeat(4096)}`, 'a name over the length bound'],
+        [`proj/${'a/'.repeat(64)}x`, 'a path over the depth bound'],
         ['', 'nothing at all'],
     ])('refuses %s (%s)', (name) => {
         expect(safePath(name, 'proj', into)).toBeUndefined();
@@ -243,9 +248,12 @@ describe('a name from an archive', () => {
         expect(safeName('My Project.v2')).toBe('My Project.v2');
     });
 
-    it.each([['..'], ['.'], ['a/b'], ['a\\b'], ['-force'], ['']])('refuses %j', (value) => {
-        expect(safeName(value)).toBeUndefined();
-    });
+    it.each([['..'], ['.'], ['a/b'], ['a\\b'], ['-force'], ['a\nb'], ['a\u001bb'], ['']])(
+        'refuses %j',
+        (value) => {
+            expect(safeName(value)).toBeUndefined();
+        },
+    );
 });
 
 // ---------------------------------------------------------------------------

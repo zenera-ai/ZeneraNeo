@@ -30,6 +30,7 @@
         "test": "node --env-file=.env ./node_modules/vitest/vitest.mjs run",
         "test:watch": "node --env-file=.env ./node_modules/vitest/vitest.mjs",
         "test:coverage": "node --env-file=.env ./node_modules/vitest/vitest.mjs run --coverage",
+        "hostile:archives": "node scripts/hostile-archives.mjs",
         "typecheck": "npm run build && tsc -p tsconfig.json --noEmit",
         "typecheck:watch": "tsc -p tsconfig.json --noEmit --watch",
         "cli": "npm run build --silent && node packages/cli/dist/main.js",
