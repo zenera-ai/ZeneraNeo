@@ -43,7 +43,17 @@ export function parse<T>(args: readonly string[], options: Options, usage: strin
         });
         return { values: values as T, positionals };
     } catch (err) {
-        throw usageError((err as Error).message, usage);
+        const e = err as Error & { code?: string };
+        if (e.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+            // Node's message holds the bad flag between single quotes: '--jsn'
+            const flag = e.message.match(/'([^']*)'/)?.[1] ?? '';
+            const guess = closest(flag, options);
+            if (guess) {
+                throw usageError(`unknown option ${flag}, did you mean ${guess}?`, usage);
+            }
+            throw usageError(`unknown option ${flag}`, usage);
+        }
+        throw usageError(e.message, usage);
     }
 }
 
@@ -125,4 +135,42 @@ export function extract(after: readonly string[]): { rest: string[]; global: str
         rest.push(arg);
     }
     return { rest, global };
+}
+
+/** Levenshtein, one row at a time, giving up as soon as the lengths rule it out. */
+function distance(a: string, b: string): number {
+    if (Math.abs(a.length - b.length) > 2) {
+        return 3;
+    }
+    let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+        const next = [i];
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + cost);
+        }
+        row = next;
+    }
+    return row[b.length];
+}
+
+/** Flags every command accepts, because the frame owns them. */
+const EVERYWHERE = ['--json', '--help', '--directory'];
+
+/** The known flag nearest to what was typed, if it is close enough to be a slip. */
+function closest(typed: string, options: Options): string | undefined {
+    // Every flag this command knows, written the way a user types it.
+    const known = [...Object.keys(options).map((name) => `--${name}`), ...EVERYWHERE];
+
+    let best: string | undefined;
+    let bestDistance = 3; // anything 3 or more is too far to suggest
+    for (const flag of known) {
+        const d = distance(typed, flag); // measure how far `typed` is from `flag`
+        if (d < bestDistance) {
+            // is this one closer than the best so far?
+            bestDistance = d;
+            best = flag;
+        }
+    }
+    return best;
 }

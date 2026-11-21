@@ -49,7 +49,7 @@ import type { AddressInfo } from 'node:net';
 import { platform, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { extract, split } from '../src/args.ts';
+import { extract, parse, split } from '../src/args.ts';
 import { bannerLines, NEO_BANNER } from '../src/banner.ts';
 import { Cache, cacheKey } from '../src/cache.ts';
 import {
@@ -158,6 +158,49 @@ describe('splitting the command line', () => {
     it('leaves everything after -- alone', () => {
         const { rest } = extract(['--', '--json', '--help']);
         expect(rest).toEqual(['--json', '--help']);
+    });
+});
+
+describe('an unknown option', () => {
+    it('is named in zen’s own words, not node’s', () => {
+        // Act like a command that only knows --fix, and pass it a typo.
+        let err: unknown;
+        try {
+            parse(['--fxi'], { fix: { type: 'boolean' } }, 'zen check [--fix]');
+        } catch (e) {
+            err = e;
+        }
+
+        expect(err).toBeInstanceOf(CliError); // it's one of zen's errors
+        expect((err as CliError).code).toBe(EXIT.usage);
+        expect((err as CliError).message).toBe('unknown option --fxi, did you mean --fix?');
+        expect((err as CliError).hint).toBe('zen check [--fix]');
+    });
+
+    it('suggests nothing when no flag is close', () => {
+        let err: unknown;
+        try {
+            parse(['--colour'], { fix: { type: 'boolean' } }, 'zen check [--fix]');
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(CliError); // it's one of zen's errors
+        expect((err as CliError).code).toBe(EXIT.usage);
+        expect((err as CliError).message).toBe('unknown option --colour');
+    });
+
+    it('suggests a flag the frame owns, like --json', () => {
+        let err: unknown;
+        try {
+            parse(['--jsn'], {}, 'zen check [--json]');
+        } catch (e) {
+            err = e;
+        }
+
+        expect(err).toBeInstanceOf(CliError); // it's one of zen's errors
+        expect((err as CliError).code).toBe(EXIT.usage);
+        expect((err as CliError).message).toBe('unknown option --jsn, did you mean --json?');
+        expect((err as CliError).hint).toBe('zen check [--json]');
     });
 });
 
