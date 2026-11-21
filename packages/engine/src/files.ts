@@ -6,15 +6,29 @@ import { pipeline } from 'node:stream/promises';
 import { workspaceMount } from './uploads.ts';
 
 // ---------------------------------------------------------------------------
-// A session's files, for a person to look at
+// Chat file links: from the name an agent wrote to the bytes a browser gets
 //
-// The agent names its files the way its sandbox mounts them — `/workspace/x.png`,
-// `file:///workspace/a%20b.csv`, `/assets/logo.svg` — and a chat shows those
-// names as links and images. This turns such a name into the file on this
-// machine, under the same containment the file tools have, and sends it.
-// Only the session's workspace and the project's assets are reached: never the
-// skills, never a dot-folder (`.env`, `.data`, `.git`), never a symlink out.
-// Nothing here knows about users: the host has already decided whose session it is.
+// Part of @zenera/engine, for the "files a chat names" feature. An agent names its
+// files the way its sandbox sees them (`/workspace/x.png`, `file:///workspace/a%20b.csv`,
+// `/assets/logo.svg`) and a chat shows those names as links and images. This file
+// finds the real file on this machine, safely, and sends it over HTTP.
+//
+// Main functions:
+//   agentFilePath    - a link as written -> a clean agent path (`/workspace/a b.csv`)
+//   resolveAgentFile - that path -> the file on disk, contained like the file tools:
+//                      only the session's workspace and the project's assets; never
+//                      the skills, a dot-folder (.env, .data, .git) or a symlink out
+//   sendAgentFile    - streams it with its type, ETag, byte ranges and safety
+//                      headers. Anything that could run (html, svg, js) is a download;
+//                      in `view` mode (a page's view URL) it is shown inline instead,
+//                      sandboxed by viewCsp
+//   viewCsp          - the policy a page shown that way runs under
+//   fileTrees, contentTypeOf, AgentFileError, agentFileStatus - helpers
+//
+// Used by: @zenera/server files.ts and views.ts (zen server's file routes),
+// ZeneraLite's zenera-project chatFiles.ts (Test-tab and builder chats), and the
+// CLI's tui/links.ts (agentFilePath). Nothing here knows about users: the caller
+// has already decided whose session it is.
 // ---------------------------------------------------------------------------
 
 /** Where a session's readable trees are, and the names the agent knows them by. */

@@ -1,3 +1,7 @@
+// Tests for files.ts, the chat file links feature of @zenera/engine: how a link becomes an agent
+// path (agentFilePath), what it may reach on disk (resolveAgentFile: workspace and assets only, no
+// dot-folders, no symlinks out), and the headers a file is sent with (sendAgentFile), as a
+// download or, in view mode, as a sandboxed page.
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';

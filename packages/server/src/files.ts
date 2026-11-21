@@ -1,12 +1,20 @@
-// A chat's files, for the person to look at: the links and images an agent's answer names
-// (`file:///workspace/chart.png`, `/assets/logo.svg`), sent from the session's workspace or the
-// project's assets under the same containment the file tools have (@zenera/engine files.ts).
-//   filesRouter(store) - GET|HEAD /:tid/files?path=<the agent's path or file: url>[&view=1]
-// The caller is already the thread's owner (store.thread); a thread with no session yet has no
-// files, and asking does not make one. An html page is sent as a download, except: an `insecure`
-// server sends its own chat page on to /v/<token>/... (views.ts), where the page's relative
-// links resolve; `view=1` (a host serving /v/ itself) sends any file for viewing.
-//   projectTrees - a session's workspace and the server's project's assets
+// The file links in a chat, served by zen server (@zenera/server). An agent's answer names files
+// the way its sandbox sees them (`file:///workspace/chart.png`, `/assets/logo.svg`); the chat
+// turns each into GET /api/sessions/:tid/files?path=<that name> and shows the answer as an image
+// or a link. The caller is already checked to own the thread (store.thread); finding and sending
+// the file safely is @zenera/engine files.ts.
+//
+// What a request gets:
+//   - most files: the file (a download for anything that could run: html, svg, js)
+//   - an html page on an `insecure` server: a 303 to its view URL /v/<token>/... (views.ts), so
+//     the files the page loads by relative path are found too
+//   - `view=1` (a host such as zenera-app serving /v/ itself): the file shown inline, sandboxed
+//
+// Main functions:
+//   filesRouter  - the GET|HEAD /:tid/files route
+//   projectTrees - where a session's files may come from: its workspace and the project's assets
+//   asHttp       - an AgentFileError as the HttpError it means (404, 403, 400)
+// Used by: server.ts (mounted under /api/sessions); views.ts uses projectTrees and asHttp.
 import {
     AgentFileError,
     agentFileStatus,

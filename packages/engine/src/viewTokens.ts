@@ -3,16 +3,25 @@ import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { dirname } from 'node:path';
 
 // ---------------------------------------------------------------------------
-// View tokens: the credential in a page's URL
+// View tokens: the password inside a page's URL
 //
-// An html page an agent wrote is opened at `/v/<token>/workspace/charts/dash.html`, so the
-// files it names by relative path (`../data/prices.json`) resolve under the same token: the
-// browser cannot attach a JWT or a cookie to what a sandboxed page asks for, but it keeps the
-// path. The token is `<claims>.<HMAC-SHA256 of them>`, both base64url: whoever holds the key
-// mints and checks it; anyone may read it, nobody else can make or alter one.
-//   mintViewToken   - a token for these claims, valid for `ttlSeconds`
+// Part of @zenera/engine, for showing html pages an agent wrote (dashboards,
+// reports). Such a page is opened at `/v/<token>/workspace/charts/dash.html`, and the
+// files it loads by relative path (`../data/prices.json`) land under the same
+// `/v/<token>/`. A browser cannot attach a login to what a sandboxed page asks for,
+// but it keeps the path, so the token in it is what proves who may read the files.
+//
+// A token is `<claims>.<signature>`: the claims (user, chat thread, expiry) in
+// base64url, signed with HMAC-SHA256. Anyone may read it; only the holder of the
+// key can make one or change it.
+//
+// Main functions:
+//   mintViewToken   - a new token for a user's thread, valid for an hour by default
 //   verifyViewToken - the claims of a genuine, unexpired token, else null
-//   viewKey         - the key in a file, made (32 random bytes, 0600) the first time
+//   viewKey         - the secret key, kept in a file (made once, 32 random bytes, 0600)
+//
+// Used by: @zenera/server views.ts (zen server's /v/ route in insecure mode).
+// ZeneraLite's zenera-app signs its own view tokens with its identity key instead.
 // ---------------------------------------------------------------------------
 
 export interface ViewClaims {

@@ -1,3 +1,6 @@
+// Tests for viewTokens.ts, the signed tokens in an html page's view URL (@zenera/engine): a token
+// gives back its claims until it expires, an altered or foreign one is refused, and the key file
+// is made once and readable by its owner only.
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

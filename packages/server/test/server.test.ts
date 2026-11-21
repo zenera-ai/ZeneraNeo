@@ -3,7 +3,8 @@
  * start creates test servers; signed/call create per-request JWT requests, and
  * events/turn consume AG-UI runs against a scripted local model and fake sandbox.
  * The server suite checks authentication, private state, sessions, run lifecycle,
- * insecure HTTP chat serving, local-file CORS and optional live bwrap execution.
+ * insecure HTTP chat serving, local-file CORS, the chat's file links and html pages
+ * (files.ts, views.ts: /v/ token URLs, view=1) and optional live bwrap execution.
  */
 import { EventType, type AGUIEvent } from '@ag-ui/core';
 import {

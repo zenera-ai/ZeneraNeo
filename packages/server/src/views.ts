@@ -1,12 +1,21 @@
-// A page a chat names, and the files it loads by relative path, for an `insecure` server's own
-// chat page: GET /files?path=<x.html> answers 303 to /v/<token>/workspace/.../x.html, and the
-// page's `../data/prices.json` resolves to /v/<token>/workspace/data/prices.json. The browser
-// cannot sign what a sandboxed page asks for, so the token in the path is the credential
-// (@zenera/engine viewTokens.ts): the user and the thread, for an hour. It reaches what the chat's
-// own file links reach, the session's workspace and the project's assets, and nothing else.
-// In `jwt` mode the host mints and serves /v/ itself and asks for files with `?view=1`.
-//   viewUrl     - where a page of a thread is viewed
-//   viewsRouter - GET|HEAD /v/:token/*path, mounted before requireCaller
+// Html pages in a chat, with the files they load, served by zen server (@zenera/server) in
+// `insecure` mode: `zen server start --insecure` and its /chat page.
+//
+// An agent's page (a dashboard, a report) loads other files by relative path, e.g.
+// `<script src="data.js">` or `fetch('../data/prices.json')`. The browser cannot attach a login
+// to those requests, so the page is opened at a URL with a token in its path:
+//   /api/sessions/t1/files?path=/workspace/charts/dash.html  -> 303 (files.ts)
+//   /v/<token>/workspace/charts/dash.html                    -> the page
+//   /v/<token>/workspace/data/prices.json                    -> what it fetches
+// The token (@zenera/engine viewTokens.ts) names the user and the thread and lasts an hour; it
+// reaches what the chat's own file links reach and nothing more. Files go out in `view` mode:
+// inline, sandboxed, readable by the page (engine viewCsp).
+// In `jwt` mode there is no /v/ here: the host (ZeneraLite's zenera-app) serves it and asks for
+// each file with `files?path=...&view=1`.
+//
+// Main functions:
+//   viewUrl     - the /v/<token>/... URL of a page in a thread (used by files.ts)
+//   viewsRouter - GET|HEAD /v/:token/*path (mounted by server.ts before the JWT check)
 import {
     mintViewToken,
     resolveAgentFile,
