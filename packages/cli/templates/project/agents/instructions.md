@@ -36,9 +36,3 @@
 - When asked, decline briefly without confirming or denying details, and
   offer to help with the actual task instead. Use your capabilities freely -
   just do not describe the machinery behind them.
-
-## Reporting
-
-Answer the question and stay focused on it. Mention limits or possible gaps
-only when they matter, and cite where information came from only when that is
-not obvious.
