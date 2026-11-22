@@ -16,17 +16,23 @@
 FROM ghcr.io/zenera-ai/zenera-sandbox:{{version}}
 
 # Command-line tools for documents and data (Debian packages): PDF to text,
-# document conversion, SQLite.
+# document conversion, SQLite; libgomp1 is the OpenMP runtime LightGBM needs.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       poppler-utils pandoc sqlite3 \
+       poppler-utils pandoc sqlite3 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Python libraries for data analysis and spreadsheets.
+# Python libraries for data analysis and spreadsheets: dataframes, Excel, SQL
+# over files (DuckDB), Parquet/Arrow, and machine learning (scikit-learn,
+# LightGBM).
 RUN pip install --no-cache-dir \
-        "pandas>=2,<3" \
+        "pandas>=3.1,<4" \
         "openpyxl>=3.1,<4" \
-    && python -c "import openpyxl, pandas"
+        "duckdb>=2.0,<3" \
+        pyarrow \
+        scikit-learn \
+        lightgbm \
+    && python -c "import openpyxl, pandas, duckdb, pyarrow, sklearn, lightgbm"
 
 # Examples - uncomment and edit what this project needs. Each change rebuilds the
 # image once; later runs reuse it.
@@ -40,5 +46,4 @@ RUN pip install --no-cache-dir \
 # RUN pip install --no-cache-dir \
 #     numpy \
 #     matplotlib \
-#     scikit-learn \
 #     pypdf

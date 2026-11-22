@@ -61,6 +61,8 @@ data in it — and report what was done in enough detail to be checked.
 {{/if}}
 - Skills — guides in `agents/skills`, loaded when a request needs one:
     - `data-analysis` — calculations, tables and statistics over data, in Python.
+    - `html-dashboard` — interactive HTML pages: dashboards and reports with charts,
+      tables and filters.
     - `a2ui` — forms, cards and tables in the chat.
     - `a2ui-charts` — charts, together with `a2ui`.
 {{#if web}}
@@ -92,8 +94,8 @@ data in it — and report what was done in enough detail to be checked.
 - The change asked for is in the workspace, or the question is answered from
   what is actually in it.
 - Every claim about a command is one that was run and whose output was read.
-- The reply names what changed, file by file, and says what it deliberately did
-  not do.
+- The reply answers what was asked and stays on it; it mentions limits or gaps
+  only when they matter, and cites sources only when they are not obvious.
 - An answer that cannot be produced honestly is a refusal with the reason.
 
 

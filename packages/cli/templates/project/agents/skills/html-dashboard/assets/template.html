@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Dashboard</title>
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator_simple.min.css"
+        />
+        <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+        <style>
+            :root {
+                color-scheme: light dark;
+                --bg: #f7f7f8;
+                --card: #ffffff;
+                --fg: #1d1d1f;
+                --muted: #6e6e73;
+                --line: #e3e3e6;
+                --accent: #2563eb;
+                --up: #15803d;
+                --down: #b91c1c;
+                --gap: 16px;
+                --radius: 10px;
+                font:
+                    14px/1.45 system-ui,
+                    -apple-system,
+                    'Segoe UI',
+                    Roboto,
+                    sans-serif;
+            }
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg: #141416;
+                    --card: #1e1e21;
+                    --fg: #ececf0;
+                    --muted: #9a9aa2;
+                    --line: #2e2e33;
+                    --accent: #60a5fa;
+                    --up: #4ade80;
+                    --down: #f87171;
+                }
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--fg);
+            }
+            main {
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: var(--gap);
+                display: grid;
+                gap: var(--gap);
+            }
+            header h1 {
+                margin: 0;
+                font-size: 1.4rem;
+            }
+            header p {
+                margin: 4px 0 0;
+                color: var(--muted);
+            }
+            .card {
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: var(--radius);
+                padding: var(--gap);
+                min-width: 0;
+            }
+            .card h2 {
+                margin: 0 0 8px;
+                font-size: 1rem;
+            }
+
+            .filters {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px 16px;
+                align-items: end;
+            }
+            .filters label {
+                display: grid;
+                gap: 2px;
+                font-size: 0.85rem;
+                color: var(--muted);
+            }
+            .filters select,
+            .filters input {
+                font: inherit;
+                color: var(--fg);
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                padding: 4px 8px;
+                min-width: 9rem;
+            }
+
+            .kpis {
+                display: grid;
+                gap: var(--gap);
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+            .kpi .label {
+                color: var(--muted);
+                font-size: 0.85rem;
+            }
+            .kpi .value {
+                font-size: 1.6rem;
+                font-weight: 600;
+                font-variant-numeric: tabular-nums;
+            }
+            .kpi .delta.up {
+                color: var(--up);
+            }
+            .kpi .delta.down {
+                color: var(--down);
+            }
+
+            .grid {
+                display: grid;
+                gap: var(--gap);
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+            }
+            .wide {
+                grid-column: 1 / -1;
+            }
+            .chart {
+                width: 100%;
+                height: 320px;
+            }
+
+            .tabulator {
+                font-size: 0.9rem;
+                background: transparent;
+                border-color: var(--line);
+            }
+            .tabulator .tabulator-header,
+            .tabulator .tabulator-header .tabulator-col,
+            .tabulator .tabulator-tableholder,
+            .tabulator .tabulator-tableholder .tabulator-table,
+            .tabulator-row,
+            .tabulator .tabulator-footer {
+                background: var(--card);
+                color: var(--fg);
+                border-color: var(--line);
+            }
+            .tabulator-row.tabulator-row-even {
+                background: color-mix(in srgb, var(--card) 94%, var(--fg));
+            }
+            .tabulator-row.tabulator-selectable:hover {
+                background: color-mix(in srgb, var(--card) 85%, var(--accent));
+            }
+            .tabulator input,
+            .tabulator select {
+                color: var(--fg);
+                background: var(--bg);
+                border: 1px solid var(--line);
+            }
+
+            footer {
+                color: var(--muted);
+                font-size: 0.8rem;
+            }
+
+            @media (max-width: 520px) {
+                :root {
+                    --gap: 10px;
+                    font-size: 13px;
+                }
+                .chart {
+                    height: 260px;
+                }
+                .kpi .value {
+                    font-size: 1.3rem;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <h1 id="title">Dashboard</h1>
+                <p id="subtitle"></p>
+            </header>
+
+            <section class="card filters" id="filters"></section>
+            <section class="kpis" id="kpis"></section>
+
+            <section class="grid">
+                <div class="card">
+                    <h2>By category</h2>
+                    <div class="chart" id="chart-bar"></div>
+                </div>
+                <div class="card">
+                    <h2>Over time</h2>
+                    <div class="chart" id="chart-line"></div>
+                </div>
+                <div class="card wide">
+                    <h2>Rows</h2>
+                    <div id="table"></div>
+                </div>
+            </section>
+
+            <footer id="source"></footer>
+        </main>
+
+        <script>
+            // ---- Helpers: keep these, change the page below them. ----
+
+            const dark = matchMedia('(prefers-color-scheme: dark)');
+            const charts = [];
+
+            // Data inlined in <script type="application/json" id="data"> wins; otherwise data.json beside the page.
+            async function loadData(file = 'data.json') {
+                const inline = document.getElementById('data');
+                if (inline) return JSON.parse(inline.textContent);
+                const res = await fetch(file);
+                if (!res.ok) throw new Error(`${file}: ${res.status}`);
+                return res.json();
+            }
+
+            // An ECharts chart that follows its box's size and the light/dark scheme.
+            function chart(id, option = {}) {
+                const el = document.getElementById(id);
+                const base = {
+                    backgroundColor: 'transparent',
+                    tooltip: { trigger: 'axis', confine: true },
+                    grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
+                };
+                let c = echarts.init(el, dark.matches ? 'dark' : null);
+                const handlers = [];
+                const entry = { option: { ...base, ...option } };
+                entry.set = (opt) => {
+                    entry.option = { ...base, ...opt };
+                    c.setOption(entry.option, true);
+                };
+                entry.on = (event, fn) => {
+                    handlers.push([event, fn]);
+                    c.on(event, fn);
+                };
+                entry.retheme = () => {
+                    c.dispose();
+                    c = echarts.init(el, dark.matches ? 'dark' : null);
+                    c.setOption(entry.option);
+                    handlers.forEach(([e, fn]) => c.on(e, fn));
+                };
+                c.setOption(entry.option);
+                new ResizeObserver(() => c.resize()).observe(el);
+                charts.push(entry);
+                return entry;
+            }
+            dark.addEventListener('change', () => charts.forEach((c) => c.retheme()));
+
+            // A sortable, filterable table; collapses columns that do not fit a narrow panel.
+            // .set(rows) replaces the rows, waiting for the table to finish building if it has to.
+            function table(id, rows, columns) {
+                const t = new Tabulator('#' + id, {
+                    data: rows,
+                    columns,
+                    layout: 'fitDataStretch',
+                    responsiveLayout: 'collapse',
+                    pagination: true,
+                    paginationSize: 25,
+                    paginationCounter: 'rows',
+                    placeholder: 'No rows match the filters',
+                });
+                const built = new Promise((resolve) => t.on('tableBuilt', resolve));
+                return { tabulator: t, set: (next) => built.then(() => t.setData(next)) };
+            }
+
+            const fmt = {
+                num: (v, d = 0) =>
+                    v == null
+                        ? '–'
+                        : new Intl.NumberFormat(undefined, { maximumFractionDigits: d }).format(v),
+                money: (v, cur = 'USD') =>
+                    v == null
+                        ? '–'
+                        : new Intl.NumberFormat(undefined, {
+                              style: 'currency',
+                              currency: cur,
+                              maximumFractionDigits: 0,
+                          }).format(v),
+                pct: (v, d = 1) =>
+                    v == null
+                        ? '–'
+                        : new Intl.NumberFormat(undefined, {
+                              style: 'percent',
+                              maximumFractionDigits: d,
+                          }).format(v),
+            };
+            const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
+            // [{ label, value, delta? }] - value already formatted, delta a fraction (0.12 = +12%).
+            function kpis(items) {
+                document.getElementById('kpis').innerHTML = items
+                    .map(
+                        (k) => `
+    <div class="card kpi"><div class="label">${esc(k.label)}</div>
+      <div class="value">${esc(k.value)}</div>
+      ${k.delta == null ? '' : `<div class="delta ${k.delta >= 0 ? 'up' : 'down'}">${k.delta >= 0 ? '▲' : '▼'} ${fmt.pct(Math.abs(k.delta))}</div>`}
+    </div>`,
+                    )
+                    .join('');
+            }
+
+            // A <select> per field, "All" first; onChange gets { field: value or '' }.
+            function filters(defs, onChange) {
+                const box = document.getElementById('filters');
+                const state = {};
+                box.innerHTML = defs
+                    .map(
+                        (d) => `<label>${esc(d.label)}<select data-field="${esc(d.field)}">
+      <option value="">All</option>${d.values.map((v) => `<option>${esc(v)}</option>`).join('')}</select></label>`,
+                    )
+                    .join('');
+                box.addEventListener('change', (e) => {
+                    state[e.target.dataset.field] = e.target.value;
+                    onChange({ ...state });
+                });
+            }
+
+            const sum = (rows, f) => rows.reduce((a, r) => a + (+r[f] || 0), 0);
+            const groupSum = (rows, key, f) => {
+                const m = new Map();
+                for (const r of rows) m.set(r[key], (m.get(r[key]) || 0) + (+r[f] || 0));
+                return [...m.entries()];
+            };
+            const uniq = (rows, f) => [...new Set(rows.map((r) => r[f]))].sort();
+
+            // ---- The page: replace from here with the real data's fields. ----
+            // Expects { "title", "subtitle", "source", "rows": [{ "date", "category", "region", "amount" }] }.
+
+            loadData()
+                .then((data) => {
+                    document.title = data.title;
+                    document.getElementById('title').textContent = data.title;
+                    document.getElementById('subtitle').textContent = data.subtitle || '';
+                    document.getElementById('source').textContent = data.source || '';
+
+                    const all = data.rows;
+                    const bar = chart('chart-bar');
+                    const line = chart('chart-line');
+                    const grid = table('table', all, [
+                        { title: 'Date', field: 'date', headerFilter: 'input', minWidth: 100 },
+                        { title: 'Category', field: 'category', headerFilter: 'input' },
+                        { title: 'Region', field: 'region', headerFilter: 'input' },
+                        {
+                            title: 'Amount',
+                            field: 'amount',
+                            hozAlign: 'right',
+                            sorter: 'number',
+                            formatter: (c) => fmt.num(c.getValue(), 2),
+                        },
+                    ]);
+
+                    function render(state) {
+                        const rows = all.filter((r) =>
+                            Object.entries(state).every(([f, v]) => !v || String(r[f]) === v),
+                        );
+                        kpis([
+                            { label: 'Total amount', value: fmt.num(sum(rows, 'amount')) },
+                            { label: 'Rows', value: fmt.num(rows.length) },
+                            { label: 'Categories', value: fmt.num(uniq(rows, 'category').length) },
+                        ]);
+                        const byCat = groupSum(rows, 'category', 'amount').sort(
+                            (a, b) => b[1] - a[1],
+                        );
+                        bar.set({
+                            xAxis: {
+                                type: 'category',
+                                data: byCat.map((d) => d[0]),
+                                axisLabel: { interval: 0, rotate: byCat.length > 5 ? 30 : 0 },
+                            },
+                            yAxis: { type: 'value' },
+                            series: [{ type: 'bar', data: byCat.map((d) => d[1]) }],
+                        });
+                        const byDate = groupSum(rows, 'date', 'amount').sort((a, b) =>
+                            String(a[0]).localeCompare(String(b[0])),
+                        );
+                        line.set({
+                            xAxis: { type: 'category', data: byDate.map((d) => d[0]) },
+                            yAxis: { type: 'value' },
+                            dataZoom: byDate.length > 30 ? [{ type: 'inside' }] : [],
+                            series: [
+                                {
+                                    type: 'line',
+                                    showSymbol: false,
+                                    areaStyle: { opacity: 0.15 },
+                                    data: byDate.map((d) => d[1]),
+                                },
+                            ],
+                        });
+                        grid.set(rows);
+                    }
+
+                    filters(
+                        [
+                            { field: 'category', label: 'Category', values: uniq(all, 'category') },
+                            { field: 'region', label: 'Region', values: uniq(all, 'region') },
+                        ],
+                        render,
+                    );
+                    render({});
+                })
+                .catch((err) => {
+                    document
+                        .querySelector('main')
+                        .insertAdjacentHTML(
+                            'afterbegin',
+                            `<div class="card" style="border-color:var(--down)">Could not load the data: ${esc(err.message)}</div>`,
+                        );
+                });
+        </script>
+    </body>
+</html>
