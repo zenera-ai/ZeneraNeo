@@ -52,13 +52,12 @@ export async function project(want: Wanted): Promise<Projects.Project> {
     if (want.project) {
         return Projects.open(want.project);
     }
+    if (!statSync(want.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+        throw usageError(`not a directory: ${want.cwd}`, 'check the path given to -C');
+    }
     const here = await Projects.current(want.cwd);
     if (here) {
         return here;
-    }
-
-    if (!statSync(want.cwd, { throwIfNoEntry: false })?.isDirectory()) {
-        throw usageError(`not a directory: ${want.cwd}`, 'check the path given to -C');
     }
     const registry = await Projects.Registry.open();
     const known = registry.entries.filter((e) => existsSync(e.path));

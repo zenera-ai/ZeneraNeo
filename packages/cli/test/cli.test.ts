@@ -1863,6 +1863,19 @@ describe('a -C that is not a directory', () => {
         });
         rmSync(dir, { recursive: true });
     });
+
+    it('names a file inside a project, rather than finding the project above it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'zen-c-'));
+        writeFileSync(join(dir, 'agents.yaml'), 'agents: []\n'); // makes dir a project
+        const file = join(dir, 'README.md');
+        writeFileSync(file, 'not a folder');
+
+        await expect(project({ cwd: file })).rejects.toMatchObject({
+            code: EXIT.usage,
+            message: `not a directory: ${file}`,
+        });
+        rmSync(dir, { recursive: true });
+    });
 });
 
 describe('choosing the workspace', () => {
