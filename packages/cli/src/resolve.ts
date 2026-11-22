@@ -8,7 +8,7 @@ import {
     stamp,
     type SessionPaths,
 } from '@zenera/engine';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import * as term from './term.ts';
 import { ago, bold, cyan, dim, usageError, yellow } from './term.ts';
@@ -55,6 +55,10 @@ export async function project(want: Wanted): Promise<Projects.Project> {
     const here = await Projects.current(want.cwd);
     if (here) {
         return here;
+    }
+
+    if (!statSync(want.cwd, { throwIfNoEntry: false })?.isDirectory()) {
+        throw usageError(`not a directory: ${want.cwd}`, 'check the path given to -C');
     }
     const registry = await Projects.Registry.open();
     const known = registry.entries.filter((e) => existsSync(e.path));
