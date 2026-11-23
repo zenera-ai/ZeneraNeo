@@ -85,7 +85,7 @@ import {
     type OwnedContainer,
 } from '../src/podman.ts';
 import { parseRequest, readRequest } from '../src/request.ts';
-import { chooseWorkspace } from '../src/resolve.ts';
+import { chooseWorkspace, project as chooseProject } from '../src/resolve.ts';
 import { copyTree, scaffold } from '../src/scaffold.ts';
 import * as term from '../src/term.ts';
 import { bytes, CliError, cut, EXIT, keysIn, pad, table } from '../src/term.ts';
@@ -1904,6 +1904,62 @@ describe('choosing the workspace', () => {
         } finally {
             chooseSpy.mockRestore();
             interactiveSpy.mockRestore();
+        }
+    });
+});
+
+describe('choosing a project', () => {
+    const keptHome = process.env.ZENERA_HOME;
+    const root = mkdtempSync(join(tmpdir(), 'zen-project-choice-'));
+
+    afterAll(() => {
+        if (keptHome === undefined) {
+            delete process.env.ZENERA_HOME;
+        } else {
+            process.env.ZENERA_HOME = keptHome;
+        }
+        rmSync(root, { recursive: true, force: true });
+    });
+
+    it('shows aligned registration dates before project paths', async () => {
+        process.env.ZENERA_HOME = root;
+        const docs = join(root, 'docs-writer');
+        const old = join(root, 'old-project');
+        for (const dir of [docs, old]) {
+            mkdirSync(dir);
+            writeFileSync(join(dir, 'agents.yaml'), 'agents: []\n', 'utf8');
+        }
+        const entries = [
+            { name: 'docs-writer', path: docs, addedAt: '2026-11-05T14:23:00.000Z' },
+            { name: 'old-project', path: old, addedAt: 'not-a-date' },
+        ];
+        writeFileSync(
+            join(root, 'projects.json'),
+            JSON.stringify({ version: 1, projects: entries }),
+            'utf8',
+        );
+        const interactiveSpy = vi.spyOn(term, 'isInteractive').mockReturnValue(true);
+        const chooseSpy = vi.spyOn(term, 'choose').mockResolvedValue(entries[0]);
+        try {
+            await expect(chooseProject({ cwd: root })).resolves.toEqual({
+                dir: docs,
+                name: 'docs-writer',
+            });
+            expect(chooseSpy).toHaveBeenCalledWith('Which project?', [
+                {
+                    label: 'docs-writer',
+                    detail: `2026-11-05  ${docs}`,
+                    value: entries[0],
+                },
+                {
+                    label: 'old-project',
+                    detail: `unknown     ${old}`,
+                    value: entries[1],
+                },
+            ]);
+        } finally {
+            interactiveSpy.mockRestore();
+            chooseSpy.mockRestore();
         }
     });
 });
