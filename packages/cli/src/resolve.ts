@@ -46,10 +46,13 @@ export interface Target {
 
 /** A stable, aligned project-picker detail from registry metadata. */
 function projectChoiceDetail(entry: Projects.RegistryEntry): string {
-    const added = new Date(entry.addedAt);
-    const day = Number.isNaN(added.getTime())
-        ? 'unknown'.padEnd('YYYY-MM-DD'.length)
-        : added.toISOString().slice(0, 10);
+    const raw = (entry as { addedAt?: unknown }).addedAt;
+    const added = typeof raw === 'string' ? new Date(raw) : undefined;
+    const valid = added !== undefined && !Number.isNaN(added.getTime());
+    const day =
+        valid && added.toISOString() === raw
+            ? raw.slice(0, 10)
+            : 'unknown'.padEnd('YYYY-MM-DD'.length);
     return `${day}  ${entry.path}`;
 }
 

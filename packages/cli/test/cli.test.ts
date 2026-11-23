@@ -1925,13 +1925,21 @@ describe('choosing a project', () => {
         process.env.ZENERA_HOME = root;
         const docs = join(root, 'docs-writer');
         const old = join(root, 'old-project');
-        for (const dir of [docs, old]) {
+        const normalized = join(root, 'normalized-date');
+        const nonString = join(root, 'non-string-date');
+        for (const dir of [docs, old, normalized, nonString]) {
             mkdirSync(dir);
             writeFileSync(join(dir, 'agents.yaml'), 'agents: []\n', 'utf8');
         }
         const entries = [
             { name: 'docs-writer', path: docs, addedAt: '2026-11-05T14:23:00.000Z' },
             { name: 'old-project', path: old, addedAt: 'not-a-date' },
+            {
+                name: 'normalized-date',
+                path: normalized,
+                addedAt: '2026-02-30T14:23:00.000Z',
+            },
+            { name: 'non-string-date', path: nonString, addedAt: null },
         ];
         writeFileSync(
             join(root, 'projects.json'),
@@ -1950,6 +1958,16 @@ describe('choosing a project', () => {
                     label: 'docs-writer',
                     detail: `2026-11-05  ${docs}`,
                     value: entries[0],
+                },
+                {
+                    label: 'non-string-date',
+                    detail: `unknown     ${nonString}`,
+                    value: entries[3],
+                },
+                {
+                    label: 'normalized-date',
+                    detail: `unknown     ${normalized}`,
+                    value: entries[2],
                 },
                 {
                     label: 'old-project',
