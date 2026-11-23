@@ -123,6 +123,26 @@ describe('the streaming window in columns', () => {
         expect(rows.at(-1)).toContain('界');
     });
 
+    it('keeps whole graphemes at the head of an emoji stream', () => {
+        const text = FAMILY.repeat(80);
+        const rows = windowOf(text, 8, 3);
+        expect(rows).toHaveLength(3);
+        for (const row of rows) {
+            expect(row).not.toContain('�');
+            for (const part of graphemes(row)) {
+                expect(part).toBe(FAMILY);
+            }
+            expect(columns(row)).toBeLessThanOrEqual(8);
+        }
+        expect(rows.at(-1)).toBe(FAMILY.repeat(4));
+    });
+
+    it('still shows the newest grapheme after a long emoji stream', () => {
+        const rows = windowOf(`${FAMILY.repeat(80)}终`, 8, 3);
+        expect(rows.at(-1)).toContain('终');
+        expect(rows.join('')).not.toContain('�');
+    });
+
     it('leaves plain ASCII exactly as it was', () => {
         expect(windowOf('one\ntwo', 40, 6)).toEqual(['one', 'two']);
     });
@@ -150,6 +170,18 @@ describe('a box wide enough for wide characters', () => {
 
     it('lays every row of a table out to the same column', () => {
         const table = ['| name | city |', '| --- | --- |', '| 你 | 北京 |'].join('\n');
+        const block = blocksOf(table)[0];
+        expect(block?.kind).toBe('table');
+        const rows = gridOf(block!).map((row) => row.map((span) => span.text).join(''));
+        expect(rows).toHaveLength(3);
+        expect(new Set(rows.map(columns)).size).toBe(1);
+    });
+
+    it('measures a grapheme split across styled spans once', () => {
+        // Bold markers cut the family in two: the plain span holds the man
+        // and the styled span holds the joiner and the rest. The terminal
+        // still draws one two-column cluster, not two.
+        const table = ['| name | value |', '| --- | --- |', `| a | 👨**‍👩‍👧‍👦** |`].join('\n');
         const block = blocksOf(table)[0];
         expect(block?.kind).toBe('table');
         const rows = gridOf(block!).map((row) => row.map((span) => span.text).join(''));

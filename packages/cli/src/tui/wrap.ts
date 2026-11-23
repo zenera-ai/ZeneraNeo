@@ -32,22 +32,44 @@ function widthOf(text: string): number {
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 /**
+ * The tail of `text` holding at least `columns` columns, cut at a grapheme
+ * boundary. A family emoji is eleven code units, so a UTF-16 slice can begin
+ * in the middle of one and leave a replacement glyph at the head of the
+ * window — or, because each cluster takes fewer code units than columns, hold
+ * too little text to fill the rows asked for. Segments are kept in a bounded
+ * ring of the last `columns` columns, so a stream that never stops growing
+ * still costs work proportional to the window, not to the whole history.
+ */
+function tailOf(text: string, columns: number): string {
+    const held: { index: number; width: number }[] = [];
+    let total = 0;
+    for (const part of segmenter.segment(text)) {
+        const size = widthOf(part.segment);
+        total += size;
+        held.push({ index: part.index, width: size });
+        // Keep one cluster past the boundary: dropping the first segment while
+        // the rest still covers `columns` leaves the smallest tail that does,
+        // starting on a boundary the terminal will draw whole.
+        while (held.length > 1 && total - (held[0] as { width: number }).width >= columns) {
+            total -= (held.shift() as { width: number }).width;
+        }
+    }
+    return text.slice(held[0]?.index ?? 0);
+}
+
+/**
  * The last `rows` rows of `text` once wrapped to `width`, each one short enough
  * that the terminal will not wrap it again.
  *
- * Only the tail is ever wanted, so only the tail is wrapped: `width * rows * 2`
- * code units bounds the work per keystroke on a stream that never stops
- * growing. For ordinary text that is more than enough columns to fill the
- * window; when clusters are wider than that it takes too little rather than
- * too much, which can cost rows but never the frame.
+ * Only the tail is ever wanted, so only the tail is wrapped: `width * rows`
+ * columns bounds the work per keystroke on a stream that never stops growing.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
     const n = Math.max(1, rows);
     // Trailing blank rows are never information, and a stream that ends on a
     // paragraph break would spend one of the few rows it has on nothing.
-    const tail = text
-        .slice(-w * n * 2)
+    const tail = tailOf(text, w * n)
         .replace(/\n{2,}/g, '\n')
         .trimEnd();
     return wrap(tail, w).slice(-n);
@@ -1025,8 +1047,15 @@ export function blocksOf(text: string): Block[] {
 // Back to text
 // ---------------------------------------------------------------------------
 
-/** What a run of spans measures, which is the columns it draws in. */
-const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + widthOf(s.text), 0);
+/**
+ * What a run of spans measures, which is the columns it draws in.
+ *
+ * A grapheme can cross a style boundary: `👨**‍👩‍👧‍👦**` is one family
+ * split into a plain and a bold span. Measuring each span and adding the
+ * widths counts that family twice. The text is what a terminal lays out, so
+ * join it first and measure once.
+ */
+const lengthOf = (spans: Span[]): number => widthOf(spans.map((s) => s.text).join(''));
 
 /** A cell in its column, set where the rule row asked for it. */
 function padOf(spans: Span[], width: number, align: Align): Span[] {
