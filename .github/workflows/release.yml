@@ -68,10 +68,15 @@ jobs:
                   for dir in $(node scripts/release.mjs workspaces --paths | tr ' ' '\n' | grep '^packages/'); do
                       name=$(node -p "require('./$dir/package.json').name")
                       version=$(node -p "require('./$dir/package.json').version")
-                      if npm view "$name@$version" version > /dev/null 2>&1; then
+                      if node scripts/registry-lookup.mjs "$name" "$version"; then
                           echo "already published: $name@$version"
                       else
-                          npm publish -w "$dir" --access public
+                          lookup_status=$?
+                          if [ "$lookup_status" -eq 10 ]; then
+                              npm publish -w "$dir" --access public
+                          else
+                              exit "$lookup_status"
+                          fi
                       fi
                   done
               env:
