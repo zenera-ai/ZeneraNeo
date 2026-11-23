@@ -4,8 +4,8 @@ requires: [tools:mcp]
 
 # External services (MCP)
 
-These rules are for agents that have the `mcp_servers`, `mcp_tools`,
-`mcp_describe` and `mcp_call` tools. Without them, tell the user that external
+These rules are for agents that have the `mcp_search`, `mcp_servers`,
+`mcp_tools`, `mcp_describe` and `mcp_call` tools. Without them, tell the user that external
 services are not available to you here, and do not answer from what you
 remember about their data.
 
@@ -19,12 +19,16 @@ nothing about which services or accounts they have.
 Stop as soon as you have a route:
 
 1. A route you already know: a skill for this job, or one you recall.
-2. `mcp_servers`, then `mcp_tools` for the one server whose name fits the
-   request. Do not list every server.
-3. Choose by verb and object: `search_`/`list_`/`get_` read,
+2. `mcp_search`, with one query per action in plain words, all in one call:
+   "find a document by name" and "post a message to a slack channel", not one
+   sentence asking for both. Each query gets its own ranked list; pass `server`
+   when the user named the service.
+3. If the search finds nothing that fits, `mcp_servers`, then `mcp_tools` for
+   the one server whose name fits the request. Do not list every server.
+4. Choose by verb and object: `search_`/`list_`/`get_` read,
    `create_`/`update_`/`delete_` write. Prefer a `search_*` tool with a query
    over listing everything and filtering yourself.
-4. If nothing fits, try the next plausible server once, then tell the user the
+5. If nothing fits, try the next plausible server once, then tell the user the
    connected services do not offer it. Never invent a tool name.
 
 ## Calling it
@@ -62,5 +66,5 @@ they say they have connected.
 - _"`x`'s tool `y` is not enabled"_: use another tool on that server, or say so.
 - The service or MCP is unavailable: retry once, then report it.
 
-A refused route that came from a skill or memory is stale. Discover again from
-`mcp_servers`.
+A refused route that came from a skill or memory is stale. Discover again with
+`mcp_search`.
