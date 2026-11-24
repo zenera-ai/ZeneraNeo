@@ -19,6 +19,8 @@
 //   usesMemory                  - whether any agent remembers, so the memory explorer has a graph
 //   openEngineFor               - the project wired to a session, memory and the user the run acts
 //                                 for, its env file applied
+//   serverSandbox               - the sandbox factory the server's sessions get (bwrap, a host's,
+//                                 or none for podman), shared by turns and page calls (appCalls.ts)
 //   errorMessage, asHttpError   - what an EngineError says, and means to an HTTP caller
 import {
     createSessionAt,
@@ -224,6 +226,12 @@ export async function imageReady(setup: SandboxSetup): Promise<void> {
 /** Where the agent image installs zen and the server. */
 const AGENT_APP_DIR = '/opt/zenera/app';
 
+/** The sandbox the server's sessions get: its factory, or none for podman on this machine. */
+export function serverSandbox(): SandboxFactory | undefined {
+    const s = settings();
+    return s.sandbox === 'podman' ? undefined : sandboxFactory(s);
+}
+
 /** The factory a run's engine opens its sandbox with. */
 function sandboxFactory(s: ServerSettings): SandboxFactory {
     if (s.sandbox !== 'bwrap') return s.sandbox as SandboxFactory;
@@ -266,7 +274,7 @@ export async function openEngineFor(
         preflight: s.preflight ?? imageReady,
         // The sandbox is the server's to choose: a plugin in ZEN_PLUGINS does not get to replace it.
         sandboxPlugins: false,
-        ...(s.sandbox === 'podman' ? {} : { newSandbox: sandboxFactory(s) }),
+        ...(s.sandbox === 'podman' ? {} : { newSandbox: serverSandbox() }),
         ...(plugins.length ? { plugins } : {}),
     });
 }

@@ -2199,12 +2199,12 @@ describe('the scaffold', () => {
 
         const read = (dir: string, rel: string) => readFileSync(join(dir, rel), 'utf8');
         const skills = (dir: string) => readdirSync(join(dir, 'agents', 'skills')).sort();
-        expect(skills(plain)).toEqual(['a2ui', 'a2ui-charts', 'data-analysis', 'html-dashboard']);
+        expect(skills(plain)).toEqual(['a2ui', 'a2ui-charts', 'data-analysis', 'html-page']);
         expect(skills(connected)).toEqual([
             'a2ui',
             'a2ui-charts',
             'data-analysis',
-            'html-dashboard',
+            'html-page',
             'mcp',
             'web-research',
         ]);

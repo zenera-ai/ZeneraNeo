@@ -11,8 +11,9 @@
 //   GET  /api/sessions                    - the caller's sessions, newest activity first
 //   /api/sessions/:tid...                 - history, runs (start, follow, replay, cancel), delete
 //   GET  /api/sessions/:tid/files?path=   - a file the chat names, from its workspace or /assets
-//   GET  /v/<token>/<path>                - insecure mode only: a page the chat names and the
-//                                           files it loads, the token its credential (views.ts)
+//   ANY  /v/<token>/<path>                - insecure mode only: a page the chat names, the
+//                                           files it loads and the functions it calls
+//                                           (*.api.py, appCalls.ts); the token its credential
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   /api/admin/{users,users/:sub/release,drain,undrain} - the host's view of this server's users
 // Every /api/sessions request first has the caller's data loaded (userState.ts): a store plugin
@@ -26,6 +27,7 @@ import { configure, DEFAULTS, type ServerSettings } from './config.ts';
 import { historyRouter } from './history.ts';
 import { filesRouter } from './files.ts';
 import { errorHandler, notFound } from './http.ts';
+import { closeAppSandboxes } from './appCalls.ts';
 import { requireCaller } from './auth.ts';
 import { inAgentImage } from './config.ts';
 import { openLayout } from './layout.ts';
@@ -153,6 +155,7 @@ export function createServer(opts: ServerOptions): AgentServer {
                 server ? server.close(() => resolve()) : resolve(),
             );
             await stopAllRuns(graceMs);
+            await closeAppSandboxes();
             await userStates.shutdown(saveMs);
             // Followers of runs that have ended, idle keep-alives: nothing left to answer.
             server?.closeAllConnections();

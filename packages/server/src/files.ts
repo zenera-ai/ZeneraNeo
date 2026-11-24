@@ -27,6 +27,7 @@ import {
 import { Router } from 'express';
 import { settings } from './config.ts';
 import { HttpError } from './http.ts';
+import { runUser } from './identity.ts';
 import type { ChatStore } from './store.ts';
 import { viewUrl } from './views.ts';
 
@@ -66,7 +67,7 @@ export function filesRouter(
             const file = resolveAgentFile(path, trees(session.workspace));
             if (!view && isPage(file.path) && settings().auth.mode === 'insecure') {
                 res.set('Cache-Control', 'no-store');
-                res.redirect(303, viewUrl(t, file.path));
+                res.redirect(303, viewUrl(t, file.path, runUser(req)));
                 return;
             }
             await sendAgentFile(req, res, file, view ? { view: {} } : {});

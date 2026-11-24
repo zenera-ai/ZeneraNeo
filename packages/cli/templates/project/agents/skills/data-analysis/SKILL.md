@@ -77,7 +77,7 @@ the real file. If the data cannot answer the question, say what is missing.
   one finding it shows.
 - A complex report - several related charts, tables and breakdowns, or data
   the user will want to filter, sort or drill into - is an interactive HTML
-  dashboard, not a long reply: load the `html-dashboard` skill. Its page shows
+  dashboard, not a long reply: load the `html-page` skill. Its page shows
   only numbers your script wrote to its `data.json`.
 - When the result is a file the user will keep (a cleaned CSV, a report),
   write it to the workspace and name it in the answer.

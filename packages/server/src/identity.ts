@@ -7,6 +7,7 @@
 //   identify    - the user and thread of a chat request, or an HttpError
 //   runUser     - who a run acts for, as the engine takes it: what the agent's `current_user`
 //                 answers and its sandbox sees as ZEN_USER_*
+//   identityOf  - the same from any claims (a page's /v/ token, views.ts), checked the same way
 import type { RunIdentity } from '@zenera/engine';
 import type { Request } from 'express';
 import { createHash } from 'node:crypto';
@@ -59,7 +60,14 @@ export function identify(req: Request): Identity {
 }
 
 export function runUser(req: Request): RunIdentity | null {
-    const claims = caller(req);
+    return identityOf(caller(req));
+}
+
+/**
+ * Who `claims` say a run or a page's call acts for: the subject, and the role, email and name
+ * when they have a safe shape (each goes into an environment variable); others are dropped.
+ */
+export function identityOf(claims: { sub: string; [claim: string]: unknown }): RunIdentity {
     const role =
         typeof claims.role === 'string' && ROLES.has(claims.role) ? claims.role : undefined;
     const email =

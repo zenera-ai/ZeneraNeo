@@ -15,7 +15,9 @@ import {
     type SandboxFactory,
     type SandboxOptions,
 } from '@zenera/sandbox';
+import { runtimeDir } from '@zenera/engine';
 import { MemoryStore, isMemory } from '@zenera/neo';
+import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
 import { once } from 'node:events';
 import {
@@ -704,6 +706,131 @@ describe('files a chat names', () => {
         // host asks for it to be viewed, and /v/ is no route at all.
         await start();
         expect((await fetch(new URL(location, running!.url))).status).toBe(401);
+    });
+
+    it("runs the functions of a page's .api.py under its token URL, in insecure mode", async () => {
+        if (spawnSync('python3', ['--version']).status !== 0) return;
+        // The thread's own workspace stands in for /workspace, and a host shell for the sandbox.
+        const ran: string[] = [];
+        let closed = 0;
+        const { url, serverRoot } = await start({
+            auth: { mode: 'insecure' },
+            sandbox: (opts) => ({
+                ...fakeSandbox(opts),
+                exec: async (command: string) => {
+                    ran.push(command);
+                    const run = spawnSync('/bin/sh', ['-s'], {
+                        input: command.replaceAll("'/workspace", `'${opts.root}`),
+                        encoding: 'utf8',
+                        env: {
+                            ...process.env,
+                            ...opts.execEnv,
+                            PYTHONPATH: join(runtimeDir(), 'python'),
+                        },
+                    });
+                    return {
+                        exit_code: run.status ?? 1,
+                        stdout: run.stdout,
+                        stderr: run.stderr,
+                        duration_ms: 1,
+                    };
+                },
+                close: async () => {
+                    closed++;
+                },
+            }),
+        });
+        const thread = randomUUID();
+        await turn(url, thread);
+        const workspace = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace');
+        mkdirSync(join(workspace, 'pages', 'todo', 'api'), { recursive: true });
+        writeFileSync(join(workspace, 'pages', 'todo', 'index.html'), '<script src="api.js">');
+        writeFileSync(
+            join(workspace, 'pages', 'todo', 'api', 'items.api.py'),
+            [
+                'import zenera',
+                'from zenera.api import HttpError, connect',
+                'def add(title: str):',
+                '    db = connect()',
+                '    with db:',
+                '        db.execute("CREATE TABLE IF NOT EXISTS t (title TEXT)")',
+                '        db.execute("INSERT INTO t VALUES (?)", (title,))',
+                '    return db.execute("SELECT count(*) AS n FROM t").fetchone()',
+                'def who():',
+                '    return zenera.identity()._asdict()',
+                'def nope(id: int):',
+                '    raise HttpError(404, f"no item {id}")',
+                '',
+            ].join('\n'),
+        );
+        // Opened by a caller whose token says who they are: the page's calls act for them.
+        const opened = await fetch(
+            `${url}/api/sessions/${thread}/files?path=${encodeURIComponent(
+                '/workspace/pages/todo/index.html',
+            )}`,
+            {
+                redirect: 'manual',
+                headers: {
+                    authorization: `Bearer ${unsignedToken({
+                        sub: ANN,
+                        email: 'ann@example.com',
+                        name: 'Ann',
+                        role: 'nobody-special',
+                    })}`,
+                },
+            },
+        );
+        const page = new URL(opened.headers.get('location')!, url);
+        // As api.js sends it: JSON as text/plain, a simple request from the page's null origin.
+        const post = (fn: string, body: unknown) =>
+            fetch(new URL(`api/items/${fn}`, page), {
+                method: 'POST',
+                headers: { 'content-type': 'text/plain;charset=UTF-8', origin: 'null' },
+                body: JSON.stringify(body),
+            });
+
+        const added = await post('add', { title: 'Milk' });
+        expect(added.status).toBe(200);
+        expect(added.headers.get('content-type')).toBe('application/json; charset=utf-8');
+        expect(added.headers.get('access-control-allow-origin')).toBe('*');
+        expect(added.headers.get('cache-control')).toBe('no-store');
+        expect(await added.json()).toEqual({ n: 1 });
+        expect(await (await post('add', { title: 'Eggs' })).json()).toEqual({ n: 2 });
+        expect(existsSync(join(workspace, 'pages', 'todo', 'api', '.data', 'app.sqlite'))).toBe(
+            true,
+        );
+        // The call runs as the token's user, as a turn's commands do; a role not known is dropped.
+        expect(await (await post('who', {})).json()).toEqual({
+            id: ANN,
+            email: 'ann@example.com',
+            name: 'Ann',
+            role: null,
+            source: 'local',
+        });
+        expect(await (await post('nope', { id: 3 })).json()).toEqual({ error: 'no item 3' });
+        expect((await post('nope', { id: 3 })).status).toBe(404);
+        const read = await fetch(new URL('api/items/nope?id=x', page));
+        expect(read.status).toBe(400);
+        expect(ran.find((c) => c.startsWith('cd '))).toMatch(
+            /^cd '\/workspace\/pages\/todo\/api' && exec python3 -m zenera\.api/,
+        );
+
+        // The source is never sent; a name that is no function and no file is a 404.
+        expect((await fetch(new URL('api/items.api.py', page))).status).toBe(404);
+        expect((await post('_hidden', {})).status).toBe(404);
+        expect((await post('../../index', {})).status).toBe(404);
+        expect((await fetch(new URL('api/none/add', page), { method: 'POST' })).status).toBe(404);
+        const big = await fetch(new URL('api/items/add', page), {
+            method: 'POST',
+            body: 'x'.repeat(1024 * 1024 + 1),
+        });
+        expect(big.status).toBe(413);
+
+        // One sandbox kept for the thread's calls, closed when the server stops.
+        const before = closed;
+        await running!.server.stop(1000);
+        running = undefined;
+        expect(closed).toBe(before + 1);
     });
 
     it('sends a file for viewing when a host asks with view=1', async () => {

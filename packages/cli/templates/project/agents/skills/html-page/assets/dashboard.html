@@ -216,6 +216,8 @@
             const charts = [];
 
             // Data inlined in <script type="application/json" id="data"> wins; otherwise data.json beside the page.
+            // Live data instead: copy api.js beside the page, load it with <script src="api.js"> above
+            // this script, and return api('api/report').get_data() here (references/python-functions.md).
             async function loadData(file = 'data.json') {
                 const inline = document.getElementById('data');
                 if (inline) return JSON.parse(inline.textContent);
