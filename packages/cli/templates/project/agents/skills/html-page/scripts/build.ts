@@ -11,8 +11,9 @@
 //   2. rules   what a sandboxed page cannot do: storage, dialogs, other hosts, raw html, ...
 //   3. bundle  esbuild: React, the kit and the page's modules in one script
 //   4. render  App rendered once in Node, so a crash on first render is caught here
-//   5. write   the html: shell.html with the css and js inlined, stamped with a hash of the
-//              sources. Nothing is written unless every step passed.
+//   5. write   the html: shell.html with the css and js inlined, the page's `title` and
+//              `description` exports in <title> and <meta name="description"> (the chat's
+//              card for the page shows them), stamped with a hash of the sources. Nothing is written unless every step passed.
 // --check runs 1, 2 and 4 and says whether each page's html is out of date with its sources.
 //
 // Runs where esbuild, typescript, react, react-dom and their types are installed: in the zen
@@ -68,6 +69,8 @@ interface Entry {
     /** the html it builds, absolute */
     html: string;
     title: string;
+    /** `export const description`, or '' when the page has none */
+    description: string;
 }
 
 interface Tools {
@@ -143,6 +146,15 @@ function titleOf(text: string, fallback: string): string {
     return words ? words[0]!.toUpperCase() + words.slice(1) : 'Page';
 }
 
+/** `export const description = '...'`: one sentence the chat's card shows under the title. */
+function descriptionOf(text: string): string {
+    const m =
+        /export\s+const\s+description(?:\s*:\s*string)?\s*=\s*(['"`])((?:(?!\1)[^\n\\])+)\1/.exec(
+            text,
+        );
+    return m ? m[2]!.trim() : '';
+}
+
 function entriesOf(dir: string): { entries: Entry[]; problems: Problem[] } {
     const problems: Problem[] = [];
     const entries: Entry[] = [];
@@ -176,7 +188,12 @@ function entriesOf(dir: string): { entries: Entry[]; problems: Problem[] } {
             continue;
         }
         const fallback = htmlName === 'index.html' ? basename(dir) : base;
-        entries.push({ source, html: join(dir, htmlName), title: titleOf(text, fallback) });
+        entries.push({
+            source,
+            html: join(dir, htmlName),
+            title: titleOf(text, fallback),
+            description: descriptionOf(text),
+        });
     }
     if (!entries.length && !problems.length) {
         problems.push({
@@ -852,12 +869,13 @@ function pageHtml(dir: string, entry: Entry, built: Bundle, hash: string): strin
     const parts: Record<string, string> = {
         STAMP: stamp,
         TITLE: escapeHtml(entry.title),
+        DESCRIPTION: escapeHtml(entry.description),
         HEAD: head.join('\n        '),
         CSS: css,
         JS: js,
     };
     return readFileSync(SHELL, 'utf8').replace(
-        /<!--(STAMP|TITLE|HEAD|CSS|JS)-->/g,
+        /<!--(STAMP|TITLE|DESCRIPTION|HEAD|CSS|JS)-->/g,
         (_, key: string) => parts[key]!,
     );
 }
@@ -972,6 +990,12 @@ async function main(argv: string[]): Promise<number> {
             console.log(
                 `✓ wrote ${rel(dir, entry.html)} (${kb} KB) from ${rel(dir, entry.source)}`,
             );
+            if (!entry.description) {
+                console.log(
+                    `  ${rel(dir, entry.source)} has no description: add export const description = '...' ` +
+                        `(one sentence on what the page shows or lets the user do; the chat shows it on the page's card) and build again`,
+                );
+            }
         }
         const link = pages.find((p) => basename(p.entry.html) === 'index.html') ?? pages[0]!;
         console.log(

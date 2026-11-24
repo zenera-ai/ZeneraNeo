@@ -2,7 +2,7 @@
 name: html-page
 description: Building an interactive page the user opens from the chat - a dashboard or report with charts, tables, filters and headline numbers, or a small app whose page calls Python functions to read and change data (a tracker, a CRUD tool, a mail or ticket view, a form that saves, a page that queries a database each time it opens). The page is a React component in TypeScript (app.tsx) that a build checks and turns into one HTML file. Where to write it, how it gets its data, the kit of components, the layout that works in the chat's side panel and full page, and how to build and check it. Load when an answer has more than one chart or table, data the user will want to filter or explore, or the user wants something to use and change.
 tags: [html, react, typescript, dashboard, report, app, charts, api, python, ui]
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Interactive pages
@@ -197,8 +197,15 @@ How, with the kit:
 
 ## Page code
 
-- `export default function App()` in `app.tsx`; `export const title = '...'`
-  names the browser tab. The build mounts `App` - never call `createRoot`.
+- `export default function App()` in `app.tsx`. The build mounts `App` -
+  never call `createRoot`.
+- `export const title = '...'` names the page: the browser tab and the
+  chat's card for it ("Gmail simulation", "Sales Q1 dashboard").
+- `export const description = '...'`: one sentence, in the user's words, on
+  what the page shows or lets them do ("Inbox with search, folders, stars
+  and drafts; demo messages only."). The chat shows it on the page's card
+  under the title. No "built with", file or function names. The build
+  reminds you when it is missing.
 - State lives in hooks; everything on the page is drawn from it, so the
   numbers, charts and lists always agree. Derive filtered rows and chart
   options with `useMemo` from the data and the filters.
@@ -246,7 +253,10 @@ message`. Fix each one and build again until it prints `✓ wrote index.html`.
 - The main findings with their numbers in two to four sentences, or for an
   app what it does - the reply must stand on its own for someone who never
   opens the page.
-- Then the page as a link, alone in its own paragraph (the build prints it):
+- Then the page as a link, alone in its own paragraph (the build prints it).
+  The link's text is the page's name, as its `title` - not an instruction
+  ("Open the …", "Click here"): the chat shows it as a card with the title,
+  the description and buttons to open it.
 
 [Sales Q1 dashboard](file:///workspace/pages/sales-q1/index.html)
 

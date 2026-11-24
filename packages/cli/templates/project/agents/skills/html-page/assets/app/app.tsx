@@ -43,6 +43,7 @@ interface ItemsApi {
 const items = api<ItemsApi>('api/items');
 
 export const title = 'Items';
+export const description = 'A list of items to add, check off and remove.';
 
 const SHOW = [
     { value: 'all', label: 'All' },

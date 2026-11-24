@@ -216,6 +216,27 @@ describe('html-page build', { timeout: 60_000 }, () => {
         expect(run.out).toMatch(/Link it as \[Page \d+\]\(file:\/\/.*\/index\.html\)/);
     });
 
+    it("puts the page's description in a meta tag at the top, and reminds when it is missing", () => {
+        const dir = page({
+            'app.tsx': [
+                `export const title = 'Mail';`,
+                `export const description = "Inbox you can search; it's <demo> & fake mail.";`,
+                `export default function App() { return <p>mail</p>; }`,
+            ].join('\n'),
+            'report.tsx': `export default function Report() { return <p>report</p>; }\n`,
+        });
+        const run = build(dir);
+        expect(run.status).toBe(0);
+        const html = readFileSync(join(dir, 'index.html'), 'utf8');
+        expect(html).toContain(
+            `<meta name="description" content="Inbox you can search; it's &lt;demo&gt; &amp; fake mail." />`,
+        );
+        // Near the top, so the chat reads it with the first few KB of the file.
+        expect(html.indexOf('<meta name="description"')).toBeLessThan(1024);
+        expect(run.out).not.toContain('app.tsx has no description');
+        expect(run.out).toContain('report.tsx has no description');
+    });
+
     it('--check says when a page is out of date with its sources, and writes nothing', () => {
         const dir = page({ 'app.tsx': `export default function App() { return <p>one</p>; }\n` });
         const unbuilt = build(dir, '--check');
