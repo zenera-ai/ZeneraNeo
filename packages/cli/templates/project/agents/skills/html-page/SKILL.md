@@ -89,7 +89,8 @@ installed - no npm packages, no CSS frameworks. The kit's source is in
 | Load data, with loading and error state            | `useCall(() => items.list_items({ show }), [show])`, `useData<Report>('data.json')`               |
 | A change the user makes, then reload               | `useAction((title: string) => items.add_item({ title }), list.reload)`: `.run`, `.busy`, `.error` |
 | View state that survives a reload (tab, open item) | `useHashState('tab', 'orders')` - kept in `#tab=...`                                              |
-| Layout                                             | `Page` (`width="narrow"` for an app), `Toolbar`, `Grid`, `Card` (`wide`), `Split`                 |
+| Layout                                             | `Page` (`width="narrow"` for an app), `Stack`, `Toolbar`, `Grid`, `Card` (`wide`) - see "Layout"  |
+| A list and what opens from it (item, edit, new)    | `Split` - list or detail when narrow, side by side when wide; see "Layout"                        |
 | Controls                                           | `Select`, `Field` around any input, plain `<input>`, `<button className="primary">`               |
 | Headline numbers                                   | `Kpis` with `Kpi` (`value` formatted, `delta` a fraction)                                         |
 | Charts                                             | `Chart` with an ECharts `option` (charts-and-tables.md)                                           |
@@ -123,24 +124,76 @@ build reports most of these; know them so you do not write them:
 - Links to other sites need `target="_blank" rel="noopener"`.
 - The page cannot call the agent or any tool.
 
-## Layout - always adaptive
+## Layout - narrow first
 
-Every page must work at 360 px (narrow panel) and 1600 px (wide tab) without
-horizontal scrolling. The kit's components do this; keep to their rules:
+The page is opened **most often in the chat's side panel, 360 - 600 px
+wide**, and sometimes in a full tab up to 1600 px. Design it for the narrow
+panel first, then let it spread out when there is room - never the other way
+round. At every width:
 
-- No fixed widths. `Grid` reflows cards, `Toolbar` and `.row` wrap, `Split`
-  shows a list and its open item side by side when wide and one at a time
-  when narrow (give the item a Back button).
+1. **Everything is reachable.** Every list, form, button and piece of
+   content the wide page shows can be reached on the narrow one - shown
+   stacked, or one tap away. Nothing is hidden because there is no room.
+2. **Nothing scrolls sideways.** The page scrolls down, never across; long
+   text wraps.
+3. **Controls stay usable**: inputs full width in forms, buttons that wrap to
+   the next line instead of shrinking or overflowing.
+
+How, with the kit:
+
+- One column by default: `Stack` for blocks one under another. `Grid` puts
+  cards side by side only when each gets at least `min` px, and stacks them
+  otherwise.
+- **A list and what opens from it** (mail and a message, orders and an
+  order, items and an edit form) is always `Split`. Narrow, it shows the list,
+  or only what is open with a Back button; wide, both side by side. Whatever
+  the user can open - **including a "New …" or edit form** - goes in
+  `detail`, and `detail` is `null` when nothing is open:
+
+    ```tsx
+    const [openId, setOpenId] = useHashState('open');
+    const [composing, setComposing] = useState(false);
+    <Split
+        list={<Inbox onOpen={setOpenId} onNew={() => setComposing(true)} />}
+        detail={
+            composing ? (
+                <Compose onDone={() => setComposing(false)} />
+            ) : openId ? (
+                <Message id={openId} />
+            ) : null
+        }
+        onBack={() => {
+            setComposing(false);
+            setOpenId('');
+        }}
+        placeholder="Pick a message, or write a new one."
+    />;
+    ```
+
+    Never place a second panel beside a list any other way (two `Card`s in a
+    `Grid`, your own two-column css): on a narrow panel one of them ends up
+    below the other or out of reach.
+
+- `Toolbar` and `.row` wrap their controls; keep each control at its natural
+  width. A form is a `Stack` of `Field`s inside a `Card`: its inputs take the
+  full width.
+- A row of a list (sender, subject, date, actions) is a `.row` that wraps, or
+  two lines - not fixed columns.
+- Your own css: no fixed widths over 360 px, no fixed grid columns
+  (`grid-template-columns: 160px 1fr`), no `display: none` in a media or
+  container query, no `100vh` or `overflow: hidden` on the page. The build
+  rejects them. Wider layouts go inside `@container page (min-width: …)` - the
+  page's width, not the window's, since the panel can be narrow on a wide
+  screen.
 - Anything you add inside a grid or flex row gets `min-width: 0` (the kit's
-  `.card` has it), or a chart, table or long text pushes the page wider than
-  the panel.
-- Let the page scroll; do not lock the body to `100vh`.
+  cards and stacks have it), or a chart, table or long text pushes the page
+  wider than the panel.
 - Light and dark: colours come from the kit's CSS variables, switched by
   `prefers-color-scheme`. Use `var(--fg)`, `var(--muted)`, `var(--line)`,
   `var(--accent)`, `var(--danger)` - no hard-coded colours. For styles of
   your own, `import './app.css'`.
-- Controls in one wrapping row at the top; then headline numbers; then
-  charts or the list; the detailed table last.
+- Order, top to bottom: controls in one wrapping row; then headline numbers;
+  then charts or the list; the detailed table last.
 
 ## Page code
 
@@ -149,6 +202,15 @@ horizontal scrolling. The kit's components do this; keep to their rules:
 - State lives in hooks; everything on the page is drawn from it, so the
   numbers, charts and lists always agree. Derive filtered rows and chart
   options with `useMemo` from the data and the filters.
+- **The page speaks the user's language, never the builder's.** Nothing the
+  user sees - titles, subtitles, labels, footers, empty states, error
+  messages, tooltips - names how it is made: no "stored in SQLite", "saved
+  to the database", "via the API", "calls a Python function", "loaded from
+  data.json", "built with React", no table, file, function or endpoint
+  names. Say what it means for the user instead: "Saved", "Your items",
+  "Updated just now", "Couldn't load orders - try again". A source line
+  names where the numbers come from in business terms ("Q1 orders export"),
+  not the file or service.
 - Show "Loading…", an empty state ("No orders yet", "No data for these
   filters") and errors on the page with `Loading`, `Empty` and `ErrorBox` -
   never fail silently. `useCall` and `useAction` catch errors for you.

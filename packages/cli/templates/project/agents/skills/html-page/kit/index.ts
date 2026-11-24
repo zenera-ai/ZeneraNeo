@@ -28,6 +28,7 @@ export {
     SafeHtml,
     Select,
     Split,
+    Stack,
     Toolbar,
     type Option,
 } from './components.tsx';

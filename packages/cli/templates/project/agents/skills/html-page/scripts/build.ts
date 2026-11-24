@@ -214,7 +214,8 @@ function typecheck(tools: Tools, dir: string, entries: Entry[]): Problem[] {
         types: [],
         paths: {
             '@page/kit': [KIT_INDEX],
-            '*': [`${tools.modules}/*`, `${tools.types}/*`],
+            // Types first: react itself is untyped JavaScript, which would quietly make it `any`.
+            '*': [`${tools.types}/*`, `${tools.modules}/*`],
         },
     };
     const program = ts.createProgram(
@@ -243,6 +244,137 @@ function hostOf(url: string): string {
         return '';
     }
 }
+
+// ---- Layout: the chat's side panel is 360 - 600 px wide, and a page must work there ----
+
+/** What the narrowest panel leaves for a page's content, in px. */
+const NARROW = 360;
+/** Fixed columns adding up to more than this leave too little for the rest at NARROW. */
+const FIXED_COLUMNS = 140;
+
+/** A length in px, for px, rem and em; null for anything relative (%, fr, vw, auto, calc). */
+function pxOf(value: string): number | null {
+    const m = /^\s*(\d+(?:\.\d+)?)(px|rem|em)\s*$/.exec(value);
+    if (!m) return null;
+    return Number(m[1]) * (m[2] === 'px' ? 1 : 16);
+}
+
+/** Where a declaration is: inside which at-rules, under which selector. */
+interface CssWhere {
+    /** inside @media / @container */
+    query: boolean;
+    /** inside a query that only applies from some width up: fixed widths are fine there */
+    wideOnly: boolean;
+    selector: string;
+}
+
+/** What is wrong with one declaration for a narrow panel, or null. */
+function layoutProblem(prop: string, value: string, where: CssWhere): string | null {
+    const v = value.replace(/!important/i, '').trim();
+    if (prop === 'display' && /^none$/i.test(v) && where.query) {
+        return (
+            'display: none in a media or container query hides this at some widths: everything ' +
+            'shown on a wide page must be reachable on a narrow one - stack it, or put it in ' +
+            "Split's detail (narrow: the list or the detail, with a Back button)"
+        );
+    }
+    if (where.wideOnly) return null;
+    if (['width', 'min-width', 'flex-basis'].includes(prop)) {
+        const px = pxOf(v);
+        if (px !== null && px > NARROW) {
+            return (
+                `${prop}: ${v} is wider than the chat's side panel (${NARROW} px): use max-width, ` +
+                'a percentage, or flex/grid that wraps'
+            );
+        }
+    }
+    if (prop === 'grid-template-columns') {
+        const floor = /minmax\(\s*(\d+(?:\.\d+)?(?:px|rem|em))\s*,/.exec(v);
+        const floorPx = floor ? pxOf(floor[1]!) : null;
+        if (floorPx !== null && floorPx > NARROW / 2 && /repeat\(\s*auto-(fit|fill)/.test(v)) {
+            return (
+                `minmax(${floor![1]}, …) overflows a narrow panel: write ` +
+                `minmax(min(100%, ${floor![1]}), 1fr), or use the kit's Grid`
+            );
+        }
+        // Fixed tracks outside min()/max()/minmax()/clamp(), repeat(n, …) counted n times.
+        let tracks = v;
+        for (;;) {
+            const next = tracks.replace(
+                /repeat\(\s*(\d+)\s*,\s*([^()]*)\)/g,
+                (_, n: string, inner: string) => ` ${inner} `.repeat(Number(n)),
+            );
+            const stripped = next.replace(/[a-z-]+\([^()]*\)/gi, ' ');
+            if (stripped === tracks) break;
+            tracks = stripped;
+        }
+        const fixed = tracks
+            .split(/\s+/)
+            .map((t) => pxOf(t) ?? 0)
+            .reduce((a, b) => a + b, 0);
+        if (fixed > FIXED_COLUMNS) {
+            return (
+                `fixed columns of ${fixed} px leave little of a ${NARROW} px panel for the rest: ` +
+                'use minmax(0, 1fr) columns and stack the row when narrow, or give the fixed ' +
+                'columns only inside an @container (min-width: …) query'
+            );
+        }
+    }
+    if (/(^|,|\s)(html|body|:root|#root)\b/.test(where.selector)) {
+        if ((prop === 'height' || prop === 'max-height') && /vh\b/.test(v)) {
+            return `${prop}: ${v} on the page itself locks it to the window: let the page scroll`;
+        }
+        if (/^overflow(-y)?$/.test(prop) && /hidden/.test(v)) {
+            return `${prop}: ${v} on the page itself cuts it off: let the page scroll`;
+        }
+    }
+    return null;
+}
+
+/** Layout problems of a stylesheet, at their lines. */
+function cssProblems(dir: string, file: string): Problem[] {
+    const text = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, (c) =>
+        c.replace(/[^\n]/g, ' '),
+    );
+    const problems: Problem[] = [];
+    const stack: string[] = [];
+    let start = 0;
+    const lineAt = (i: number) => text.slice(0, i).split('\n').length;
+    const declaration = (end: number) => {
+        const raw = text.slice(start, end);
+        const m = /^(\s*)([-\w]+)\s*:([\s\S]*)$/.exec(raw);
+        if (!m || !stack.length) return;
+        const at = start + m[1]!.length;
+        const queries = stack.filter((h) => /^@(media|container)\b/i.test(h));
+        const where: CssWhere = {
+            query: queries.length > 0,
+            wideOnly: queries.some((q) => /min-width|width\s*>=?/i.test(q)),
+            selector: [...stack].reverse().find((h) => !h.startsWith('@')) ?? '',
+        };
+        const message = layoutProblem(m[2]!.toLowerCase(), m[3]!.trim(), where);
+        if (message) {
+            const col = at - text.lastIndexOf('\n', at - 1);
+            problems.push({ file: rel(dir, file), line: lineAt(at), col, message });
+        }
+    };
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '{') {
+            stack.push(text.slice(start, i).trim());
+            start = i + 1;
+        } else if (c === ';') {
+            declaration(i);
+            start = i + 1;
+        } else if (c === '}') {
+            declaration(i);
+            stack.pop();
+            start = i + 1;
+        }
+    }
+    return problems;
+}
+
+const kebab = (name: string) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 function rules(tools: Tools, dir: string, sources: string[]): Problem[] {
     const { ts } = tools;
@@ -274,6 +406,10 @@ function rules(tools: Tools, dir: string, sources: string[]): Problem[] {
     };
 
     for (const file of sources) {
+        if (file.endsWith('.css')) {
+            problems.push(...cssProblems(dir, file));
+            continue;
+        }
         if (!/\.tsx?$/.test(file) || file.endsWith('.d.ts')) continue;
         const text = readFileSync(file, 'utf8');
         const sf = ts.createSourceFile(
@@ -365,6 +501,35 @@ function rules(tools: Tools, dir: string, sources: string[]): Problem[] {
                     node,
                     'no raw html: use JSX (it escapes), or SafeHtml for html from outside',
                 );
+            } else if (
+                ts.isJsxAttribute(node) &&
+                node.name.getText(sf) === 'style' &&
+                node.initializer &&
+                ts.isJsxExpression(node.initializer) &&
+                node.initializer.expression &&
+                ts.isObjectLiteralExpression(node.initializer.expression)
+            ) {
+                // style={{ width: 600, gridTemplateColumns: '200px 1fr' }}: the same rules as css.
+                for (const prop of node.initializer.expression.properties) {
+                    if (!ts.isPropertyAssignment(prop)) continue;
+                    const name =
+                        ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)
+                            ? prop.name.text
+                            : '';
+                    const init = prop.initializer;
+                    const value = ts.isNumericLiteral(init)
+                        ? `${init.text}px`
+                        : ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)
+                          ? init.text
+                          : null;
+                    if (!name || value === null) continue;
+                    const message = layoutProblem(kebab(name), value, {
+                        query: false,
+                        wideOnly: false,
+                        selector: '',
+                    });
+                    if (message) report(prop, message);
+                }
             } else if (
                 ts.isJsxAttribute(node) &&
                 node.name.getText(sf) === 'dangerouslySetInnerHTML'

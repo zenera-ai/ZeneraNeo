@@ -132,6 +132,58 @@ describe('html-page build', { timeout: 60_000 }, () => {
         );
     });
 
+    it('checks React itself: hooks, events and props are typed', () => {
+        const dir = page({
+            'app.tsx': [
+                `import { useState } from 'react';`,
+                `import { Split } from '@page/kit';`,
+                `export default function App() {`,
+                `    const [n, setN] = useState(0);`,
+                `    return <div onClick={() => setN('x')}><Split list={n} detail={null} open={false} /></div>;`,
+                `}`,
+            ].join('\n'),
+        });
+        const run = build(dir);
+        expect(run.status).toBe(1);
+        expect(run.err).toContain("app.tsx:5:37  Argument of type 'string' is not assignable");
+        expect(run.err).toMatch(/app\.tsx:5:\d+ {2}.*Property 'open' does not exist/);
+    });
+
+    it('rejects layouts that break or hide things on the narrow side panel', () => {
+        const dir = page({
+            'app.tsx': [
+                `import './app.css';`,
+                `export default function App() {`,
+                `    return <div style={{ width: 640, gridTemplateColumns: '200px 1fr', maxWidth: 900 }}>x</div>;`,
+                `}`,
+            ].join('\n'),
+            'app.css': [
+                `.row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; }`,
+                `.cards { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }`,
+                `.ok { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)) 24px; }`,
+                `@media (max-width: 700px) { .sidebar { display: none; } }`,
+                `@container page (min-width: 900px) { .wide { width: 800px; grid-template-columns: 300px 1fr; } }`,
+                `body { height: 100vh; overflow: hidden; }`,
+            ].join('\n'),
+        });
+        const run = build(dir);
+        expect(run.status).toBe(1);
+        for (const expected of [
+            'app.tsx:3:26  width: 640px is wider than',
+            'app.tsx:3:38  fixed columns of 200 px',
+            'app.css:1:23  fixed columns of 160 px',
+            'app.css:2:10  minmax(420px, …) overflows a narrow panel',
+            'app.css:4:40  display: none in a media or container query',
+            'app.css:6:8  height: 100vh on the page itself',
+            'app.css:6:23  overflow: hidden on the page itself',
+        ]) {
+            expect(run.err).toContain(expected);
+        }
+        // Fine: a floor that gives way, a small fixed column, a max-width, wide-only sizes.
+        expect(run.err).not.toMatch(/app\.css:[35]:/);
+        expect(run.err).not.toContain('max-width: 900');
+    });
+
     it('keeps a string that closes a script from closing the inlined one', () => {
         const dir = page({
             'app.tsx': `const s = '</script><script>alert(1)</script><!-- x';\nexport default function App() { return <p>{s}</p>; }\n`,

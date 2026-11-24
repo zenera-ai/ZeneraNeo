@@ -152,24 +152,60 @@ export function Card({
     );
 }
 
+/** Cards and blocks one under another, with the page's gap. */
+export function Stack({ children }: { children?: ReactNode }) {
+    return <div className="stack">{children}</div>;
+}
+
 /**
- * A list and the item opened from it. Wide: side by side. Narrow (the chat's side panel):
- * the list, or the item when one is open - give the item a Back button that closes it.
+ * A list and what is open from it: a message, a record, a form to write a new one.
+ *
+ * Wide: side by side, `placeholder` on the right while nothing is open.
+ * Narrow (the chat's side panel): the list, or - while `detail` is given - only the detail,
+ * with a Back button (calling `onBack`) above it.
+ *
+ * `detail` is null when nothing is open, and whatever is open otherwise: anything the user
+ * can open, including a compose or edit form, goes in it, so it is reachable at every width.
+ *
+ *   <Split
+ *       list={<Inbox onOpen={setOpenId} onNew={() => setComposing(true)} />}
+ *       detail={composing ? <Compose … /> : openId != null ? <Message id={openId} /> : null}
+ *       onBack={() => { setComposing(false); setOpenId(null); }}
+ *   />
  */
 export function Split({
     list,
     detail,
-    open,
+    onBack,
+    placeholder = 'Pick an item to open it.',
+    backLabel = 'Back',
 }: {
     list: ReactNode;
+    /** what is open, or null (or false) when nothing is */
     detail: ReactNode;
-    /** whether an item is open (detail shown instead of the list when narrow) */
-    open: boolean;
+    /** closes what is open: the narrow layout's Back button */
+    onBack: () => void;
+    placeholder?: ReactNode;
+    backLabel?: ReactNode;
 }) {
+    const open = detail != null && detail !== false;
     return (
         <div className={`split${open ? ' split-open' : ''}`}>
             <div className="split-list">{list}</div>
-            <div className="split-detail">{detail}</div>
+            <div className="split-detail">
+                {open ? (
+                    <>
+                        <button className="split-back" onClick={onBack}>
+                            ← {backLabel}
+                        </button>
+                        {detail}
+                    </>
+                ) : (
+                    <Card>
+                        <Empty>{placeholder}</Empty>
+                    </Card>
+                )}
+            </div>
         </div>
     );
 }

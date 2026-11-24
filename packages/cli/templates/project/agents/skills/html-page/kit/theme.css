@@ -123,12 +123,34 @@ body {
 .row > * {
     min-width: 0;
 }
+.stack {
+    display: grid;
+    gap: var(--gap);
+    align-content: start;
+}
+.stack > * {
+    min-width: 0;
+}
+/* Narrow: the list, or what is open with a Back button. Wide: both side by side. */
 .split {
     display: grid;
     gap: var(--gap);
 }
 .split > * {
     min-width: 0;
+}
+.split-list,
+.split-detail {
+    display: grid;
+    gap: var(--gap);
+    align-content: start;
+}
+.split-list > *,
+.split-detail > * {
+    min-width: 0;
+}
+.split-back {
+    justify-self: start;
 }
 .split.split-open > .split-list,
 .split:not(.split-open) > .split-detail {
@@ -141,7 +163,10 @@ body {
     }
     .split.split-open > .split-list,
     .split:not(.split-open) > .split-detail {
-        display: block;
+        display: grid;
+    }
+    .split-back {
+        display: none;
     }
 }
 
@@ -157,6 +182,11 @@ body {
     gap: 2px;
     font-size: 0.85rem;
     color: var(--muted);
+    min-width: 0;
+}
+.stack > .field > :is(input, textarea, select),
+.card > .field > :is(input, textarea, select) {
+    width: 100%;
 }
 input,
 select,
