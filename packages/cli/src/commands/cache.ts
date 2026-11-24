@@ -1,3 +1,4 @@
+import { clip } from '../tui/wrap.ts';
 import { paths } from '@zenera/engine';
 import { parse } from '../args.ts';
 import { clear, items, kinds, sweep, type CacheKind, type Swept } from '../cache.ts';
@@ -309,5 +310,5 @@ function shorten(key: string): string {
         .replace(/\u0000/g, ' · ')
         .replace(/\s+/g, ' ')
         .trim();
-    return flat.length > 72 ? `${flat.slice(0, 71)}…` : flat || dim('(unreadable)');
+    return clip(flat, 72) || dim('(unreadable)');
 }

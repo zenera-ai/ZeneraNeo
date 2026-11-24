@@ -45,7 +45,11 @@ export function windowOf(text: string, width: number, rows: number): string[] {
  * argument or a result preview arrives with whatever shape it happened to have.
  */
 export function clip(text: string, width: number): string {
-    const flat = text.replace(/\s+/g, ' ').trim();
+    return clipColumns(text.replace(/\s+/g, ' ').trim(), width);
+}
+
+/** Clip plain text without changing whitespace, preserving complete graphemes. */
+export function clipColumns(flat: string, width: number): string {
     const w = Math.max(1, width);
     if (stringWidth(flat) <= w) {
         return flat;
@@ -61,6 +65,16 @@ export function clip(text: string, width: number): string {
         columns += size;
     }
     return `${head}…`;
+}
+
+/** Pad plain text to a display width, without truncating text that is wider. */
+export function padEndCols(text: string, columns: number): string {
+    return text + ' '.repeat(Math.max(0, columns - stringWidth(text)));
+}
+
+/** Left-pad plain text to a display width without truncating it. */
+export function padStartCols(text: string, columns: number): string {
+    return ' '.repeat(Math.max(0, columns - stringWidth(text))) + text;
 }
 
 /** Word wrap. Every returned row is at most `width` columns wide. */

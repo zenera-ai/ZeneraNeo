@@ -1,3 +1,4 @@
+import stringWidth from 'string-width';
 import { TextInput } from '@inkjs/ui';
 import { display } from '@zenera/engine';
 import {
@@ -207,7 +208,7 @@ function Row({ line }: { line: Line }): React.ReactElement {
 function Input({ text }: { text: string }): React.ReactElement {
     const theme = useTheme();
     const { stdout } = useStdout();
-    const width = Math.max(INPUT_LABEL.length + 8, answerWidth(stdout?.columns ?? 80));
+    const width = Math.max(stringWidth(INPUT_LABEL) + 8, answerWidth(stdout?.columns ?? 80));
     return (
         <Box flexDirection="column" width={width} marginY={1}>
             <Text wrap="truncate-end">
@@ -216,7 +217,7 @@ function Input({ text }: { text: string }): React.ReactElement {
                     {INPUT_LABEL}
                 </Text>
                 <Text color={theme.accent}>
-                    {` ${'\u2500'.repeat(width - INPUT_LABEL.length - 5)}\u256e`}
+                    {` ${'\u2500'.repeat(width - stringWidth(INPUT_LABEL) - 5)}\u256e`}
                 </Text>
             </Text>
             {/* Ink owns the other three sides: it measures the text by display
@@ -857,7 +858,7 @@ function App({ engine, options, theme }: Props): React.ReactElement {
                         'tool',
                         clip(
                             view.subject,
-                            Math.max(20, columns - view.verb.length - TIME_COL - 10),
+                            Math.max(20, columns - stringWidth(view.verb) - TIME_COL - 10),
                         ),
                         detailOf(node, columns - 4),
                         view.verb,
@@ -1310,7 +1311,7 @@ function branchBoxesOf(
                 mark: note.failed ? '✗' : '✓',
                 time: note.failed ? 'failed' : (durationOf(note.ms) ?? ''),
                 lead: view.verb,
-                text: clip(view.subject, room(width) - view.verb.length),
+                text: clip(view.subject, room(width) - stringWidth(view.verb)),
             });
         }
         // Prose arriving now, and failing that what it is reasoning about —
@@ -1351,7 +1352,7 @@ function branchBoxesOf(
                     mark: spin,
                     time: secs(now - t.startedAt),
                     lead: view.verb,
-                    text: clip(view.subject, room(width) - view.verb.length),
+                    text: clip(view.subject, room(width) - stringWidth(view.verb)),
                 });
             }
         }
@@ -1406,7 +1407,7 @@ function trunkRowsOf(
             mark: spin,
             time: secs(now - t.startedAt),
             lead: view.verb,
-            text: clip(view.subject, Math.max(12, width - TIME_COL - view.verb.length - 6)),
+            text: clip(view.subject, Math.max(12, width - TIME_COL - stringWidth(view.verb) - 6)),
         };
     });
 }
@@ -1490,7 +1491,7 @@ function Branches({
                             <Text>{` ${spin}`}</Text>
                             <Text color={theme.chrome.color}>{`  ${b.context} `}</Text>
                             <Text>
-                                {'─'.repeat(Math.max(0, columns - said.length - 5))}
+                                {'─'.repeat(Math.max(0, columns - stringWidth(said) - 5))}
                                 {'╮'}
                             </Text>
                         </Text>
@@ -1507,7 +1508,7 @@ function Branches({
                             <Text>{'╰─ '}</Text>
                             <Text color={theme.chrome.color}>{foot}</Text>
                             <Text>
-                                {` ${'─'.repeat(Math.max(0, columns - foot.length - 5))}`}
+                                {` ${'─'.repeat(Math.max(0, columns - stringWidth(foot) - 5))}`}
                                 {'╯'}
                             </Text>
                         </Text>
@@ -1525,14 +1526,14 @@ function Branches({
  */
 function widthOf(row: ActivityRow): number {
     if (row.thinking || row.said) {
-        return row.text.length;
+        return stringWidth(row.text);
     }
     return (
         2 +
-        Math.max(TIME_COL, row.time.length) +
+        Math.max(TIME_COL, stringWidth(row.time)) +
         2 +
-        row.lead.length +
-        (row.text ? row.text.length + 1 : 0)
+        stringWidth(row.lead) +
+        (row.text ? stringWidth(row.text) + 1 : 0)
     );
 }
 
@@ -1675,7 +1676,7 @@ function Streaming({ text: said, columns, rows }: StreamProps): React.ReactEleme
     // nothing: what is on screen is what stays there.
     //
     // Markers are resolved but nothing is styled. This region repaints, and
-    // everything that repaints is measured by `.length` — so the stream gets
+    // repainting text is measured in display columns — so the stream gets
     // the words the answer will have and the weights it will not, which is the
     // half of the change that can be made without lying about the height.
     const shown = windowOf(

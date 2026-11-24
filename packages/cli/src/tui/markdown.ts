@@ -1,3 +1,7 @@
+import stringWidth from 'string-width';
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 // ---------------------------------------------------------------------------
 // Terminal Markdown Formatter
 //
@@ -5,11 +9,11 @@
 //
 // Consumes the block and span AST from `wrap.ts` and applies terminal styling
 // from `term.ts` (bold, italic, green for code, underline for links, dimmed
-// borders and markers). Line wrapping measures plain characters, so ANSI
+// borders and markers). Line wrapping measures display columns, so ANSI
 // escape codes never cause lines to wrap early or misalign borders.
 // ---------------------------------------------------------------------------
 
-import { bold, cut, dim, green, italic, plain, styled, underline } from '../term.ts';
+import { bold, cut, dim, green, italic, styled, underline } from '../term.ts';
 import { type Block, blocksOf, gridOf, inlineOf, type Span } from './wrap.ts';
 
 interface StyledPiece {
@@ -71,7 +75,6 @@ function mergePieces(pieces: readonly StyledPiece[]): StyledPiece[] {
 function wordsOf(spans: readonly Span[]): StyledWord[] {
     const words: StyledWord[] = [];
     let currentPieces: StyledPiece[] = [];
-    let currentLen = 0;
 
     for (const span of spans) {
         const style: Omit<Span, 'text'> = {
@@ -85,43 +88,58 @@ function wordsOf(spans: readonly Span[]): StyledWord[] {
             if (!part) continue;
             if (/^\s+$/.test(part)) {
                 if (currentPieces.length > 0) {
-                    words.push({ pieces: currentPieces, length: currentLen });
+                    words.push(wordOf(currentPieces));
                     currentPieces = [];
-                    currentLen = 0;
                 }
             } else {
                 currentPieces.push({ text: part, ...style });
-                currentLen += part.length;
             }
         }
     }
     if (currentPieces.length > 0) {
-        words.push({ pieces: currentPieces, length: currentLen });
+        words.push(wordOf(currentPieces));
     }
     return words;
 }
 
-function sliceWord(word: StyledWord, at: number): [StyledWord, StyledWord] {
+function wordOf(pieces: StyledPiece[]): StyledWord {
+    return { pieces, length: stringWidth(pieces.map((p) => p.text).join('')) };
+}
+
+function sliceWord(word: StyledWord, columns: number): [StyledWord, StyledWord] {
+    const text = word.pieces.map((p) => p.text).join('');
+    let at = 0;
+    let used = 0;
+    let replacement = false;
+    for (const { segment } of graphemes.segment(text)) {
+        const size = stringWidth(segment);
+        if (used + size > columns) {
+            // A whole grapheme may be wider than the entire available row.
+            // Consume it with a replacement so the caller always progresses.
+            if (at === 0) {
+                at = segment.length;
+                replacement = true;
+            }
+            break;
+        }
+        at += segment.length;
+        used += size;
+    }
     const leftPieces: StyledPiece[] = [];
     const rightPieces: StyledPiece[] = [];
     let taken = 0;
     for (const p of word.pieces) {
-        if (taken + p.text.length <= at) {
-            leftPieces.push(p);
-            taken += p.text.length;
-        } else if (taken < at) {
-            const cutIndex = at - taken;
-            leftPieces.push({ ...p, text: p.text.slice(0, cutIndex) });
-            rightPieces.push({ ...p, text: p.text.slice(cutIndex) });
-            taken = at;
-        } else {
-            rightPieces.push(p);
-        }
+        // `at` is a grapheme-safe UTF-16 offset; these slices map that offset
+        // back to styles, they do not measure terminal columns.
+        const end = Math.min(p.text.length, Math.max(0, at - taken));
+        if (end > 0) leftPieces.push({ ...p, text: p.text.slice(0, end) });
+        if (end < p.text.length) rightPieces.push({ ...p, text: p.text.slice(end) });
+        taken += p.text.length;
     }
-    return [
-        { pieces: leftPieces, length: at },
-        { pieces: rightPieces, length: word.length - at },
-    ];
+    if (replacement) {
+        return [wordOf([{ ...leftPieces[0], text: '�' }]), wordOf(rightPieces)];
+    }
+    return [wordOf(leftPieces), wordOf(rightPieces)];
 }
 
 export function wrapSpans(
@@ -138,8 +156,8 @@ export function wrapSpans(
 
     const lines: string[] = [];
     let currentWords: StyledWord[] = [];
-    const prefixLen = plain(prefix).length;
-    const subLen = plain(subsequentPrefix).length;
+    const prefixLen = stringWidth(prefix);
+    const subLen = stringWidth(subsequentPrefix);
     let currentLen = prefixLen;
 
     const flush = (): void => {
@@ -187,7 +205,7 @@ export function wrapSpans(
             flush();
             currentWords.push(word);
             const p = lines.length === 0 ? prefix : subsequentPrefix;
-            currentLen = plain(p).length + word.length;
+            currentLen = stringWidth(p) + word.length;
         }
     }
 
@@ -246,7 +264,7 @@ export function formatBlocks(blocks: readonly Block[], width = 80): string[] {
             const marker = block.marker ?? '\u2022';
             const leadSpaces = '  '.repeat(indentLevel);
             const prefix = `${leadSpaces}${dim(marker)} `;
-            const subPrefix = `${leadSpaces}${' '.repeat(marker.length + 1)}`;
+            const subPrefix = `${leadSpaces}${' '.repeat(stringWidth(marker) + 1)}`;
             lines.push(...wrapSpans(block.spans ?? [], width, prefix, subPrefix));
         } else if (block.kind === 'quote') {
             const quoteSpans = (block.spans ?? []).map((s) => ({ ...s, italic: true }));
