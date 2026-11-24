@@ -72,7 +72,16 @@ export interface Case {
     source?: Source;
     /** fields a re-extraction must not overwrite */
     overrides?: string[];
+    /**
+     * The revision that last set what the case asks or how it is judged
+     * (`RESTART_FIELDS`), when a later one changed only the rest. Absent, it is
+     * `rev`. Results kept against it still hold after a change to tags or notes.
+     */
+    questionRev?: number;
 }
+
+/** The revision whose results still hold for the case: the last that restarted it. */
+export const questionRev = (c: Pick<Case, 'rev' | 'questionRev'>): number => c.questionRev ?? c.rev;
 
 /** A change to these is a different question: earlier results no longer count. */
 export const RESTART_FIELDS = ['input', 'rubric', 'expected'] as const;

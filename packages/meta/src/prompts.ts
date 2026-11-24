@@ -92,6 +92,61 @@ export async function listPrompts(dir: string): Promise<string[]> {
     return [...names].sort();
 }
 
+export interface CommandInfo {
+    name: string;
+    description?: string;
+    /** the frontmatter's `argument-hint` */
+    hint?: string;
+}
+
+/** The commands a person may type, with what an editor shows beside each. */
+export async function listCommands(dir: string): Promise<CommandInfo[]> {
+    const out: CommandInfo[] = [];
+    for (const name of await listPrompts(dir)) {
+        const path = promptPath(dir, name);
+        let text: string;
+        try {
+            text = await readFile(path, 'utf8');
+        } catch {
+            continue;
+        }
+        const { description } = readPrompt(path, name, text);
+        const hint = /^argument-hint:\s*(.+)$/m.exec(
+            /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? '',
+        )?.[1];
+        out.push({
+            name,
+            ...(description ? { description } : {}),
+            ...(hint ? { hint: hint.trim().replace(/^['"]|['"]$/g, '') } : {}),
+        });
+    }
+    return out;
+}
+
+const COMMAND = /^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/;
+
+/**
+ * A chat message as the model should get it: `/name words` becomes the body of
+ * the command it names with the words after it, as `zen meta chat` does. Text
+ * that names no command a person may type - prose, a path - goes as it is.
+ */
+export async function expandCommand(
+    dir: string,
+    text: string,
+): Promise<{ prompt: string; command?: string }> {
+    const match = COMMAND.exec(text.trim());
+    if (!match) {
+        return { prompt: text };
+    }
+    const [, name, words = ''] = match;
+    if (!(await listPrompts(dir)).includes(name)) {
+        return { prompt: text };
+    }
+    const found = await loadPrompt(dir, name);
+    const extra = words.trim();
+    return { prompt: extra ? `${found.body}\n\n${extra}` : found.body, command: name };
+}
+
 function entries(path: string): string[] {
     try {
         return readdirSync(path);

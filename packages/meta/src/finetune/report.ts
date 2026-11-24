@@ -510,6 +510,69 @@ function stateOf(t: Tuning, c: Case): string {
     return attemptsOf(t, c).length > 0 ? 'stopped' : 'queued';
 }
 
+/** One case of the selection as `finetune status --json` lists it: what is on disk, not what a worker holds. */
+export interface CaseRow {
+    id: string;
+    class?: string;
+    /** the revision the tuning knows it at */
+    rev: number;
+    rubric: number;
+    state: 'queued' | 'stopped' | 'completed' | 'difficult' | 'failed';
+    /** of the result, or of the latest try */
+    phase?: Phase;
+    reason?: string;
+    tries: Record<Phase, number>;
+    verdict?: Feedback['verdict'];
+    /** the latest analysis' grade per rubric line */
+    grades?: Feedback['rubric'];
+    /** rubric lines that analysis graded `invalid`, with what it says is wrong */
+    rubricProblems?: { lines: string[]; why: string[] };
+    summary?: string;
+    tokens: ByStage;
+    /** project-relative */
+    feedback?: string;
+}
+
+export function caseRows(t: Tuning): CaseRow[] {
+    return selection(t).map((c) => {
+        const r = resultOf(t, c);
+        const attempts = attemptsOf(t, c);
+        const last = [...attempts].reverse().find((a) => a.feedback)?.feedback;
+        const invalid = Object.entries(last?.rubric ?? {})
+            .filter(([, g]) => g === 'invalid')
+            .map(([id]) => id);
+        const feedback = feedbackPath(t, c);
+        return {
+            id: c.id,
+            ...(c.class ? { class: c.class } : {}),
+            rev: c.rev,
+            rubric: c.rubric.length,
+            state: r?.state ?? (attempts.length > 0 ? 'stopped' : 'queued'),
+            ...((r?.phase ?? attempts.at(-1)?.phase)
+                ? { phase: r?.phase ?? attempts.at(-1)!.phase }
+                : {}),
+            ...(r?.reason ? { reason: r.reason } : {}),
+            tries: {
+                nomem: attempts.filter((a) => a.phase === 'nomem').length,
+                mem: attempts.filter((a) => a.phase === 'mem').length,
+            },
+            ...(last
+                ? { verdict: last.verdict, grades: last.rubric, summary: lead(last.summary) }
+                : {}),
+            ...(invalid.length > 0
+                ? {
+                      rubricProblems: {
+                          lines: invalid,
+                          why: (last?.improvements ?? []).filter(forDataset).map((i) => i.change),
+                      },
+                  }
+                : {}),
+            tokens: caseTokens(t, c),
+            ...(existsSync(feedback) ? { feedback: relative(t.root, feedback) } : {}),
+        };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // FEEDBACK.md - one case
 // ---------------------------------------------------------------------------

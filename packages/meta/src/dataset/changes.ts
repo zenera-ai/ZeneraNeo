@@ -10,6 +10,7 @@ import {
     type ChangeRow,
     CONTENT_FIELDS,
     type ContentField,
+    questionRev,
     type FieldChange,
     type Manifest,
     RESTART_FIELDS,
@@ -138,6 +139,12 @@ function fieldChanges(before: Case, after: Case): FieldChange[] {
     return out;
 }
 
+/** The case with `questionRev` set, or without it when the question is its own revision's. */
+function withQuestion(c: Case, rev: number | undefined): Case {
+    const { questionRev: _, ...rest } = c;
+    return rev !== undefined && rev !== c.rev ? { ...rest, questionRev: rev } : rest;
+}
+
 const restarts = (changes: readonly FieldChange[]): boolean =>
     changes.some((c) => RESTART_FIELDS.some((f) => c.path === f || c.path.startsWith(`${f}/`)));
 
@@ -241,7 +248,8 @@ function finish(
 
     for (const { before, after } of nexts) {
         if (!before) {
-            const added = { ...after, rev };
+            const { questionRev: _, ...fresh } = after;
+            const added = { ...fresh, rev };
             rows.push({ type: 'change', rev, at, op: 'add', changes: [], why, by, case: added });
             revision.added.push(after.id);
             continue;
@@ -256,13 +264,17 @@ function finish(
         }
         if (!op) {
             if (before.source?.sha256 !== after.source?.sha256) {
-                refreshed.push({ ...after, rev: before.rev });
+                refreshed.push(withQuestion({ ...after, rev: before.rev }, before.questionRev));
             } else {
                 unchanged.push(after.id);
             }
             continue;
         }
-        const written = { ...after, rev };
+        const restarted = op !== 'retire' && restarts(changes);
+        const written = withQuestion(
+            { ...after, rev },
+            restarted ? undefined : questionRev(before),
+        );
         rows.push({ type: 'change', rev, at, op, changes, why, by, case: written });
         if (op === 'retire') {
             revision.retired.push(after.id);
@@ -271,7 +283,7 @@ function finish(
         } else {
             revision.updated.push(after.id);
         }
-        if (op !== 'retire' && restarts(changes)) {
+        if (restarted) {
             revision.restarted.push(after.id);
         }
     }

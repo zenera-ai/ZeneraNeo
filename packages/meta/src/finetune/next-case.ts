@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { sample } from '../dataset/sample.ts';
 import { DatasetStore } from '../dataset/store.ts';
-import type { Case } from '../dataset/types.ts';
+import { type Case, questionRev } from '../dataset/types.ts';
 import { readJson, type Tuning } from './tuning.ts';
 import type { ByStage } from './usage.ts';
 
@@ -13,7 +13,7 @@ import type { ByStage } from './usage.ts';
 // No judgement here: the dataset's own draw - classes taking turns, cases with
 // a rubric first, the rest in seeded random order - cut to the limit. A case
 // is taken when it has no result at its current revision and no worker holds
-// it, so a case added or changed in the dataset is picked up on the way. A case
+// it, so a case added or restarted in the dataset is picked up on the way. A case
 // that failed - the sandbox or a provider broke, not the prose - is taken again
 // on the next start, and carries on from the step that failed.
 // ---------------------------------------------------------------------------
@@ -29,10 +29,19 @@ export interface Result {
     tokens?: ByStage;
 }
 
+/**
+ * The case as a tuning knows it: at the revision that last changed what it asks
+ * or how it is judged. A change to its tags, class or notes keeps its results.
+ */
+export function tuned(c: Case): Case {
+    const rev = questionRev(c);
+    return rev === c.rev ? c : { ...c, rev };
+}
+
 /** The cases this tuning covers, in the order they are taken. */
 export function selection(t: Tuning): Case[] {
     const store = DatasetStore.open(t.root);
-    const cases = store.all();
+    const cases = store.all().map(tuned);
     const ids = anyOf((t.config.ids ?? []).map((p) => wildcard(p)));
     const drawn = sample(
         cases,
