@@ -3,6 +3,7 @@ import { closeSync, createReadStream, fstatSync, openSync, realpathSync, statSyn
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, posix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 import { workspaceMount } from './uploads.ts';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ import { workspaceMount } from './uploads.ts';
 //   sendAgentFile    - streams it with its type, ETag, byte ranges and safety
 //                      headers. Anything that could run (html, svg, js) is a download;
 //                      in `view` mode (a page's view URL) it is shown inline instead,
-//                      sandboxed by viewCsp
+//                      sandboxed by viewCsp, and its text is gzipped when the client takes it
 //   viewCsp          - the policy a page shown that way runs under
 //   fileTrees, contentTypeOf, AgentFileError, agentFileStatus - helpers
 //
@@ -286,6 +287,28 @@ export function viewCsp(frameAncestors: readonly string[] = ["'self'"]): string 
     ].join('; ');
 }
 
+/** Text a page loads, worth compressing: its html, scripts, styles, data and svg. */
+const COMPRESSIBLE = /^(text\/|application\/(json|geo\+json|x-ndjson|xml)$|image\/svg\+xml$)/;
+
+/** Below this, gzip's own overhead eats most of what it would save. */
+const COMPRESS_MIN = 1024;
+
+/** Whether the client takes gzip: listed, and not with `q=0`. */
+function acceptsGzip(req: IncomingMessage): boolean {
+    const header = req.headers['accept-encoding'];
+    if (typeof header !== 'string') {
+        return false;
+    }
+    return header.split(',').some((part) => {
+        const [coding, ...params] = part.trim().toLowerCase().split(';');
+        if (coding?.trim() !== 'gzip') {
+            return false;
+        }
+        const q = params.map((p) => p.trim()).find((p) => p.startsWith('q='));
+        return q === undefined || Number(q.slice(2)) > 0;
+    });
+}
+
 /** The type a file is sent as, by its name. */
 export function contentTypeOf(name: string): string {
     const type = TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream';
@@ -374,7 +397,8 @@ export interface SendFileOptions {
  * one byte range when asked (206, or 416), HEAD without a body. What the agent wrote may be
  * steered by whatever it read, so nothing is let run as the page that shows it: `nosniff`,
  * a sandboxing CSP, and anything not plainly viewable (html, svg, scripts) sent as a download.
- * An `<img>` still shows an svg. In `view` mode a page does run, but only under viewCsp.
+ * An `<img>` still shows an svg. In `view` mode a page does run, but only under viewCsp, and
+ * its text (html, scripts, styles, data) is gzipped for a client that takes it.
  * Resolves when the response has ended.
  */
 export async function sendAgentFile(
@@ -398,8 +422,14 @@ export async function sendAgentFile(
             throw new AgentFileError('missing', `no such file: ${file.path}`);
         }
         const current: AgentFile = { ...file, size: info.size, mtimeMs: info.mtimeMs };
-        const etag = etagOf(current);
         const type = contentTypeOf(file.path);
+        // Only pages served for viewing: their text is what a browser fetches over the network
+        // when it opens one. A range asks for bytes of the file as stored, so it is sent as is.
+        const compressible =
+            opts.view !== undefined && COMPRESSIBLE.test(type) && current.size >= COMPRESS_MIN;
+        const gzip = compressible && acceptsGzip(req) && req.headers.range === undefined;
+        // The gzipped bytes are a different representation, so they get their own validator.
+        const etag = gzip ? etagOf(current).replace(/"$/, '-gz"') : etagOf(current);
         const inline = opts.view !== undefined || INLINE.test(type);
         res.setHeader(
             'Cache-Control',
@@ -421,6 +451,9 @@ export async function sendAgentFile(
         if (opts.view) {
             res.setHeader('Access-Control-Allow-Origin', '*');
         }
+        if (compressible) {
+            res.setHeader('Vary', 'Accept-Encoding');
+        }
         if (notModified(req, etag, current.mtimeMs)) {
             res.statusCode = 304;
             res.end();
@@ -429,6 +462,22 @@ export async function sendAgentFile(
         res.setHeader('Content-Type', type);
         res.setHeader('Content-Disposition', disposition(posix.basename(file.path), inline));
         res.setHeader('Accept-Ranges', 'bytes');
+        if (gzip) {
+            res.statusCode = 200;
+            res.setHeader('Content-Encoding', 'gzip');
+            if (req.method === 'HEAD') {
+                res.end();
+                return;
+            }
+            owned = false;
+            const stream = createReadStream('', { fd, autoClose: true });
+            try {
+                await pipeline(stream, createGzip(), res);
+            } catch {
+                res.destroy();
+            }
+            return;
+        }
         const range = rangeOf(req, current.size, etag, current.mtimeMs);
         if (range === 'unsatisfiable') {
             res.statusCode = 416;

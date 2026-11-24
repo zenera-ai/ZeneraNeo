@@ -4,10 +4,11 @@
 // download or, in view mode, as a sandboxed page.
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { createServer, type Server } from 'node:http';
+import { createServer, get as httpGet, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
     AgentFileError,
@@ -27,6 +28,8 @@ const assets = join(root, 'assets');
 const skills = join(root, 'skills');
 const secret = join(root, 'secret.txt');
 const trees: FileTrees = { workspace, workdir: '/workspace', assets };
+// A page big enough to be worth compressing.
+const BIG = `<!doctype html><p>${'row of a report '.repeat(400)}</p>`;
 
 beforeAll(() => {
     for (const d of [workspace, assets, skills, join(workspace, 'out'), join(workspace, '.data')]) {
@@ -35,6 +38,7 @@ beforeAll(() => {
     writeFileSync(join(workspace, 'a b.txt'), 'spaces');
     writeFileSync(join(workspace, 'out', 'chart.png'), 'png');
     writeFileSync(join(workspace, 'page.html'), '<script>alert(1)</script>');
+    writeFileSync(join(workspace, 'big.html'), BIG);
     writeFileSync(join(workspace, 'data.parquet'), '0123456789');
     writeFileSync(join(workspace, '.env'), 'KEY=1');
     writeFileSync(join(workspace, '.data', 'state.json'), '{}');
@@ -214,6 +218,68 @@ describe('sendAgentFile', () => {
         const res = await get('/workspace/data.parquet', {}, 'HEAD');
         expect(res.status).toBe(200);
         expect(res.headers.get('content-length')).toBe('10');
+    });
+
+    // Raw bytes over node:http: fetch would ask for gzip itself and unpack it out of sight.
+    const raw = (path: string, headers: Record<string, string> = {}, view = true) =>
+        new Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }>(
+            (done, fail) => {
+                const target = `${url}${encodeURIComponent(path)}${view ? '&view' : ''}`;
+                httpGet(target, { headers }, (res) => {
+                    const chunks: Buffer[] = [];
+                    res.on('data', (c: Buffer) => chunks.push(c));
+                    res.on('end', () =>
+                        done({
+                            status: res.statusCode!,
+                            headers: res.headers,
+                            body: Buffer.concat(chunks),
+                        }),
+                    );
+                }).on('error', fail);
+            },
+        );
+
+    it('gzips the text of a page served for viewing, for a client that takes it', async () => {
+        const res = await raw('/workspace/big.html', { 'accept-encoding': 'br, gzip;q=0.8' });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-encoding']).toBe('gzip');
+        expect(res.headers['vary']).toBe('Accept-Encoding');
+        expect(res.headers['content-length']).toBeUndefined();
+        expect(res.headers['etag']).toMatch(/-gz"$/);
+        expect(res.body.length).toBeLessThan(BIG.length / 10);
+        expect(gunzipSync(res.body).toString()).toBe(BIG);
+
+        const again = await raw('/workspace/big.html', {
+            'accept-encoding': 'gzip',
+            'if-none-match': res.headers['etag']!,
+        });
+        expect(again.status).toBe(304);
+    });
+
+    it('sends the file as is without gzip, for a range, outside view mode, or when small', async () => {
+        const cases: [string, Record<string, string>, boolean][] = [
+            ['/workspace/big.html', {}, true],
+            ['/workspace/big.html', { 'accept-encoding': 'gzip;q=0' }, true],
+            ['/workspace/big.html', { 'accept-encoding': 'gzip' }, false],
+            ['/workspace/page.html', { 'accept-encoding': 'gzip' }, true],
+            ['/workspace/out/chart.png', { 'accept-encoding': 'gzip' }, true],
+        ];
+        for (const [path, headers, view] of cases) {
+            const res = await raw(path, headers, view);
+            expect(
+                res.headers['content-encoding'],
+                `${path} ${JSON.stringify(headers)}`,
+            ).toBeUndefined();
+            expect(res.headers['content-length']).toBe(String(res.body.length));
+        }
+        const part = await raw('/workspace/big.html', {
+            'accept-encoding': 'gzip',
+            range: 'bytes=0-3',
+        });
+        expect(part.status).toBe(206);
+        expect(part.headers['content-encoding']).toBeUndefined();
+        expect(part.body.toString()).toBe(BIG.slice(0, 4));
+        expect(part.headers['etag']).not.toMatch(/-gz"$/);
     });
 
     it('types files by name', () => {
