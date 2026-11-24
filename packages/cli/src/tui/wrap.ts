@@ -712,7 +712,9 @@ const BOLD = /\*\*([^*\n]{2,}?)\*\*/g;
  * still proof that something is happening.
  */
 export function gistOf(text: string, width: number): string {
-    const tail = text.slice(-GIST_TAIL);
+    // Cut like the streaming window's tail: with no heading in it, where the
+    // tail starts is the first thing on the row.
+    const tail = tailOf(text, GIST_TAIL);
     const heads = [...tail.matchAll(BOLD)];
     const last = heads.at(-1)?.[1];
     return clip(last ?? tail, width);

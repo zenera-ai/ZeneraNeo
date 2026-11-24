@@ -317,6 +317,37 @@ describe('clipping a row that is not one column a character', () => {
     });
 });
 
+// The gist reads the last few thousand code units of the stream, and with no
+// heading in them it shows where they start: a cut there is the first thing
+// on the row, on every frame.
+describe('the gist of a reasoning stream that is not one column a character', () => {
+    it('does not open on half an emoji', () => {
+        for (let extra = 0; extra < 4; extra += 1) {
+            // One odd code unit after the run, so the cut falls inside a pair.
+            const gist = gistOf(`${'x'.repeat(extra)}${'😀'.repeat(3000)}y`, 20);
+            expect(LONE_SURROGATE.test(gist), `cut ${extra}: ${gist}`).toBe(false);
+            expect(gist.startsWith('😀'), `cut ${extra}`).toBe(true);
+        }
+    });
+
+    it('does not open inside a joined sequence or on an accent', () => {
+        for (let extra = 0; extra < FAMILY.length; extra += 1) {
+            const family = gistOf('x'.repeat(extra) + FAMILY.repeat(600), 20);
+            expect(family.startsWith(FAMILY), `cut ${extra}: ${family}`).toBe(true);
+        }
+        for (let extra = 0; extra < 3; extra += 1) {
+            const accents = gistOf('x'.repeat(extra) + 'e\u0301\u0302'.repeat(3000), 20);
+            expect(accents.startsWith('e'), `cut ${extra}`).toBe(true);
+        }
+    });
+
+    it('still finds the last heading, and reads plain text as it did', () => {
+        expect(gistOf(`${'日'.repeat(5000)} **計画を立てる** 続き`, 40)).toBe('計画を立てる');
+        const plain = Array.from({ length: 2000 }, (_, i) => `word${i}`).join(' ');
+        expect(gistOf(plain, 30)).toBe(clipBefore(plain.slice(-4000), 30));
+    });
+});
+
 describe('a table whose cells are not one column a character', () => {
     const table = '| 名前 | value |\n|---|---:|\n| 東京都 | 1 |\n| Zürich | 22 |\n| 😀 | 3 |';
 
