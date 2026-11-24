@@ -128,6 +128,17 @@ describe('sandbox base', () => {
             'python -c "import bs4, dateutil, jsonschema, requests, yaml"',
         );
         expect(dockerfile.indexOf('npm install -g "axios@')).toBeLessThan(arg);
+        // The html-page skill's build, require()-able through NODE_PATH.
+        for (const lib of [
+            'esbuild',
+            'typescript',
+            'react-dom',
+            '@types/react',
+            '@types/react-dom',
+        ]) {
+            expect(dockerfile.indexOf(`"${lib}@^`)).toBeGreaterThan(-1);
+            expect(dockerfile.indexOf(`"${lib}@^`)).toBeLessThan(arg);
+        }
         expect(dockerfile).toContain('ENV NODE_PATH=/usr/local/lib/node_modules');
         expect(dockerfile).toContain('LABEL zenera.sandbox-base=1 zenera.version=$ZEN_VERSION');
     });

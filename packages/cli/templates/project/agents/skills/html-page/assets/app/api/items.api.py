@@ -1,8 +1,9 @@
-"""The app's API: every public function here can be called from index.html.
+"""The app's API: every public function here can be called from app.tsx.
 
-    const items = api('api/items');
+    const items = api<ItemsApi>('api/items');
     await items.add_item({ title: 'Milk' })   ->   add_item(title="Milk")
 
+Keep the page's ItemsApi interface in step with these functions.
 Names starting with `_` and anything imported are not callable from the page.
 Try them from a shell before linking the app:
 

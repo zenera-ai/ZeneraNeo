@@ -51,6 +51,16 @@ RUN npm install -g \
     "yazl@^3.3.1" \
     "zod@^4.6.7"
 
+# The html-page skill's build (/skills/html-page/scripts/build.ts): it type-checks a page's
+# app.tsx, bundles it with React and the skill's kit, and writes the page as one index.html.
+RUN npm install -g \
+    "esbuild@^0.28.2" \
+    "typescript@^5.9.3" \
+    "react@^19.2.8" \
+    "react-dom@^19.2.8" \
+    "@types/react@^19.2.18" \
+    "@types/react-dom@^19.2.3"
+
 # Libraries agents' scripts commonly reach for: HTTP clients, JSON Schema validation, YAML,
 # dates, HTML. `python` and `python3` must be one interpreter, the one pip installs into.
 # Global npm packages resolve for require() through NODE_PATH; ESM import does not read it

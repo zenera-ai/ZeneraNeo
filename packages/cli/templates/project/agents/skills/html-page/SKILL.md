@@ -1,17 +1,22 @@
 ---
 name: html-page
-description: Building an interactive HTML page the user opens from the chat - a dashboard or report with charts, tables, filters and headline numbers, or a small app whose page calls Python functions to read and change data (a tracker, a CRUD tool, a form that saves, a page that queries a database each time it opens). Where to write it, how it gets its data, the layout that works in the chat's side panel and full page, and how to check it. Load when an answer has more than one chart or table, data the user will want to filter or explore, or the user wants something to use and change.
-tags: [html, dashboard, report, app, charts, api, python, ui]
-version: 1.0.0
+description: Building an interactive page the user opens from the chat - a dashboard or report with charts, tables, filters and headline numbers, or a small app whose page calls Python functions to read and change data (a tracker, a CRUD tool, a mail or ticket view, a form that saves, a page that queries a database each time it opens). The page is a React component in TypeScript (app.tsx) that a build checks and turns into one HTML file. Where to write it, how it gets its data, the kit of components, the layout that works in the chat's side panel and full page, and how to build and check it. Load when an answer has more than one chart or table, data the user will want to filter or explore, or the user wants something to use and change.
+tags: [html, react, typescript, dashboard, report, app, charts, api, python, ui]
+version: 2.0.0
 ---
 
-# Interactive HTML pages
+# Interactive pages
 
 A page is the answer when a reply would be too long or too static: several
 related charts and tables, a breakdown to filter, sort or drill into, or
 something the user will use and change (add items, edit records, run a
 query). One chart or a short table is better inline in the chat (load `a2ui`
 and `a2ui-charts`).
+
+You write the page as **one React component in TypeScript, `app.tsx`**. The
+build checks it (types, what a sandboxed page may do, a first render) and
+writes **`index.html`**, the file the user opens: React, the kit and your code
+inlined, nothing else to copy.
 
 ## First: where its data comes from
 
@@ -35,11 +40,12 @@ One folder per page, under `/workspace/pages/`:
 
 ```
 /workspace/pages/sales-q1/
-├── index.html           the page
+├── app.tsx              the page: export default function App() - you write this
+├── components/          more components it imports, if it grows (optional)
+├── index.html           written by the build - never edit it
 ├── data.json            data it shows, written by your script        (static data)
-├── api.js               calls the functions - copied, never edited    (functions)
 └── api/
-    ├── orders.api.py    functions the page calls
+    ├── orders.api.py    functions the page calls                      (functions)
     ├── db.py            helpers they import (not callable from the page)
     └── .data/           the page's own data (SQLite); never downloadable
 ```
@@ -49,97 +55,136 @@ One folder per page, under `/workspace/pages/`:
   data.
 - A script that builds `data.json` goes under `/workspace/.tmp/`, so the page
   can be refreshed by running it again.
-- More pages of one app are more `.html` files in the folder.
+- Every `.tsx` directly in the folder is a page: `app.tsx` builds
+  `index.html`, `report.tsx` builds `report.html`. Components it imports go
+  in a subfolder (`components/Inbox.tsx`), never beside `app.tsx`.
 
 ## Start from a template
 
 Copy one and edit it rather than writing a page from scratch:
 
 ```sh
-# a dashboard or report: charts, KPIs, filters, table
+# a dashboard or report: filters, KPIs, charts, table, from data.json
 mkdir -p /workspace/pages/sales-q1
-cp /skills/html-page/assets/dashboard.html /workspace/pages/sales-q1/index.html
+cp /skills/html-page/assets/dashboard.tsx /workspace/pages/sales-q1/app.tsx
 
 # an app: a list kept in SQLite, with add, check off, filter and delete
 cp -r /skills/html-page/assets/app /workspace/pages/todo
-cp /skills/html-page/assets/api.js /workspace/pages/todo/
 ```
 
-Keep the templates' layout, theme and helpers; replace the part marked
-`The page: replace from here`. A dashboard with live data is the dashboard
-template plus `api.js` and an `*.api.py`: its `loadData()` says what to
-change.
+Keep the template's structure - imports from `@page/kit`, the data's types,
+then `App` - and replace the part marked `The page: replace from here`. A
+dashboard with live data is the dashboard template with `useCall` and an
+`*.api.py`: its comment says what to change.
+
+## The kit: `@page/kit`
+
+Import everything from `@page/kit`; React from `react`. Nothing else is
+installed - no npm packages, no CSS frameworks. The kit's source is in
+`/skills/html-page/kit/` if you need to look something up.
+
+| Need                                               | Use                                                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Call `*.api.py` functions                          | `api<ItemsApi>('api/items')` - an interface of the functions you call (python-functions.md)       |
+| Load data, with loading and error state            | `useCall(() => items.list_items({ show }), [show])`, `useData<Report>('data.json')`               |
+| A change the user makes, then reload               | `useAction((title: string) => items.add_item({ title }), list.reload)`: `.run`, `.busy`, `.error` |
+| View state that survives a reload (tab, open item) | `useHashState('tab', 'orders')` - kept in `#tab=...`                                              |
+| Layout                                             | `Page` (`width="narrow"` for an app), `Toolbar`, `Grid`, `Card` (`wide`), `Split`                 |
+| Controls                                           | `Select`, `Field` around any input, plain `<input>`, `<button className="primary">`               |
+| Headline numbers                                   | `Kpis` with `Kpi` (`value` formatted, `delta` a fraction)                                         |
+| Charts                                             | `Chart` with an ECharts `option` (charts-and-tables.md)                                           |
+| Tables                                             | `Table` with Tabulator `columns` (charts-and-tables.md)                                           |
+| States                                             | `Loading`, `Empty`, `ErrorBox`                                                                    |
+| Delete and other destructive actions               | `ConfirmButton` - acts on the second click                                                        |
+| HTML from outside (an email, an article)           | `SafeHtml` - a sandboxed frame; never put such HTML in the page                                   |
+| Numbers, money, percents, dates                    | `fmt.num`, `fmt.money`, `fmt.pct`, `fmt.date`; `sum`, `groupSum`, `uniq` for rows                 |
 
 ## How it is shown, and what that allows
 
 The chat opens the page in a side panel next to the conversation (often 400 -
-600 px wide) or in a full browser tab. Either way it runs sandboxed:
+600 px wide) or in a full browser tab. Either way it runs sandboxed. The
+build reports most of these; know them so you do not write them:
 
 - It reaches files and functions of its folder **by a path relative to the
-  page**: `fetch('data.json')`, `<img src="logo.png">`, `api('api/orders')`,
+  page**: `useData('data.json')`, `<img src="logo.png">`, `api('api/orders')`,
   and `..` to go up. Never `file:///`, `/workspace/...`, `http://localhost`
   or an `.api.py` name in the page.
+- Images and other small files can also be imported (`import logo from
+'./logo.png'`) and are inlined.
 - Scripts, styles and fonts load only from `cdn.jsdelivr.net`, `unpkg.com`
   and `cdnjs.cloudflare.com`. Any other host is blocked - no external APIs,
   images, map tiles or analytics from the page. A page that needs an outside
   service calls a Python function that does.
-- No `localStorage`, `sessionStorage`, cookies or `IndexedDB` (the page has
-  no origin of its own; touching them throws). Keep view state in variables
-  or `location.hash`, and anything to keep in the database.
-- No `<form>` submission: use inputs, buttons and `click` / `change`
-  listeners. No `alert`, `confirm` or `prompt` (blocked): confirm a delete
-  with a second click, as the app template does.
+- No `localStorage`, `sessionStorage`, cookies or `IndexedDB`. Keep view
+  state in hooks or `useHashState`, and anything to keep in the database.
+- No `alert`, `confirm` or `prompt` (blocked): `ConfirmButton` for a delete,
+  `ErrorBox` for a message. No form submission: handle `onClick` /
+  `onKeyDown`, or a `<form onSubmit>` that calls `e.preventDefault()`.
 - Links to other sites need `target="_blank" rel="noopener"`.
 - The page cannot call the agent or any tool.
 
 ## Layout - always adaptive
 
 Every page must work at 360 px (narrow panel) and 1600 px (wide tab) without
-horizontal scrolling. The templates do this; keep to their rules:
+horizontal scrolling. The kit's components do this; keep to their rules:
 
-- `<meta name="viewport" content="width=device-width, initial-scale=1">`.
-- No fixed widths: CSS grid that reflows
-  (`repeat(auto-fit, minmax(min(100%, 420px), 1fr))`), flex rows that wrap.
-- Every grid or flex child gets `min-width: 0` (the templates' `.card` has
-  it), or a chart, table or long text pushes the page wider than the panel.
+- No fixed widths. `Grid` reflows cards, `Toolbar` and `.row` wrap, `Split`
+  shows a list and its open item side by side when wide and one at a time
+  when narrow (give the item a Back button).
+- Anything you add inside a grid or flex row gets `min-width: 0` (the kit's
+  `.card` has it), or a chart, table or long text pushes the page wider than
+  the panel.
 - Let the page scroll; do not lock the body to `100vh`.
-- Light and dark: colours come from the CSS variables in `:root`, switched by
-  `prefers-color-scheme`. Use `var(--fg)`, `var(--muted)` and the rest - no
-  hard-coded colours in new elements.
+- Light and dark: colours come from the kit's CSS variables, switched by
+  `prefers-color-scheme`. Use `var(--fg)`, `var(--muted)`, `var(--line)`,
+  `var(--accent)`, `var(--danger)` - no hard-coded colours. For styles of
+  your own, `import './app.css'`.
 - Controls in one wrapping row at the top; then headline numbers; then
   charts or the list; the detailed table last.
 
 ## Page code
 
-- One `state` object and one `render()` that draws everything from it; every
-  control only changes `state` and calls `render()` (or reloads first). The
-  numbers, charts and lists then always agree.
+- `export default function App()` in `app.tsx`; `export const title = '...'`
+  names the browser tab. The build mounts `App` - never call `createRoot`.
+- State lives in hooks; everything on the page is drawn from it, so the
+  numbers, charts and lists always agree. Derive filtered rows and chart
+  options with `useMemo` from the data and the filters.
 - Show "Loading…", an empty state ("No orders yet", "No data for these
-  filters") and errors in a box on the page - never fail silently.
-- Put values from data into the page with `textContent` (or the templates'
-  `esc()`), never raw into `innerHTML`.
-- Libraries: ECharts for charts, Tabulator for tables, from the CDN URLs in
-  `dashboard.html`. No CSS frameworks, React or Vue (no build step here).
+  filters") and errors on the page with `Loading`, `Empty` and `ErrorBox` -
+  never fail silently. `useCall` and `useAction` catch errors for you.
+- JSX escapes values: `{row.name}` is always safe. Never
+  `dangerouslySetInnerHTML` or `innerHTML`; `SafeHtml` for HTML from outside.
+- Touch `window` and `document` only in `useEffect` and in handlers: the
+  build renders `App` once without a browser.
+- Type the data: an interface for each row and for the functions you call
+  (`ItemsApi`). The build then catches a misspelt field before the user does.
+- A long page is several components: put them in `components/` and import
+  them (`import { Inbox } from './components/Inbox'`).
 
-## Check before you link it
+## Build and check before you link it
 
 ```sh
-cd /workspace/pages/sales-q1
-grep -nE "file://|/workspace|localhost|localStorage|sessionStorage|<form|alert\(|confirm\(|prompt\(" *.html || echo "paths ok"
-grep -noE "(src|href)=\"https?://[^\"]+" *.html | grep -vE "cdn.jsdelivr.net|unpkg.com|cdnjs.cloudflare.com" || echo "hosts ok"
-[ ! -f data.json ] || python3 -c "import json; json.load(open('data.json'))" && echo "data ok"
+node /skills/html-page/scripts/build.ts /workspace/pages/sales-q1
 ```
 
-Confirm every relative file the page loads exists in its folder. A page with
-functions: call each of them from the shell first (`python-functions.md`,
-"Test before you link it").
+It type-checks, checks the rules above, renders `App` once, and writes
+`index.html` - or writes nothing and lists what to fix as `file:line:col
+message`. Fix each one and build again until it prints `✓ wrote index.html`.
+
+- Build after **every** change to the page's `.tsx`, `.ts` or `.css`. The user
+  sees `index.html`, not your source. `node .../build.ts <folder> --check`
+  says whether it is out of date.
+- Never edit `index.html` by hand: the next build replaces it.
+- A page with functions: call each of them from the shell first
+  (python-functions.md, "Test before you link it").
+- The build runs in the sandbox, where its tools are installed.
 
 ## Hand it over
 
 - The main findings with their numbers in two to four sentences, or for an
   app what it does - the reply must stand on its own for someone who never
   opens the page.
-- Then the page as a link, alone in its own paragraph:
+- Then the page as a link, alone in its own paragraph (the build prints it):
 
 [Sales Q1 dashboard](file:///workspace/pages/sales-q1/index.html)
 

@@ -13,12 +13,19 @@
         "jsxImportSource": "react",
         // packages/view/src/client runs in a browser. The emitting programs stay DOM-free.
         "lib": ["ES2024", "DOM", "DOM.Iterable"],
-        "types": ["node", "react"]
+        "types": ["node", "react"],
+        // The html-page skill's pages import its kit by this name; its build maps it the same way.
+        "paths": {
+            "@page/kit": ["./packages/cli/templates/project/agents/skills/html-page/kit/index.ts"]
+        }
     },
     "include": [
         "packages/*/src/**/*.ts",
         "packages/*/src/**/*.tsx",
         "packages/*/test/**/*.ts",
+        // The html-page skill's build, kit and templates: shipped as source, run in the sandbox.
+        "packages/cli/templates/project/agents/skills/html-page/**/*.ts",
+        "packages/cli/templates/project/agents/skills/html-page/**/*.tsx",
         "examples/**/*.ts",
         "vitest.config.ts"
     ]

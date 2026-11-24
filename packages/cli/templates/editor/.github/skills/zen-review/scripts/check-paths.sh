@@ -54,7 +54,7 @@ strip_urls() {
 # any byte that differs as `rules.stale`.
 #
 # The html-page skill is left out too. Its paths are the page's own urls,
-# relative to the page (`api('api/orders')`, `../api.js`), and to this sweep
+# relative to the page (`api('api/orders')`, `useData('../data.json')`), and to this sweep
 # they look exactly like files the agent cannot open.
 files() {
     {

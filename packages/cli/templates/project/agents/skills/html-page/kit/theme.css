@@ -1,0 +1,326 @@
+/* The kit's look: colours from these variables only, light and dark. */
+:root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --fg: #1d1d1f;
+    --muted: #6e6e73;
+    --line: #e3e3e6;
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --up: #15803d;
+    --down: #b91c1c;
+    --danger: #b91c1c;
+    --gap: 16px;
+    --radius: 10px;
+    font:
+        14px/1.45 system-ui,
+        -apple-system,
+        'Segoe UI',
+        Roboto,
+        sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #141416;
+        --card: #1e1e21;
+        --fg: #ececf0;
+        --muted: #9a9aa2;
+        --line: #2e2e33;
+        --accent: #60a5fa;
+        --accent-fg: #0b1220;
+        --up: #4ade80;
+        --down: #f87171;
+        --danger: #f87171;
+    }
+}
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+}
+[hidden] {
+    display: none !important;
+}
+
+/* The page */
+.page {
+    margin: 0 auto;
+    padding: var(--gap);
+    display: grid;
+    gap: var(--gap);
+    container: page / inline-size;
+}
+.page > * {
+    min-width: 0;
+}
+.page-wide {
+    max-width: 1400px;
+}
+.page-narrow {
+    max-width: 900px;
+}
+.page-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: start;
+    justify-content: space-between;
+}
+.page-header h1 {
+    margin: 0;
+    font-size: 1.4rem;
+}
+.page-header p {
+    margin: 4px 0 0;
+    color: var(--muted);
+}
+.page-footer {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+/* Boxes and layout */
+.card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: var(--gap);
+    min-width: 0;
+}
+.card-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 8px;
+}
+.card h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+.grid {
+    display: grid;
+    gap: var(--gap);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--min, 420px)), 1fr));
+}
+.grid > * {
+    min-width: 0;
+}
+.wide {
+    grid-column: 1 / -1;
+}
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.row > * {
+    min-width: 0;
+}
+.split {
+    display: grid;
+    gap: var(--gap);
+}
+.split > * {
+    min-width: 0;
+}
+.split.split-open > .split-list,
+.split:not(.split-open) > .split-detail {
+    display: none;
+}
+@container page (min-width: 860px) {
+    .split {
+        grid-template-columns: minmax(280px, 2fr) 3fr;
+        align-items: start;
+    }
+    .split.split-open > .split-list,
+    .split:not(.split-open) > .split-detail {
+        display: block;
+    }
+}
+
+/* Controls */
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: end;
+}
+.field {
+    display: grid;
+    gap: 2px;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+input,
+select,
+textarea,
+button {
+    font: inherit;
+    color: var(--fg);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    max-width: 100%;
+}
+select {
+    min-width: 9rem;
+}
+input[type='text'],
+input[type='search'],
+input:not([type]),
+textarea {
+    flex: 1 1 14rem;
+}
+input[type='checkbox'],
+input[type='radio'] {
+    padding: 0;
+}
+button {
+    cursor: pointer;
+}
+button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+}
+button.danger {
+    color: var(--danger);
+}
+button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* Headline numbers */
+.kpis {
+    display: grid;
+    gap: var(--gap);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.kpi-label {
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+.kpi-value {
+    font-size: 1.6rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.kpi-delta.up {
+    color: var(--up);
+}
+.kpi-delta.down {
+    color: var(--down);
+}
+.kpi-hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+/* Lists */
+ul.list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+ul.list li {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+}
+ul.list li:last-child {
+    border-bottom: 0;
+}
+ul.list .grow {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+ul.list li.done .grow {
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
+/* States */
+.muted {
+    color: var(--muted);
+}
+.empty {
+    margin: 0;
+}
+.error {
+    color: var(--danger);
+    border-color: var(--danger);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+}
+.uncaught {
+    position: fixed;
+    inset: auto 8px 8px;
+    z-index: 1000;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: var(--danger);
+    color: #fff;
+    cursor: pointer;
+}
+
+/* Charts, tables, embedded html */
+.chart {
+    width: 100%;
+}
+.safe-html {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: #fff;
+}
+.tabulator {
+    font-size: 0.9rem;
+    background: transparent;
+    border-color: var(--line);
+}
+.tabulator .tabulator-header,
+.tabulator .tabulator-header .tabulator-col,
+.tabulator .tabulator-tableholder,
+.tabulator .tabulator-tableholder .tabulator-table,
+.tabulator-row,
+.tabulator .tabulator-footer {
+    background: var(--card);
+    color: var(--fg);
+    border-color: var(--line);
+}
+.tabulator-row.tabulator-row-even {
+    background: color-mix(in srgb, var(--card) 94%, var(--fg));
+}
+.tabulator-row.tabulator-selectable:hover {
+    background: color-mix(in srgb, var(--card) 85%, var(--accent));
+}
+.tabulator input,
+.tabulator select {
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line);
+}
+
+@media (max-width: 520px) {
+    :root {
+        --gap: 10px;
+        font-size: 13px;
+    }
+    .kpi-value {
+        font-size: 1.3rem;
+    }
+}

@@ -4,20 +4,24 @@ For a page that shows live data or saves changes. The core rules (where it
 goes, the sandbox, adaptive layout, checks) are in `SKILL.md`.
 
 Every **public function** in an `*.api.py` beside the page can be called from
-the page's JavaScript by name, with its arguments as an object, and returns
-JSON. No server code, routes or framework: write plain Python functions.
+the page by name, with its arguments as an object, and returns JSON. No
+server code, routes or framework: write plain Python functions.
 
-```js
-const items = api('api/items'); // api/items.api.py
+```tsx
+interface ItemsApi {
+    list_items(args: { show: string }): Promise<Item[]>; // list_items(show: str)
+    add_item(args: { title: string }): Promise<Item>; // add_item(title: str)
+}
+const items = api<ItemsApi>('api/items'); // api/items.api.py
 const list = await items.list_items({ show: 'open' }); // list_items(show="open")
 await items.add_item({ title: 'Milk' }); // add_item(title="Milk")
 ```
 
 The app template (`/skills/html-page/assets/app`) is a working example: a
 list in SQLite with add, check off, filter and delete. Rename
-`api/items.api.py` to what it holds; one `*.api.py` per area of the app
-(`orders.api.py`, `customers.api.py`), shared helpers in plain `.py` files
-beside them.
+`api/items.api.py` to what it holds, and its interface in `app.tsx` with it;
+one `*.api.py` per area of the app (`orders.api.py`, `customers.api.py`),
+shared helpers in plain `.py` files beside them.
 
 ## Writing the functions
 
@@ -147,8 +151,8 @@ def delete_note(id: int):
 - Store `.id` (an `owner` column), never the email or name: those can change.
 - Check permissions in the function (`HttpError(403, ...)`); hiding a button
   in the page is not a check.
-- In the page: `const me = await api('api/users').me();`, then show
-  `me.name` in the header, and hide what `me.role` may not do.
+- In the page: `const me = useCall(() => users.me(), [])`, then show
+  `me.data?.name` in the header, and hide what `me.data?.role` may not do.
 - When it matters: a page in a chat's workspace already belongs to one user
   (each has their own copy and `.data`). Identity matters for data shared
   between users: an external database, or a page published in the project's
@@ -159,26 +163,30 @@ def delete_note(id: int):
 
 ## Calling them from the page
 
-- Copy `/skills/html-page/assets/api.js` beside the page and load it once,
-  **by a relative path**: `<script src="api.js"></script>` (from a page in a
-  subfolder: `../api.js`). Never edit it.
-- `api('<path to the file, relative to the page, without .api.py>')` gives an
-  object whose methods are the file's functions:
-  `api('api/orders').set_status({ id: 7, status: 'paid' })`.
+- `api<FileApi>('<path to the file, relative to the page, without .api.py>')`
+  from `@page/kit` gives an object whose methods are the file's functions:
+  `api<OrdersApi>('api/orders').set_status({ id: 7, status: 'paid' })`.
+- Declare `FileApi` beside it: one method per function the page calls, its
+  arguments as one object named like the Python parameters, and what it
+  returns. Keep it in step with the Python - the build checks the page
+  against it, and that the `.api.py` exists.
 - Always pass **one object** of named arguments (or nothing). Each call
   returns a promise of what the function returned.
 - A failure rejects with an `ApiError`: `.message` is the `HttpError`
-  message, `.status` the HTTP status (0: not reachable). Show the message on
-  the page.
-- After a change, load the data again from the function that lists it, so
-  the page shows what is really saved. Disable a button while its call runs.
-  The app template's `run(work)` does all three.
+  message, `.status` the HTTP status (0: not reachable).
+- Reading: `useCall(() => orders.list_orders({ status }), [status])` calls
+  it when the page opens and when `status` changes, with `.data`, `.error`,
+  `.loading` and `.reload()`.
+- Changing: `useAction((id: number) => orders.set_status({ id, status: 'paid' }), list.reload)`
+  runs the call, then loads the list again so the page shows what is really
+  saved; disable the button while `.busy`, and show `.error` in an
+  `ErrorBox`. The app template does all of this.
 
-| JavaScript                                    | Request                       | Python                       |
-| --------------------------------------------- | ----------------------------- | ---------------------------- |
-| `api('api/orders').list_orders()`             | `POST api/orders/list_orders` | `list_orders()`              |
-| `api('api/orders').set_status({id: 7, ...})`  | `POST api/orders/set_status`  | `set_status(id=7, ...)`      |
-| `api('../api/users').me()` (page in a folder) | `POST ../api/users/me`        | `me()` in `api/users.api.py` |
+| TypeScript                                       | Request                       | Python                       |
+| ------------------------------------------------ | ----------------------------- | ---------------------------- |
+| `api<OrdersApi>('api/orders').list_orders()`     | `POST api/orders/list_orders` | `list_orders()`              |
+| `api<OrdersApi>('api/orders').set_status({...})` | `POST api/orders/set_status`  | `set_status(id=7, ...)`      |
+| `api<UsersApi>('../api/users').me()` (`report/`) | `POST ../api/users/me`        | `me()` in `api/users.api.py` |
 
 A plain link works for reads too: `api/orders/list_orders?status=open`
 (arguments as text, converted by their annotations).
@@ -196,8 +204,8 @@ python3 -m zenera.api api/items.api.py list_items
 python3 -m zenera.api api/items.api.py set_done '{"id": 1, "done": true}'
 python3 -m zenera.api api/items.api.py remove_item '{"id": 99}'   # expect: 404: no item 99
 rm -rf /tmp/todo-test; unset ZEN_APP_DATA
-grep -noE "api\('[^']+'\)" *.html            # each path, + .api.py, must exist relative to the page
+node /skills/html-page/scripts/build.ts .   # checks each api('...') path and the page's calls
 ```
 
 Every name the page calls must be a function the listing showed, with the
-argument names it shows.
+argument names it shows - declare them so in the page's `ItemsApi`.
