@@ -181,6 +181,36 @@ const fakeSandbox: SandboxFactory = (opts: SandboxOptions): Sandbox => {
     };
 };
 
+/**
+ * A sandbox whose commands run in a host shell, the thread's workspace standing in for
+ * /workspace: a page's calls then run real Python, as they would in the sandbox.
+ */
+function shellSandbox(): { sandbox: SandboxFactory; ran: string[]; closes: () => number } {
+    const ran: string[] = [];
+    let closed = 0;
+    const sandbox: SandboxFactory = (opts) => ({
+        ...fakeSandbox(opts),
+        exec: async (command: string) => {
+            ran.push(command);
+            const run = spawnSync('/bin/sh', ['-s'], {
+                input: command.replaceAll("'/workspace", `'${opts.root}`),
+                encoding: 'utf8',
+                env: { ...process.env, ...opts.execEnv, PYTHONPATH: join(runtimeDir(), 'python') },
+            });
+            return {
+                exit_code: run.status ?? 1,
+                stdout: run.stdout,
+                stderr: run.stderr,
+                duration_ms: 1,
+            };
+        },
+        close: async () => {
+            closed++;
+        },
+    });
+    return { sandbox, ran, closes: () => closed };
+}
+
 // --- servers ---------------------------------------------------------------------------------
 // One signing key, as zenera-app has; the server is given only its public half.
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -710,36 +740,8 @@ describe('files a chat names', () => {
 
     it("runs the functions of a page's .api.py under its token URL, in insecure mode", async () => {
         if (spawnSync('python3', ['--version']).status !== 0) return;
-        // The thread's own workspace stands in for /workspace, and a host shell for the sandbox.
-        const ran: string[] = [];
-        let closed = 0;
-        const { url, serverRoot } = await start({
-            auth: { mode: 'insecure' },
-            sandbox: (opts) => ({
-                ...fakeSandbox(opts),
-                exec: async (command: string) => {
-                    ran.push(command);
-                    const run = spawnSync('/bin/sh', ['-s'], {
-                        input: command.replaceAll("'/workspace", `'${opts.root}`),
-                        encoding: 'utf8',
-                        env: {
-                            ...process.env,
-                            ...opts.execEnv,
-                            PYTHONPATH: join(runtimeDir(), 'python'),
-                        },
-                    });
-                    return {
-                        exit_code: run.status ?? 1,
-                        stdout: run.stdout,
-                        stderr: run.stderr,
-                        duration_ms: 1,
-                    };
-                },
-                close: async () => {
-                    closed++;
-                },
-            }),
-        });
+        const { sandbox, ran, closes } = shellSandbox();
+        const { url, serverRoot } = await start({ auth: { mode: 'insecure' }, sandbox });
         const thread = randomUUID();
         await turn(url, thread);
         const workspace = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace');
@@ -827,10 +829,66 @@ describe('files a chat names', () => {
         expect(big.status).toBe(413);
 
         // One sandbox kept for the thread's calls, closed when the server stops.
-        const before = closed;
+        const before = closes();
         await running!.server.stop(1000);
         running = undefined;
-        expect(closed).toBe(before + 1);
+        expect(closes()).toBe(before + 1);
+    });
+
+    it("serves a page's files and calls to a host at /api/sessions/:tid/view/ (jwt)", async () => {
+        if (spawnSync('python3', ['--version']).status !== 0) return;
+        const { sandbox } = shellSandbox();
+        const { url, serverRoot } = await start({ sandbox });
+        const thread = randomUUID();
+        await turn(url, thread);
+        const app = join(serverRoot, 'users', ANN, 'sessions', thread, 'workspace', 'pages', 'p');
+        mkdirSync(join(app, 'api'), { recursive: true });
+        writeFileSync(join(app, 'index.html'), '<p>page</p>');
+        writeFileSync(
+            join(app, 'api', 'me.api.py'),
+            'import zenera\ndef who(n: int = 0):\n    return {**zenera.identity()._asdict(), "n": n}\n',
+        );
+        const at = (rel: string) => `${url}/api/sessions/${thread}/view/workspace/pages/p/${rel}`;
+        const claims = { email: 'ann@example.com', role: 'editor' };
+
+        const page = await call(at('index.html'), { claims });
+        expect(page.status).toBe(200);
+        expect(page.headers.get('content-security-policy')).toMatch(/^sandbox allow-scripts/);
+        expect(page.headers.get('x-zenera-call')).toBeNull();
+
+        // A JSON body, as a host may pass it on: the parser after this route never sees it.
+        const who = await call(at('api/me/who'), {
+            method: 'POST',
+            claims,
+            headers: { 'content-type': 'application/json' },
+            body: '{"n": 2}',
+        });
+        expect(who.status).toBe(200);
+        expect(who.headers.get('x-zenera-call')).toBe('1');
+        expect(await who.json()).toEqual({
+            id: ANN,
+            email: 'ann@example.com',
+            name: null,
+            role: 'editor',
+            source: 'host',
+            n: 2,
+        });
+        // A call's own failure is marked too, so the host never asks again.
+        const bad = await call(at('api/me/who?n=x'), { claims });
+        expect(bad.status).toBe(400);
+        expect(bad.headers.get('x-zenera-call')).toBe('1');
+        // The source stays private; another user's thread is not there.
+        expect((await call(at('api/me.api.py'), { claims })).status).toBe(404);
+        expect((await call(at('api/me/who'), { method: 'POST', as: BOB, body: '{}' })).status).toBe(
+            404,
+        );
+        // A token for another request is refused before anything runs.
+        const wrong = await fetch(at('api/me/who'), {
+            method: 'POST',
+            headers: { authorization: `Bearer ${signed({ sub: ANN, req: 'GET /elsewhere' })}` },
+        });
+        expect(wrong.status).toBe(401);
+        expect(wrong.headers.get('x-zenera-call')).toBeNull();
     });
 
     it('sends a file for viewing when a host asks with view=1', async () => {

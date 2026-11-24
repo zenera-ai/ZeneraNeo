@@ -77,6 +77,9 @@ The rules:
   fresh copy starts by itself.
 - `data_path("exports/report.csv")`: a path in the same folder, for other
   files it keeps.
+- A page published with the project (under `/assets`, read-only) keeps each
+  user's data in their own workspace instead; `connect()` and `data_path()`
+  find it there by themselves.
 - A file the page should download or show (a CSV export, a chart image):
   write it next to the page instead, e.g. `../exports/orders.csv` from
   `api/`, and return the relative name; the page links to it.

@@ -14,7 +14,7 @@
 //   filesRouter  - the GET|HEAD /:tid/files route
 //   projectTrees - where a session's files may come from: its workspace and the project's assets
 //   asHttp       - an AgentFileError as the HttpError it means (404, 403, 400)
-// Used by: server.ts (mounted under /api/sessions); views.ts uses projectTrees and asHttp.
+// Used by: server.ts (mounted under /api/sessions); views.ts uses projectTrees.
 import {
     AgentFileError,
     agentFileStatus,

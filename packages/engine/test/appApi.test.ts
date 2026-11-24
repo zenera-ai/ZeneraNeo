@@ -230,6 +230,24 @@ describe('app calls', () => {
         expect(() => resolveAppCall(`${dir}/.hidden/x/f`, t)).toThrow(/hidden/);
     });
 
+    it("keeps the data of a published page (under /assets) in the user's workspace", () => {
+        const { dir } = app();
+        const workspace = mkdtempSync(join(tmpdir(), 'zen-app-ws-'));
+        dirs.push(workspace);
+        const t: FileTrees = { workspace, workdir: '/workspace', assets: join(dir, '..') };
+        const call = resolveAppCall('/assets/api/items/hello', t)!;
+        expect(call.file.tree).toBe('assets');
+        expect(call.dataDir).toMatch(/^\/workspace\/\.data\/apps\/[0-9a-f]{16}$/);
+        const script = appCallCommand(
+            call.file.path,
+            { method: 'GET', fn: 'hello', query: {}, headers: {}, body: '' },
+            call.dataDir,
+        );
+        expect(script.split('\n')[0]).toContain(`&& ZEN_APP_DATA='${call.dataDir}' exec python3`);
+        // A workspace page keeps its data beside its file.
+        expect(resolveAppCall(`${workspace}/x/f`, { workspace, workdir: workspace })).toBeNull();
+    });
+
     it('carries the request in the script, never as shell text', () => {
         const script = appCallCommand("/workspace/it's/a.api.py", {
             method: 'POST',

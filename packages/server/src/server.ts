@@ -14,6 +14,7 @@
 //   ANY  /v/<token>/<path>                - insecure mode only: a page the chat names, the
 //                                           files it loads and the functions it calls
 //                                           (*.api.py, appCalls.ts); the token its credential
+//   ANY  /api/sessions/:tid/view/<path>   - the same for a host that serves /v/ itself (jwt)
 //   /api/sessions/:tid/{runs,trace,memory}... with `debug` - the Test tab's views of a chat
 //   /api/admin/{users,users/:sub/release,drain,undrain} - the host's view of this server's users
 // Every /api/sessions request first has the caller's data loaded (userState.ts): a store plugin
@@ -46,7 +47,7 @@ import { privateStore } from './store.ts';
 import { sessionsRouter } from './sessions.ts';
 import { traceRouter } from './trace.ts';
 import { loadCaller, loadThread, userStateRouter, userStates } from './userState.ts';
-import { viewsRouter } from './views.ts';
+import { sessionView, viewsRouter } from './views.ts';
 
 export type ServerOptions = Partial<ServerSettings> &
     Pick<ServerSettings, 'projectId' | 'auth' | 'root'> & {
@@ -98,6 +99,8 @@ export function createServer(opts: ServerOptions): AgentServer {
         app.use(viewsRouter(privateStore));
     }
     app.use(requireCaller());
+    // Before the JSON parser: a page's call is passed its body as the page sent it.
+    app.all('/api/sessions/:tid/view/*path', loadCaller, loadThread, sessionView(privateStore));
     app.use(express.json({ limit: '1mb' }));
     app.get('/healthz', (_req, res) => {
         res.type('text/plain').send('ok');

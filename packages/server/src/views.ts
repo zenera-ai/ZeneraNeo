@@ -14,32 +14,31 @@
 // A path that names no file but a function of an `*.api.py` beside it is a call:
 //   POST /v/<token>/workspace/pages/todo/api/items/add_item  -> add_item() of api/items.api.py,
 // run in the thread's sandbox (appCalls.ts). An `*.api.py` itself is never sent through /v/.
-// In `jwt` mode there is no /v/ here: the host (ZeneraLite's zenera-app) serves it and asks for
-// each file with `files?path=...&view=1`.
+// In `jwt` mode there is no /v/ here: the host (ZeneraLite's zenera-app) serves it, checks the
+// user, and asks for each path, file or call, with any method at
+// /api/sessions/:tid/view/<path>, its own JWT the caller (sessionView).
 //
 // Main functions:
 //   viewUrl     - the /v/<token>/... URL of a page in a thread (used by files.ts)
 //   viewsRouter - any method on /v/:token/*path: files on GET|HEAD, calls on any (mounted by
 //                 server.ts before the JWT check)
+//   sessionView - any method on /api/sessions/:tid/view/*path for a host, as the token's caller
+//                 (mounted by server.ts after the JWT check, before the JSON body parser)
 import {
-    AgentFileError,
-    isAppApiFile,
     mintViewToken,
-    resolveAgentFile,
-    resolveAppCall,
-    sendAgentFile,
+    serveViewPath,
     verifyViewToken,
     viewKey,
     type FileTrees,
     type RunIdentity,
 } from '@zenera/engine';
-import { Router } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { join } from 'node:path';
+import { appCalls } from './appCalls.ts';
 import { settings } from './config.ts';
-import { serveAppCall } from './appCalls.ts';
-import { asHttp, projectTrees } from './files.ts';
+import { projectTrees } from './files.ts';
 import { HttpError } from './http.ts';
-import { identityOf } from './identity.ts';
+import { identify, identityOf, runUser } from './identity.ts';
 import type { ChatStore, ChatThread } from './store.ts';
 import { userStates } from './userState.ts';
 
@@ -71,6 +70,28 @@ export function viewUrl(t: ChatThread, agentPath: string, user?: RunIdentity | n
     return `/v/${token}${agentPath.split('/').map(encodeURIComponent).join('/')}`;
 }
 
+/** A path of a thread's page, a file or a call, served for `user`. */
+async function serveThreadPath(
+    req: Request,
+    res: Response,
+    store: ChatStore,
+    trees: (workspace: string) => FileTrees,
+    t: ChatThread,
+    user: RunIdentity,
+    path: string,
+): Promise<void> {
+    const session = store.existingSession(t);
+    if (!session) throw new HttpError(404, `no such file: ${path.slice(0, 200)}`);
+    await serveViewPath(req, res, {
+        path,
+        trees: trees(session.workspace),
+        calls: { calls: appCalls(), thread: { owner: t.owner, id: t.id, session }, user },
+        frameAncestors: ["'self'"],
+    });
+}
+
+const pathOf = (req: Request) => `/${(req.params.path as unknown as string[]).join('/')}`;
+
 export function viewsRouter(
     store: ChatStore,
     trees: (workspace: string) => FileTrees = projectTrees,
@@ -92,34 +113,25 @@ export function viewsRouter(
         });
         await userStates.acquire(t.owner);
         await userStates.session(t.owner, t.id);
-        const session = store.existingSession(t);
-        const path = `/${(req.params.path as unknown as string[]).join('/')}`;
-        if (!session) throw new HttpError(404, `no such file: ${path.slice(0, 200)}`);
-        const fileTrees = trees(session.workspace);
-        const read = req.method === 'GET' || req.method === 'HEAD';
-        try {
-            if (read) {
-                try {
-                    const file = resolveAgentFile(path, fileTrees);
-                    if (isAppApiFile(file.path)) {
-                        throw new HttpError(404, `no such file: ${path.slice(0, 200)}`);
-                    }
-                    await sendAgentFile(req, res, file, { view: { frameAncestors: ["'self'"] } });
-                    return;
-                } catch (err) {
-                    // Not a file: it may still be a function's name.
-                    if (!(err instanceof AgentFileError && err.code === 'missing')) throw err;
-                }
-            }
-            const call = resolveAppCall(path, fileTrees);
-            if (!call) {
-                if (read) throw new HttpError(404, `no such file: ${path.slice(0, 200)}`);
-                throw new HttpError(404, `no function at ${path.slice(0, 200)}`);
-            }
-            await serveAppCall(req, res, t, session, call, user);
-        } catch (err) {
-            throw asHttp(err);
-        }
+        await serveThreadPath(req, res, store, trees, t, user, pathOf(req));
     });
     return router;
+}
+
+/**
+ * For a host (jwt mode): any method on /api/sessions/:tid/view/*path, a path of the caller's
+ * thread, file or call, as its page asked for it. The caller's data is loaded first
+ * (userState.ts loadCaller and loadThread, mounted in front of it).
+ */
+export function sessionView(
+    store: ChatStore,
+    trees: (workspace: string) => FileTrees = projectTrees,
+): RequestHandler {
+    return async (req, res) => {
+        const id = identify(req);
+        const t: ChatThread = { id: id.threadId, owner: id.userId };
+        const user = runUser(req);
+        if (!user) throw new HttpError(401, 'no verified caller');
+        await serveThreadPath(req, res, store, trees, t, user, pathOf(req));
+    };
 }
