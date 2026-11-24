@@ -52,6 +52,10 @@ strip_urls() {
 # are left out on purpose. They are full of worked examples, so they fail this
 # sweep by design, and the project cannot edit them anyway: `zen check` reports
 # any byte that differs as `rules.stale`.
+#
+# The html-page skill is left out too. Its paths are the page's own urls,
+# relative to the page (`api('api/orders')`, `../api.js`), and to this sweep
+# they look exactly like files the agent cannot open.
 files() {
     {
         if [ -d agents/prompts ]; then find agents/prompts -type f -name '*.md'; fi
@@ -60,7 +64,8 @@ files() {
             if [ -f "$file" ]; then echo "$file"; fi
         done
     } | grep -Ev '^agents/(a2ui|files|fork|markdown|mcp|mcp-memory|memory|tools)-instructions\.md$' |
-        grep -Ev '^agents/skills/(a2ui|a2ui-charts)/SKILL\.md$' | sort -u
+        grep -Ev '^agents/skills/(a2ui|a2ui-charts)/SKILL\.md$' |
+        grep -Ev '^agents/skills/html-page/' | sort -u
 }
 
 # Every token in those files, urls removed first, and a sentence's full stop

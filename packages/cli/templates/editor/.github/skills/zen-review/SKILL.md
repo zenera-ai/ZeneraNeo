@@ -220,7 +220,9 @@ emptied or explained rather than skimmed. It strips urls before tokenising, skip
 a handful of English constructions that contain a slash, and leaves the four
 copies `zen` ships (`agents/{files,fork,memory,tools}-instructions.md`) out
 entirely - they are worked examples by design, and `zen check` keeps them
-byte-identical (`rules.stale`).
+byte-identical (`rules.stale`). The `html-page` skill is left out as well: its
+paths are urls relative to the page (`api('api/orders')`), not files the agent
+opens.
 
 Everything it does print is either noise the script has not learned yet or a
 real finding. There is no third case. A candidate that is genuinely noise is a
