@@ -245,6 +245,46 @@ describe('the streaming window over text that is not one column a character', ()
         }
     });
 
+    // The tail is cut by code units, and a cut can land anywhere: after the
+    // first person of a family, or among the accents of a letter. What is left
+    // in front is then a joiner or a mark with nothing to sit on. With text
+    // to spare the row it opens is thrown away with the rest of the surplus,
+    // so it only shows when the window comes up short — which heavy accents
+    // do, by running past how far back the window will look.
+    it('opens on a whole cluster even when it cannot fill the window', () => {
+        const letter = `e${'\u0301'.repeat(40)}`;
+        for (let extra = 0; extra < letter.length; extra += 7) {
+            const said = 'x'.repeat(extra) + letter.repeat(5000);
+            const rows = windowOf(said, 20, 6);
+            expect(rows.length).toBeLessThan(6);
+            expect(rows[0]?.startsWith('e'), `cut ${extra}`).toBe(true);
+            expect(rows.join('').length % letter.length, `cut ${extra}`).toBe(0);
+            expect(said.endsWith(rows.join(''))).toBe(true);
+        }
+    });
+
+    // The other way to come up short: everything after the cut is blank rows,
+    // which are collapsed once the tail has been taken.
+    it('opens on a whole cluster when the rest of the tail is blank', () => {
+        for (let into = 1; into < FAMILY.length; into += 1) {
+            const wanted = 20 * 3 * 2;
+            const kept = `${FAMILY.slice(-into)}日`;
+            const said = `${'x'.repeat(500)}${FAMILY}日${'\n'.repeat(wanted - kept.length)}`;
+            // Whatever the window holds, it is whole clusters of what was said:
+            // the family entire, or none of it.
+            const shown = windowOf(said, 20, 3).flatMap(clusters);
+            const whole = clusters(said.trimEnd());
+            expect(shown.at(-1)).toBe('日');
+            expect(shown, `cut ${into} from the end`).toEqual(whole.slice(-shown.length));
+        }
+    });
+
+    it('cuts ASCII where it always did, a line ending included', () => {
+        const said = `${'a'.repeat(47)}\r\n${'b'.repeat(15)}`;
+        expect(windowOf(said, 8, 1)).toEqual(windowBefore(said, 8, 1));
+        expect(windowOf(`a${said}`, 8, 1)).toEqual(windowBefore(`a${said}`, 8, 1));
+    });
+
     it('gives up on text that is nothing but stacked accents rather than read it all', () => {
         const zalgo = `a${'́'.repeat(200000)}`;
         const started = performance.now();

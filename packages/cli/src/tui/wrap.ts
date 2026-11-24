@@ -201,6 +201,9 @@ const TAIL_REACH = 16;
  * otherwise fill fewer rows than the window has while there was more to show.
  * The reach is bounded, so text made of nothing but stacked accents is shown
  * short rather than read whole on every frame.
+ *
+ * Where the cut falls is `tailOf`'s business: the tail opens on a whole
+ * cluster, like every row cut after it.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
@@ -208,7 +211,7 @@ export function windowOf(text: string, width: number, rows: number): string[] {
     const wanted = w * n * 2;
     let tail = '';
     for (let reach = 1; reach <= TAIL_REACH; reach *= 2) {
-        tail = whole(text.slice(-wanted * reach));
+        tail = tailOf(text, wanted * reach);
         if (wanted * reach >= text.length || reaches(tail, wanted)) {
             break;
         }
@@ -218,10 +221,43 @@ export function windowOf(text: string, width: number, rows: number): string[] {
     return wrap(tail.replace(/\n{2,}/g, '\n').trimEnd(), w).slice(-n);
 }
 
-/** `tail` without the half of a surrogate pair that cutting it may have left in front. */
-function whole(tail: string): string {
-    const first = tail.charCodeAt(0);
-    return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+/** How far before a cut is read to find out what the cut landed in. */
+const CUT_CONTEXT = 64;
+
+/**
+ * At most the last `units` code units of `text`, opening on a whole cluster.
+ *
+ * A cut by code units lands wherever it lands: between the people of a joined
+ * family, among the accents of a letter, inside a surrogate pair. The piece
+ * left in front is then a joiner or a mark with nothing to sit on, and when
+ * the window comes up short of text — the reach ran out, or everything after
+ * the cut was blank rows — that piece is the first thing in it. So what the
+ * cut landed in is dropped, and the tail starts at the cluster after it.
+ *
+ * Whether an offset is a boundary depends on what comes before it, and asking
+ * that of the whole text would read all of a stream on every frame — the one
+ * thing taking a tail is for. A little context in front of the cut is read
+ * instead. Two ASCII characters always part (a line ending aside), which is
+ * nearly every cut there is and costs nothing. The context is wrong only for
+ * a run of flags longer than itself, which pair off from wherever the run
+ * began: there the tail may open on the second half of one.
+ */
+function tailOf(text: string, units: number): string {
+    const start = text.length - units;
+    if (start <= 0) {
+        return text;
+    }
+    const before = text.charCodeAt(start - 1);
+    const after = text.charCodeAt(start);
+    if (before < 0x80 && after < 0x80 && !(before === 0x0d && after === 0x0a)) {
+        return text.slice(start);
+    }
+    const from = Math.max(0, start - CUT_CONTEXT);
+    const hit = CLUSTERS.segment(text.slice(from)).containing(start - from);
+    if (!hit || from + hit.index === start) {
+        return text.slice(start);
+    }
+    return text.slice(from + hit.index + hit.segment.length);
 }
 
 /**
