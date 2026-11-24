@@ -150,7 +150,8 @@ stored hash moves.
 question or how it is judged - lists the case under `restarted` in that
 revision; results from its earlier revision are about a different question. A
 change to `class`, `complexity`, `tags`, `notes` or `source` revises the case
-without restarting it.
+without restarting it. Such a case keeps `questionRev`, the revision that last set its
+question, and a tuning keeps its results against that revision.
 
 ## By hand
 

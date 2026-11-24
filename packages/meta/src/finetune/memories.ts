@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { DatasetStore } from '../dataset/store.ts';
 import type { Case } from '../dataset/types.ts';
 import { errorIn, sizeOf } from './failure.ts';
+import { tuned } from './next-case.ts';
 import { writeFeedback } from './report.ts';
 import type { Run } from './train.ts';
 import type { Tuning } from './tuning.ts';
@@ -215,7 +216,8 @@ export class Memories {
         }
         const store = DatasetStore.open(this.#t.root);
         for (const s of fresh) {
-            const c = store.get(s.case);
+            const found = store.get(s.case);
+            const c = found && tuned(found);
             if (c?.rev === s.rev) {
                 writeFeedback(this.#t, c);
             }

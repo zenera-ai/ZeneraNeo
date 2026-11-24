@@ -92,7 +92,7 @@ tries used up  ->  difficult
   files to edit. An attempt that ends without a decision for every
   improvement is undone (`missing.md`) and tried once more.
 - **Stop and resume freely.** `stop` (or Ctrl-C once) lets the steps in flight
-  finish, then exits; Ctrl-C twice kills them. `start` again carries on: every
+  finish, then exits; Ctrl-C twice, or SIGTERM, kills them. `start` again carries on: every
   step's result is on disk, and nothing finished is repeated.
 - **`--limit` and `--more` are for one start**, never kept in `loop.json`.
   `--limit <n>` cuts the order to its first n cases: once those have a result,

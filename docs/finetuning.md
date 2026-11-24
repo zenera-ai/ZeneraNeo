@@ -280,7 +280,8 @@ nothing.
 question, or how it is judged - lists the case as **restarted**: results from
 its earlier revision were about a different question. A change to `class`,
 `complexity`, `tags`, `notes` or `source` revises the case without restarting
-it.
+it. Its results still count: the case keeps `questionRev`, the revision that
+last set its question, and a tuning goes by that.
 
 **Nothing is deleted.** A removed case is `retired`: out of every sample and
 every tuning, still readable, its id never reused.

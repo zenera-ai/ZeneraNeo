@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openMetaChat } from '../src/chat/index.ts';
+import { expandCommand, listCommands, openMetaChat } from '../src/chat/index.ts';
 import { allows, parseRules, permissionPolicy } from '../src/chat/permissions.ts';
 import {
     openChat,
@@ -396,5 +396,53 @@ describe('openMetaChat, the chat without its screen', () => {
         expect(chat.resumed).toBe(true);
         expect(calls.resumed).toEqual([id]);
         await chat.close();
+    });
+});
+
+describe("a host's /commands", () => {
+    let dir: string;
+    beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), 'meta-commands-'));
+        const skill = (name: string, front: string, body: string): void => {
+            mkdirSync(join(dir, '.github/skills', name), { recursive: true });
+            writeFileSync(
+                join(dir, '.github/skills', name, 'SKILL.md'),
+                `---\n${front}\n---\n\n${body}\n`,
+            );
+        };
+        skill(
+            'dataset',
+            "name: dataset\ndescription: Build the dataset.\nargument-hint: '[source file | rebuild]'\ndisable-model-invocation: true",
+            'Keep dataset/ in step.',
+        );
+        skill(
+            'zen-cli',
+            'name: zen-cli\ndescription: Reference.\nuser-invocable: false',
+            'Commands.',
+        );
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('expands a command a person may type, with the words after it', async () => {
+        expect(await expandCommand(dir, '/dataset training/cases.md')).toEqual({
+            prompt: 'Keep dataset/ in step.\n\ntraining/cases.md',
+            command: 'dataset',
+        });
+        expect(await expandCommand(dir, '/dataset')).toEqual({
+            prompt: 'Keep dataset/ in step.',
+            command: 'dataset',
+        });
+    });
+
+    it('sends anything else as it is: prose, a path, a skill for the model, an unknown name', async () => {
+        for (const text of ['what is /dataset?', '/tmp/x is broken', '/zen-cli', '/nothing here']) {
+            expect(await expandCommand(dir, text)).toEqual({ prompt: text });
+        }
+    });
+
+    it('lists the commands with their description and argument hint', async () => {
+        expect(await listCommands(dir)).toEqual([
+            { name: 'dataset', description: 'Build the dataset.', hint: '[source file | rebuild]' },
+        ]);
     });
 });

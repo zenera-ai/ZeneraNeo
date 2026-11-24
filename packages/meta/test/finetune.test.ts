@@ -836,6 +836,59 @@ describe('zen meta finetune', () => {
         expect(fake.applies).toBe(0);
     });
 
+    it('keeps a result through a change to tags, and runs a case again once its rubric changed', async () => {
+        await dataset(['a1', 'b1']);
+        const fake = fakeZen(() => ({ done: true }));
+        await start(fake.zen, '-N', '2');
+        const edit = (...args: string[]) =>
+            quiet(() =>
+                runDataset(
+                    { args: ['update', ...args, '--why', 'test'], json: true, cwd: root },
+                    { dir: root, name: 'acme' },
+                ),
+            );
+        await edit('a1', '--tag-add', 'mail');
+        await edit('b1', '--rubric-add', 'names the source');
+        const before = fake.calls.length;
+        await start(fake.zen, '-N', '2');
+        const later = fake.calls.slice(before);
+        expect(runsOf(later, 'a1')).toHaveLength(0);
+        expect(runsOf(later, 'b1').length).toBeGreaterThan(0);
+        const out: string[] = [];
+        const write = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((c: string | Uint8Array) => {
+                out.push(String(c));
+                return true;
+            });
+        try {
+            await runFinetune(
+                { args: ['status'], json: true, cwd: root },
+                { dir: root, name: 'acme' },
+            );
+        } finally {
+            write.mockRestore();
+        }
+        const { cases } = JSON.parse(out.join(''));
+        expect(cases).toContainEqual(
+            expect.objectContaining({
+                id: 'a1',
+                rev: 1,
+                state: 'completed',
+                tries: { nomem: 1, mem: 1 },
+                verdict: 'right',
+            }),
+        );
+        expect(cases).toContainEqual(
+            expect.objectContaining({
+                id: 'b1',
+                rev: 3,
+
+                feedback: 'finetune/cases/b1/FEEDBACK.md',
+            }),
+        );
+    });
+
     it('keeps a live snapshot: the steps that ended, with what they came to, took and spent', async () => {
         await dataset(['a1']);
         await start(fakeZen(() => ({ done: true })).zen, '-N', '1');

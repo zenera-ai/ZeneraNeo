@@ -7,7 +7,7 @@ import {
     renameSync,
     writeFileSync,
 } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import type { EventLine } from '../host.ts';
 import type { Phase } from './feedback.ts';
 import type { Event, StepFailure, Tuning } from './tuning.ts';
@@ -57,6 +57,10 @@ export interface NowRow {
     now?: string;
     /** the last few such lines, oldest first */
     recent?: string[];
+    /** the case a worker holds */
+    case?: string;
+    /** the step's `--events` JSONL, project-relative, for a viewer that follows it */
+    events?: string;
 }
 
 export interface TokenRow extends ModelSpend {
@@ -245,7 +249,8 @@ export function snapshot(t: Tuning): Snapshot {
             continue;
         }
         const dir = t.workDir({ ...w, case: w.case });
-        const act = watch(join(dir, w.step === 'run' ? 'events.jsonl' : 'analyze.events.jsonl'));
+        const events = join(dir, w.step === 'run' ? 'events.jsonl' : 'analyze.events.jsonl');
+        const act = watch(events);
         now.push({
             key: `w${w.slot}`,
             who: `worker ${w.slot}`,
@@ -255,12 +260,15 @@ export function snapshot(t: Tuning): Snapshot {
             stage: w.step,
             act,
             ...(act.now ? { now: act.now, recent: [...act.recent] } : {}),
+            case: w.case.id,
+            events: relative(t.root, events),
         });
     }
     const q = t.improvements;
     if (q.current?.dir) {
         const checking = q.current.step === 'check';
-        const act = watch(join(q.current.dir, 'apply.events.jsonl'));
+        const events = join(q.current.dir, 'apply.events.jsonl');
+        const act = watch(events);
         const line = checking ? CHECK_NOW : act.now;
         const recent = checking ? [...act.recent, CHECK_NOW].slice(-KEEP_NOW) : [...act.recent];
         now.push({
@@ -272,6 +280,7 @@ export function snapshot(t: Tuning): Snapshot {
             stage: 'apply',
             act,
             ...(line ? { now: line, recent } : {}),
+            events: relative(t.root, events),
         });
     } else if (q.current) {
         now.push({

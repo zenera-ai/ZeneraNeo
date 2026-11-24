@@ -183,6 +183,18 @@ describe('the dataset store', () => {
         expect(applied).toMatchObject({ updated: ['find-invoice'], restarted: [] });
     });
 
+    it('keeps the revision of the question through changes that do not restart it', async () => {
+        await seed();
+        await zen('update', 'find-invoice', '--set', 'notes=from §4', '--why', 'a note');
+        await zen('update', 'find-invoice', '--tag-add', 'mail', '--why', 'a tag');
+        const noted = (await zen('show', 'find-invoice'))[0];
+        expect(noted).toMatchObject({ rev: 3, questionRev: 1 });
+        await zen('update', 'find-invoice', '--rubric-add', 'names the sender', '--why', 'a line');
+        const asked = (await zen('show', 'find-invoice'))[0];
+        expect(asked.rev).toBe(4);
+        expect(asked.questionRev).toBeUndefined();
+    });
+
     it('retires what a whole proposal leaves out, and never deletes it', async () => {
         await seed();
         putJson('proposal.json', { cases: [planDay()] });

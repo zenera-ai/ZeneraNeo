@@ -37,9 +37,9 @@ import { costChanges, type Gate, measure, overLimits } from './cost.ts';
 import { drift } from '../dataset/drift.ts';
 import { DatasetStore } from '../dataset/store.ts';
 import { runLoop } from './loop.ts';
-import { analyzeSession, attemptsOf } from './report.ts';
+import { analyzeSession, attemptsOf, caseRows } from './report.ts';
 import { retry } from './retry.ts';
-import { resultOf, selection } from './next-case.ts';
+import { resultOf, selection, tuned } from './next-case.ts';
 import {
     type Config,
     DEFAULTS,
@@ -416,6 +416,11 @@ async function start(
             t.stop('interrupted');
             return;
         }
+        kill(130);
+    };
+    // The children are process groups of their own, so a signal to the loop
+    // alone leaves them running. SIGTERM - a host stopping the job - takes them down too.
+    const kill = (code: number): never => {
         for (const child of children) {
             try {
                 process.kill(-child.pid!, 'SIGTERM');
@@ -423,9 +428,13 @@ async function start(
                 // Already gone.
             }
         }
-        process.exit(130);
+        process.exit(code);
+    };
+    const onTerminate = (): void => {
+        kill(143);
     };
     process.on('SIGINT', onInterrupt);
+    process.on('SIGTERM', onTerminate);
     note(
         `${bold('tuning')} ${project.name} · ${config.workers} workers · apply at ${config.applyAt}`,
     );
@@ -445,6 +454,7 @@ async function start(
     } finally {
         close?.();
         process.off('SIGINT', onInterrupt);
+        process.off('SIGTERM', onTerminate);
         await viewing?.close();
     }
     if (!ctx.json) {
@@ -478,11 +488,16 @@ function status(ctx: FinetuneContext, project: { dir: string; name: string }): v
     const c = counts(project.dir);
     const url = liveView(project.dir);
     if (ctx.json) {
+        const t = new Tuning(project.dir, readConfig(project.dir), async () => ({
+            code: 1,
+            stdout: '',
+        }));
         return json({
             running: Boolean(holder),
             ...c,
             status: join(dir, 'STATUS.md'),
             ...(url ? { url } : {}),
+            cases: caseRows(t),
         });
     }
     write(
@@ -592,10 +607,11 @@ function session(project: { dir: string; name: string }, rest: string[]): void {
     if (!id) {
         throw usageError('session of which case?', 'zen meta finetune session <case>');
     }
-    const c = DatasetStore.open(project.dir).get(id);
-    if (!c) {
+    const found = DatasetStore.open(project.dir).get(id);
+    if (!found) {
         throw invalidError(`no case ${id}`);
     }
+    const c = tuned(found);
     const t = new Tuning(project.dir, readConfig(project.dir), async () => ({
         code: 1,
         stdout: '',
