@@ -4,6 +4,7 @@
 //   AguiTranslator  - neo AgentEvent -> AG-UI events, in order (await each call before the next)
 //   clip            - the cap on tool output sent to a browser
 //   interruptsOf    - what a suspended run waits for, as AG-UI interrupts (RUN_FINISHED outcome)
+//   errorCode       - a RUN_ERROR's code for a failure: out_of_credits, else error
 import {
     EventType,
     type AGUIEvent,
@@ -11,7 +12,14 @@ import {
     type TokenUsage as AguiUsage,
     type RunAgentInput,
 } from '@ag-ui/core';
-import type { AgentEvent, AgentState, Payload, RunResult, TokenUsage } from '@zenera/neo';
+import {
+    isOutOfCredits,
+    type AgentEvent,
+    type AgentState,
+    type Payload,
+    type RunResult,
+    type TokenUsage,
+} from '@zenera/neo';
 import { randomUUID } from 'node:crypto';
 
 export const MAX_TOOL_OUTPUT = 8000;
@@ -24,6 +32,15 @@ export function clip(text: string, max = MAX_TOOL_OUTPUT): string {
 
 export type Resolve = (payload: Payload) => Promise<string>;
 
+/**
+ * The RUN_ERROR code for a run that failed with `err`: `out_of_credits` when the gateway's
+ * spending limit refused the model call (the host shows a top-up rather than an error), else
+ * `error`.
+ */
+export function errorCode(err: unknown): string {
+    return isOutOfCredits(err) ? 'out_of_credits' : 'error';
+}
+
 // What a tool put in suspend({ data }): zenera-app's interrupt id, and what the browser shows.
 interface SuspendData {
     interruptId?: unknown;
@@ -33,7 +50,8 @@ interface SuspendData {
 /**
  * The calls a suspended run waits on, as AG-UI interrupts. The id is zenera-app's interrupt id
  * when the tool got one (it resumes the run by it), else the call id; `toolCallId` ties it to the
- * tool card; `metadata` is what the tool said about it (server, icon, ...), for that card.
+ * tool card, and is absent when the run waits at a model call (`site: 'llm'`, e.g. out of
+ * credits); `metadata` is what the tool said about it (server, icon, ...), for that card.
  */
 export function interruptsOf(state: AgentState): Interrupt[] {
     // `suspended` is newer than some @zenera/neo typings this compiles against.
@@ -45,13 +63,14 @@ export function interruptsOf(state: AgentState): Interrupt[] {
             message?: string;
             data?: SuspendData;
             responseSchema?: Record<string, unknown>;
+            site?: string;
         };
         const data = s.data && typeof s.data === 'object' ? s.data : undefined;
         return {
             id: typeof data?.interruptId === 'string' ? data.interruptId : s.callId,
             reason: s.reason,
             ...(s.message ? { message: s.message } : {}),
-            toolCallId: s.callId,
+            ...(s.site === 'llm' ? {} : { toolCallId: s.callId }),
             ...(s.responseSchema ? { responseSchema: s.responseSchema } : {}),
             ...(data ? { metadata: data } : {}),
         };
@@ -259,7 +278,7 @@ export class AguiTranslator {
     }
 
     /** The end of a run that stopped without a run_finished: an exception or a cancel. */
-    fail(err: unknown, code = 'error'): AGUIEvent[] {
+    fail(err: unknown, code = errorCode(err)): AGUIEvent[] {
         if (this.#done) return [];
         const out = this.#closeAll();
         this.#done = true;

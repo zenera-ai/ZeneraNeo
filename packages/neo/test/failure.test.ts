@@ -2,7 +2,7 @@ import type { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import type OpenAI from 'openai';
 import { describe, expect, it } from 'vitest';
 import { OpenAIEmbedder } from '../src/embeddings/openai.ts';
-import { explain, ProviderError } from '../src/failure.ts';
+import { explain, failed, isOutOfCredits, ProviderError } from '../src/failure.ts';
 import { ModelRegistry } from '../src/models/factory.ts';
 
 // ---------------------------------------------------------------------------
@@ -180,6 +180,7 @@ describe('unwrapping what a vendor said', () => {
         expect(explain(new Error(GOOGLE_400))).toEqual({
             detail: 'Request contains an invalid argument. (400 INVALID_ARGUMENT)',
             status: 400,
+            code: 'INVALID_ARGUMENT',
         });
     });
 
@@ -251,6 +252,7 @@ describe('unwrapping what a vendor said', () => {
         expect(explain(err)).toEqual({
             detail: 'Your input exceeds the context window. (400 context_length_exceeded)',
             status: 400,
+            code: 'context_length_exceeded',
         });
     });
 
@@ -259,6 +261,7 @@ describe('unwrapping what a vendor said', () => {
         expect(explain(err)).toEqual({
             detail: 'socket hang up (ECONNRESET)',
             status: undefined,
+            code: 'ECONNRESET',
         });
     });
 
@@ -278,5 +281,46 @@ describe('unwrapping what a vendor said', () => {
             detail: 'socket hang up',
             status: undefined,
         });
+    });
+});
+
+describe('a spending limit used up at the gateway', () => {
+    // Bifrost's answer, as its API sends it: the kind sits beside `error`.
+    const BIFROST_402 = JSON.stringify({
+        type: 'budget_exceeded',
+        is_bifrost_error: false,
+        status_code: 402,
+        error: { message: 'Budget exceeded: customer acme budget exceeded: 1 >= 1 dollars' },
+    });
+
+    it('keeps the kind from the top of the body', () => {
+        const said = explain(Object.assign(new Error(BIFROST_402), { status: 402 }));
+        expect(said.code).toBe('budget_exceeded');
+        expect(said.status).toBe(402);
+    });
+
+    it('is recognised from the body, and from what the OpenAI SDK leaves of it', () => {
+        const site = { doing: 'llm generation' as const, api: 'chat.completions', model: 'm' };
+        const raw = Object.assign(new Error(BIFROST_402), { status: 402 });
+        // The SDK keeps only `error`: its message is the status and the sentence.
+        const sdk = Object.assign(
+            new Error('402 Budget exceeded: customer acme budget exceeded: 1 >= 1 dollars'),
+            { status: 402 },
+        );
+        for (const err of [raw, sdk]) {
+            expect(isOutOfCredits(err)).toBe(true);
+            expect(isOutOfCredits(failed(site, err))).toBe(true);
+        }
+    });
+
+    it('is not any other 402, nor an Anthropic body whose top-level type is `error`', () => {
+        expect(
+            isOutOfCredits(Object.assign(new Error('402 Payment Required'), { status: 402 })),
+        ).toBe(false);
+        const anthropic = JSON.stringify({
+            type: 'error',
+            error: { message: 'Overloaded' },
+        });
+        expect(explain(new Error(anthropic)).code).toBeUndefined();
     });
 });
