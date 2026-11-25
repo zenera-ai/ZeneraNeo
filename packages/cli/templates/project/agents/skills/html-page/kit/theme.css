@@ -203,6 +203,19 @@ button {
 select {
     min-width: 9rem;
 }
+select:not([multiple]):not([size]) {
+    appearance: none;
+    padding-right: 36px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m3 6 5 5 5-5' fill='none' stroke='%2364748b' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+@media (forced-colors: active) {
+    select:not([multiple]):not([size]) {
+        appearance: auto;
+        background-image: none;
+    }
+}
 input[type='text'],
 input[type='search'],
 input:not([type]),
@@ -341,7 +354,7 @@ ul.list li.done .grow {
 .tabulator input,
 .tabulator select {
     color: var(--fg);
-    background: var(--bg);
+    background-color: var(--bg);
     border: 1px solid var(--line);
 }
 
