@@ -237,12 +237,13 @@ describe('BwrapSandbox', () => {
                 },
             },
         );
-        const res = await box.exec('echo hi', { cwd: 'sub' });
+        const res = await box.exec('echo hi', { cwd: 'sub', maxBytes: 1234 });
         expect(res.exit_code).toBe(0);
         const call = calls.at(-1)!;
         expect(call.bin).toBe('/bin/sh');
         expect(call.args[1]).toMatch(/oom_score_adj/);
         expect(call.opts?.input).toBe('echo hi');
+        expect(call.opts?.maxBytes).toBe(1234);
         expect(call.opts?.env).toEqual({
             PATH: '/usr/bin:/bin',
             LANG: 'C.UTF-8',

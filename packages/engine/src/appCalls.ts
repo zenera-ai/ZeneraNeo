@@ -59,6 +59,12 @@ const FUNCTION = /^[A-Za-z][A-Za-z0-9_]{0,99}$/;
 /** The largest request body a call takes; it travels inside the call's script. */
 export const MAX_APP_REQUEST_BYTES = 1024 * 1024;
 
+/**
+ * The most a call may print, on stdout and on stderr each. Far above a command's 64 KB:
+ * the answer is a page's data (a whole report, say), not text for a model's context.
+ */
+export const MAX_APP_ANSWER_BYTES = 10 * 1024 * 1024;
+
 /** How long one call may take, in seconds. */
 export const APP_CALL_TIMEOUT_SECONDS = 30;
 
@@ -174,7 +180,12 @@ export function appAnswer(result: Awaited<ReturnType<Sandbox['exec']>>, file: st
     if (result.out_of_memory) {
         return failed(503, `${name} ran out of memory: ${result.out_of_memory.hint}`);
     }
-    if (result.truncated) return failed(502, `${name} answered with too much output`);
+    if (result.truncated) {
+        return failed(
+            502,
+            `${name} answered with more than ${MAX_APP_ANSWER_BYTES / (1024 * 1024)} MB of output`,
+        );
+    }
     const last = result.stdout.trim().split('\n').pop() ?? '';
     let envelope: unknown;
     try {
@@ -216,6 +227,7 @@ export async function runAppCall(
     const command = appCallCommand(call.file.path, { ...req, fn: call.fn }, call.dataDir);
     const result = await sandbox.exec(command, {
         timeout: APP_CALL_TIMEOUT_SECONDS,
+        maxBytes: MAX_APP_ANSWER_BYTES,
         ...(signal ? { signal } : {}),
     });
     return appAnswer(result, call.file.path);

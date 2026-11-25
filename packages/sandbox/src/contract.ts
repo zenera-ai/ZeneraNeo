@@ -212,6 +212,8 @@ export interface ExecOptions {
     /** seconds; the spec's default otherwise */
     timeout?: number;
     signal?: AbortSignal;
+    /** `exec` only: the bytes kept of stdout and of stderr each, 64 KB otherwise */
+    maxBytes?: number;
 }
 
 export interface ExecResult {

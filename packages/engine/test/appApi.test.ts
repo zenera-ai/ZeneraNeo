@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Sandbox } from '@zenera/neo';
+import type { ExecOptions, Sandbox } from '@zenera/neo';
 import {
     appAnswer,
     appCallCommand,
@@ -269,16 +269,20 @@ describe('app calls', () => {
     it.runIf(python)("runs in a sandbox and answers with the function's result", async () => {
         const { trees: t, dir } = trees();
         const shell = {
-            exec: async (command: string) => {
+            // Keeps what a real sandbox keeps of the output: 64 KB unless asked for more.
+            exec: async (command: string, opts: ExecOptions = {}) => {
                 const run = spawnSync('/bin/sh', ['-s'], {
                     input: command,
                     encoding: 'utf8',
                     env: { ...process.env, PYTHONPATH: join(runtimeDir(), 'python') },
+                    maxBuffer: 64 * 1024 * 1024,
                 });
+                const max = opts.maxBytes ?? 64 * 1024;
                 return {
                     exit_code: run.status ?? 1,
-                    stdout: run.stdout,
-                    stderr: run.stderr,
+                    stdout: run.stdout.slice(0, max),
+                    stderr: run.stderr.slice(0, max),
+                    truncated: run.stdout.length > max || run.stderr.length > max || undefined,
                     duration_ms: 1,
                 };
             },
@@ -303,6 +307,10 @@ describe('app calls', () => {
         expect((await ask('count', '')).body).toBe('{"n":1}');
         expect(existsSync(join(dir, 'api', '.data', 'app.sqlite'))).toBe(true);
         expect(await ask('hello', 'x'.repeat(1024 * 1024 + 1))).toMatchObject({ status: 413 });
+        // An answer far above a command's 64 KB, as a page's report may be.
+        const big = await ask('hello', JSON.stringify({ name: 'x'.repeat(1000), times: 200 }));
+        expect(big.status).toBe(200);
+        expect(JSON.parse(big.body).text).toHaveLength(200_000);
     });
 
     it('answers what the process did when it did not answer', () => {

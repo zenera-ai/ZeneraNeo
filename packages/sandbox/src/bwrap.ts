@@ -332,6 +332,7 @@ export class BwrapSandbox implements Sandbox {
                 timeoutMs: this.#timeout(opts.timeout),
                 signal,
                 env: this.#env(),
+                maxBytes: opts.maxBytes,
             },
         );
         refuseSetupFailure(res);

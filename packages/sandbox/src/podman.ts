@@ -307,6 +307,7 @@ export class PodmanSandbox implements Sandbox {
                 input: command,
                 timeoutMs,
                 signal: opts.signal,
+                maxBytes: opts.maxBytes,
             });
         let res = await once();
         if (gone(res)) {
