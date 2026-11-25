@@ -1,9 +1,12 @@
 // Tests for suspending a run on a tool call and resuming it (runner.ts, kernel.ts, types.ts suspend):
 // a run stops `suspended` with the call pending and saved in `state.suspended`; resume re-runs the
 // call, hands it an answer, or cancels it; a new message cancels what is still suspended; a state
-// survives JSON round-trips; fork branches cannot suspend.
+// survives JSON round-trips; fork branches cannot suspend. Also suspending at a model call through
+// `onModelError` (`site: 'llm'`): resume makes the call again, cancel ends the run, a new message
+// releases it, and nothing suspends once the answer started streaming or inside a fork branch.
 import { describe, expect, it } from 'vitest';
 import type { Model, ModelRequest, ModelResponse } from '../src/model.ts';
+import { isOutOfCredits } from '../src/failure.ts';
 import { AgentRunner, SUPERSEDED_MESSAGE } from '../src/runner.ts';
 import { assertState, type AgentState } from '../src/state.ts';
 import { suspend, tool, zeroUsage, type ToolCall } from '../src/types.ts';
@@ -244,5 +247,163 @@ describe('suspending from a plugin with no dependencies', () => {
             reason: 'mcp_auth',
             data: { interruptId: 'i-1' },
         });
+    });
+});
+
+describe('suspending at a model call (onModelError)', () => {
+    const OUT = 'Budget exceeded: customer acme budget exceeded: 1 >= 1 dollars';
+    const outOfCredits = () => Object.assign(new Error(`402 ${OUT}`), { status: 402 });
+    const WAIT = { reason: 'out_of_credits', data: { kind: 'billing' } };
+
+    /** A model that is refused while `world.broke`, and otherwise echoes the user. */
+    function setupBroke(opts: { onModelError?: boolean; streamFirst?: boolean } = {}) {
+        const world = { broke: true, calls: 0, asked: 0 };
+        const model: Model = {
+            id: 'scripted',
+            async generate(req: ModelRequest): Promise<ModelResponse> {
+                world.calls++;
+                if (world.broke) throw outOfCredits();
+                return { usage: zeroUsage(), ...say(`you said: ${lastUser(req)}`) };
+            },
+            ...(opts.streamFirst
+                ? {
+                      async stream(_req: ModelRequest, onDelta: (d: never) => void) {
+                          world.calls++;
+                          onDelta({ type: 'text_delta', delta: 'Hel' } as never);
+                          throw outOfCredits();
+                      },
+                  }
+                : {}),
+        };
+        const runner = new AgentRunner({
+            model,
+            onModelError:
+                opts.onModelError === false
+                    ? undefined
+                    : (err) => {
+                          world.asked++;
+                          return isOutOfCredits(err) ? WAIT : undefined;
+                      },
+        });
+        runner.agent({ name: 'main', instructions: 'MAIN' });
+        return { world, runner };
+    }
+
+    it('stops suspended at the model call, the call recorded with site llm', async () => {
+        const { runner, world } = setupBroke();
+        const res = await runner.run('main', 'hello');
+        expect(res.stopReason).toBe('suspended');
+        expect(res.state.suspended).toEqual([
+            expect.objectContaining({
+                callId: 'llm:0',
+                name: 'scripted',
+                site: 'llm',
+                reason: 'out_of_credits',
+                data: { kind: 'billing' },
+            }),
+        ]);
+        expect(res.state.pendingToolCalls).toEqual([]);
+        expect(world.calls).toBe(1);
+        expect(res.state.trajectory.some((n) => n.type === 'llm_call')).toBe(false);
+    });
+
+    it('resolved makes the same call again, preparing nothing twice', async () => {
+        const { runner, world } = setupBroke();
+        const paused = persist((await runner.run('main', 'hello')).state);
+        const prompts = paused.trajectory.filter((n) => n.type === 'system_prompt').length;
+
+        world.broke = false;
+        const res = await runner.resume(paused, {
+            answers: { 'llm:0': { status: 'resolved', rerun: true } },
+        });
+        expect(res.stopReason).toBe('final');
+        expect(res.output).toBe('you said: hello');
+        expect(res.state.suspended).toBeUndefined();
+        expect(world.calls).toBe(2);
+        expect(res.state.trajectory.filter((n) => n.type === 'system_prompt')).toHaveLength(
+            prompts,
+        );
+    });
+
+    it('resume without an answer, or still refused, stops suspended again', async () => {
+        const { runner, world } = setupBroke();
+        const paused = (await runner.run('main', 'hello')).state;
+
+        const unanswered = await runner.resume(paused, { answers: {} });
+        expect(unanswered.stopReason).toBe('suspended');
+        expect(world.calls).toBe(1);
+
+        const again = await runner.resume(paused, {
+            answers: { 'llm:0': { status: 'resolved', rerun: true } },
+        });
+        expect(again.stopReason).toBe('suspended');
+        expect(again.state.suspended).toHaveLength(1);
+        expect(world.calls).toBe(2);
+    });
+
+    it('cancelled ends the run without calling the model, and the chat can go on', async () => {
+        const { runner, world } = setupBroke();
+        const paused = (await runner.run('main', 'hello')).state;
+        const stopped = await runner.resume(paused, {
+            answers: { 'llm:0': { status: 'cancelled', message: 'stopped' } },
+        });
+        expect(stopped.stopReason).toBe('aborted');
+        expect(stopped.state.suspended).toBeUndefined();
+        expect(world.calls).toBe(1);
+
+        world.broke = false;
+        const next = await runner.send(stopped.state, 'again');
+        expect(next.stopReason).toBe('final');
+        expect(next.output).toBe('you said: again');
+    });
+
+    it('a new message releases the wait and is what the model answers', async () => {
+        const { runner, world } = setupBroke();
+        const paused = (await runner.run('main', 'hello')).state;
+        world.broke = false;
+        const res = await runner.send(paused, 'never mind');
+        expect(res.stopReason).toBe('final');
+        expect(res.output).toBe('you said: never mind');
+        expect(res.state.suspended).toBeUndefined();
+    });
+
+    it('fails as before when no handler is set, or once the answer started streaming', async () => {
+        const none = setupBroke({ onModelError: false });
+        await expect(none.runner.run('main', 'hello')).rejects.toThrow(/Budget exceeded/);
+
+        const streaming = setupBroke({ streamFirst: true });
+        await expect(streaming.runner.run('main', 'hello')).rejects.toThrow(/Budget exceeded/);
+        expect(streaming.world.asked).toBe(0);
+    });
+
+    it('a fork branch is never suspended: the branch fails and the trunk goes on', async () => {
+        const world = { asked: 0 };
+        const model = new RuleModel(
+            (req) => {
+                if (lastUser(req) === 'do it') throw outOfCredits();
+                return undefined;
+            },
+            (req) => {
+                const m = toolMessage(req, 'fork');
+                return m && m.role === 'tool' ? say('joined') : undefined;
+            },
+            () =>
+                call('fork', {
+                    branches: [{ name: 'b1', instructions: 'do it' }],
+                    context: 'none',
+                }),
+        );
+        const runner = new AgentRunner({
+            model,
+            onModelError: () => {
+                world.asked++;
+                return WAIT;
+            },
+        });
+        runner.agent({ name: 'main', instructions: 'MAIN', fork: {} });
+        const res = await runner.run('main', 'go');
+        expect(res.stopReason).toBe('final');
+        expect(res.state.suspended).toBeUndefined();
+        expect(world.asked).toBe(0);
     });
 });

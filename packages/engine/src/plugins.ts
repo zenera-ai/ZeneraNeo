@@ -1,9 +1,20 @@
 // Plugins: tools a host brings to the engine (ZenPlugin) - loading them, checking their names
 // against the built-ins, closing them, and the ones the machine names in ZEN_PLUGINS. A plugin
-// may also say where sandboxes run (SandboxProvider) - a sandbox service instead of podman.
+// may also say where sandboxes run (SandboxProvider) - a sandbox service instead of podman - and
+// whether a failed model call should suspend the run instead of failing it (modelError).
 // Used by: engine.ts (openEngine asks every plugin for its tools); the CLI's `zen check`
 // (machinePluginTools, cli/src/validate.ts); hosts such as ZeneraLite's project pod (EngineOptions.plugins).
-import type { AnyTool, RunIdentity, SandboxConfig, SandboxFactory } from '@zenera/neo';
+import {
+    explain,
+    isOutOfCredits,
+    ProviderError,
+    type AnyTool,
+    type ModelErrorHandler,
+    type RunIdentity,
+    type SandboxConfig,
+    type SandboxFactory,
+    type SuspendSpec,
+} from '@zenera/neo';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Logger } from './errors.ts';
@@ -52,8 +63,39 @@ export interface ZenPlugin {
     sandbox?(
         ctx: SandboxContext,
     ): SandboxProvider | undefined | Promise<SandboxProvider | undefined>;
+    /**
+     * A model call failed: return a `SuspendSpec` to suspend the run at that
+     * call instead of failing it (see `RunnerOptions.onModelError`), e.g. to
+     * wait for a spending limit to be topped up; nothing lets the run fail as
+     * usual. Plugins are asked in order and the first answer wins. A plugin
+     * that throws is logged and skipped. Only asked for plugins asked for tools.
+     */
+    modelError?(
+        err: unknown,
+        ctx: ModelErrorPluginContext,
+    ): SuspendSpec | undefined | Promise<SuspendSpec | undefined>;
     /** Called when the engine closes, or when it fails to open after the plugin was asked. */
     close?(): void | Promise<void>;
+}
+
+/**
+ * What a plugin is told about a model call that failed. Classified here, so a
+ * plugin with no dependencies need not pick apart provider errors itself.
+ */
+export interface ModelErrorPluginContext {
+    /** the suspension's id if the run suspends: `llm:<n>` */
+    callId: string;
+    /** the model's id */
+    model: string;
+    /** the HTTP status, when the error carried one */
+    status?: number;
+    /** the provider's or gateway's symbol for the refusal, e.g. `budget_exceeded` */
+    code?: string;
+    /** the gateway's spending limit is used up (Bifrost's 402 `budget_exceeded`) */
+    outOfCredits: boolean;
+    /** who the run acts for, when anyone */
+    user?: RunIdentity;
+    session?: SessionPaths;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +177,8 @@ export async function resolveSandboxProvider(
 
 export interface LoadedPlugins {
     tools: AnyTool[];
+    /** Asks the plugins' `modelError` hooks in order; absent when no plugin has one. */
+    onModelError?: ModelErrorHandler;
     /** Closes every plugin that was asked for tools, latest first. Never throws: failures are warnings. */
     close(): Promise<void>;
 }
@@ -207,7 +251,42 @@ export async function loadPlugins(
         await close();
         throw err;
     }
-    return { tools, close };
+    return { tools, onModelError: modelErrorHandler(asked, ctx), close };
+}
+
+/** One runner hook over the plugins that have `modelError`, asked in order. */
+function modelErrorHandler(
+    plugins: readonly ZenPlugin[],
+    ctx: PluginContext,
+): ModelErrorHandler | undefined {
+    const hooked = plugins.filter((p) => p.modelError);
+    if (!hooked.length) {
+        return undefined;
+    }
+    return async (err, { callId, model }) => {
+        const said = err instanceof ProviderError ? err : explain(err);
+        const info: ModelErrorPluginContext = {
+            callId,
+            model,
+            status: said.status,
+            code: said.code,
+            outOfCredits: isOutOfCredits(err),
+            user: ctx.user,
+            session: ctx.session,
+        };
+        for (const plugin of hooked) {
+            try {
+                const spec = await plugin.modelError!(err, info);
+                if (spec) {
+                    return spec;
+                }
+            } catch (hookErr) {
+                // The run still fails with the model's error, which is the one that matters.
+                ctx.logger.warn(`plugin ${plugin.name}: modelError failed: ${message(hookErr)}`);
+            }
+        }
+        return undefined;
+    };
 }
 
 function message(err: unknown): string {

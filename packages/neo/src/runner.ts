@@ -16,11 +16,11 @@ import * as Kernel from './kernel.ts';
 import type { AgentFiles } from './tools/workspace.ts';
 import type { MemoryIndex } from './memory/index.ts';
 import { renderRecollection } from './memory/render.ts';
-import type { Model, ModelRequest } from './model.ts';
+import type { Model, ModelRequest, ModelResponse } from './model.ts';
 import { PayloadResolver, type PayloadStore } from './payload.ts';
 import { Services } from './services.ts';
 import { activeSkillNames, type SkillProvider } from './skills.ts';
-import { lastText, type AgentState, type RunResult } from './state.ts';
+import { lastText, turns, type AgentState, type RunResult } from './state.ts';
 import {
     lastOfType,
     projectMessages,
@@ -139,7 +139,30 @@ export interface RunnerOptions<TCtx = unknown> {
      */
     recordRequests?: boolean;
     clock?: IdClock;
+    /**
+     * Asked when a model call fails, before the run fails with it. Returning a
+     * `SuspendSpec` suspends the run at that call instead (`site: 'llm'` in
+     * `state.suspended`); resuming makes the call again. For refusals that
+     * something outside the run can cure — a spending limit topped up. Only
+     * asked on the trunk, never in a fork branch, and only when nothing of the
+     * answer was streamed yet; an abort is never offered.
+     */
+    onModelError?: ModelErrorHandler;
 }
+
+/** What `onModelError` is told about the call that failed. */
+export interface ModelErrorContext {
+    /** the suspension's id if it suspends: `llm:<n>`, `n` being the model calls made so far */
+    callId: string;
+    /** the model's id */
+    model: string;
+    state: AgentState;
+}
+
+export type ModelErrorHandler = (
+    err: unknown,
+    ctx: ModelErrorContext,
+) => SuspendSpec | undefined | Promise<SuspendSpec | undefined>;
 
 export interface RunOptions<T = string, TCtx = unknown> {
     context?: TCtx;
@@ -189,11 +212,13 @@ export class AgentRunner<TCtx = unknown> {
     readonly #stream: boolean;
     readonly #recordRequests: boolean;
     readonly #clock: IdClock;
+    readonly #onModelError?: ModelErrorHandler;
 
     constructor(opts: RunnerOptions<TCtx> = {}) {
         this.#model = opts.model;
         this.#context = opts.context;
         this.#clock = opts.clock ?? systemClock;
+        this.#onModelError = opts.onModelError;
         this.services =
             opts.services ??
             new Services({
@@ -278,7 +303,15 @@ export class AgentRunner<TCtx = unknown> {
         state: AgentState,
         opts: ResumeOptions<T, TCtx>,
     ): AsyncGenerator<AgentEvent, RunResult<T>> {
+        // Declining to wait for the model ends the run: there is no call result
+        // to hand the model, and the next message continues the conversation.
+        const declined = (state.suspended ?? []).some(
+            (s) => s.site === 'llm' && opts.answers?.[s.callId]?.status === 'cancelled',
+        );
         const answered = yield* this.#answer(state, opts.answers ?? {}, opts);
+        if (declined) {
+            return yield* this.#finish(answered, undefined, 'aborted');
+        }
         return yield* this.#drive(answered, opts);
     }
 
@@ -309,7 +342,10 @@ export class AgentRunner<TCtx = unknown> {
             if (!answer) {
                 continue;
             }
-            if (answer.status === 'resolved' && 'rerun' in answer) {
+            // A model call has no result to give: any answer lets it be made again
+            // (a cancel then ends the run, in #resumeAndDrive; a new message is
+            // simply what the call now answers).
+            if (s.site === 'llm' || (answer.status === 'resolved' && 'rerun' in answer)) {
                 state = Kernel.releaseSuspension(state, s.callId);
                 continue;
             }
@@ -382,6 +418,10 @@ export class AgentRunner<TCtx = unknown> {
                     return yield* this.#finish(state, branch, 'final');
 
                 case 'llm': {
+                    // Waiting on this very call (a resume that did not answer it).
+                    if (state.suspended?.some((s) => s.site === 'llm')) {
+                        return yield* this.#finish(state, branch, 'suspended');
+                    }
                     state = await Kernel.applySystemPrompt(state, this.registry, env);
                     state = await this.#preload(state, env);
                     state = await this.#autoRecall(state, env);
@@ -392,18 +432,44 @@ export class AgentRunner<TCtx = unknown> {
                     const model = this.#modelFor(state);
 
                     const deltas = new EventQueue<AgentEvent>();
+                    let streamed = 0;
                     const call = (
                         this.#stream && model.stream
-                            ? model.stream({ ...req, signal }, (d: StreamDelta) =>
-                                  deltas.push(tag(state, branch, d)),
-                              )
+                            ? model.stream({ ...req, signal }, (d: StreamDelta) => {
+                                  streamed++;
+                                  deltas.push(tag(state, branch, d));
+                              })
                             : model.generate({ ...req, signal })
                     ).finally(() => deltas.close());
                     // Deltas arrive in a callback, which a generator cannot
                     // yield from; draining the queue while the call is in
                     // flight bridges the two.
                     yield* deltas.drain();
-                    const res = await call;
+                    let res: ModelResponse;
+                    try {
+                        res = await call;
+                    } catch (err) {
+                        // Waiting is only sound while nothing of the answer is
+                        // on screen; otherwise the call would be shown twice.
+                        const spec =
+                            branch || streamed || signal?.aborted
+                                ? undefined
+                                : await this.#onModelError?.(err, {
+                                      callId: modelCallId(state),
+                                      model: model.id,
+                                      state,
+                                  });
+                        if (!spec) {
+                            throw err;
+                        }
+                        state = Kernel.applyModelSuspension(
+                            state,
+                            { callId: modelCallId(state), name: model.id },
+                            spec,
+                            this.#clock.now(),
+                        );
+                        return yield* this.#finish(state, branch, 'suspended');
+                    }
 
                     const before = state;
                     state = await Kernel.applyLlmResponse(state, res, model.id, env, {
@@ -819,6 +885,11 @@ function tag<E extends StreamDelta | Omit<CheckpointEvent, keyof EventBase>>(
  */
 function appended(before: AgentState, after: AgentState): TrajectoryNode[] {
     return after.trajectory.slice(before.trajectory.length);
+}
+
+/** The id a suspended model call goes by: stable until that call is made. */
+function modelCallId(state: AgentState): string {
+    return `llm:${turns(state)}`;
 }
 
 /** Recall after new user input or a hand-off, and never twice in a row. */

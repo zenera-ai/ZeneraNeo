@@ -37,7 +37,7 @@ import { turns, type AgentEvent } from '@zenera/neo';
 import { Router, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { AguiTranslator } from './agui.ts';
+import { AguiTranslator, errorCode } from './agui.ts';
 import { settings } from './config.ts';
 import { HttpError } from './http.ts';
 import { runUser } from './identity.ts';
@@ -418,7 +418,9 @@ async function execute(
         if (!why) console.error(`run ${runId}:`, err);
         run.record.status = why?.code ?? 'error';
         run.record.error = why?.message ?? errorMessage(err);
-        log.append(translator.fail(why ?? new Error(errorMessage(err)), why?.code ?? 'error'));
+        log.append(
+            translator.fail(why ?? new Error(errorMessage(err)), why?.code ?? errorCode(err)),
+        );
     } finally {
         clearTimeout(timer);
         await chain;

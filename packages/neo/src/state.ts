@@ -59,8 +59,9 @@ export interface AgentState {
     /** the in-flight fork, if any, and its branches still lacking a result */
     pendingFork?: { callId: string; branches: string[] };
     /**
-     * Pending tool calls the run is suspended on, waiting for a person (see
-     * `suspend`). Each is also in `pendingToolCalls`; `runner.resume` answers them.
+     * What the run is suspended on, waiting for a person (see `suspend`): pending
+     * tool calls, each also in `pendingToolCalls`, or the next model call
+     * (`site: 'llm'`). `runner.resume` answers them.
      */
     suspended?: Suspension[];
     /** derived cache; always recomputable from the trajectory */

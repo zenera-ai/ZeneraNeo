@@ -933,6 +933,25 @@ export function applySuspension(
     return { ...state, suspended: [...others, entry] };
 }
 
+/**
+ * Records that the next model call waits: it was refused before answering, and
+ * the host chose to wait (see `RunnerOptions.onModelError`). Nothing else
+ * changes, so resuming simply makes the call again.
+ */
+export function applyModelSuspension(
+    state: AgentState,
+    call: { callId: string; name: string },
+    spec: SuspendSpec,
+    at: string,
+): AgentState {
+    if (state.pendingToolCalls.length) {
+        throw new Error(`run ${state.runId} has tool calls pending; it is not at a model call`);
+    }
+    const others = (state.suspended ?? []).filter((s) => s.callId !== call.callId);
+    const entry: Suspension = { callId: call.callId, name: call.name, at, ...spec, site: 'llm' };
+    return { ...state, suspended: [...others, entry] };
+}
+
 /** Lets a suspended call run again: what it waited for is done. */
 export function releaseSuspension(state: AgentState, callId: string): AgentState {
     const suspended = (state.suspended ?? []).filter((s) => s.callId !== callId);

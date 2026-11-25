@@ -362,6 +362,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
         runner = project.runner({
             recordRequests: true,
             model: opts.model ? project.models.model(opts.model) : undefined,
+            onModelError: loaded.onModelError,
         });
 
         state = await loadState(opts.session);

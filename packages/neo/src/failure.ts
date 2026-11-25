@@ -98,6 +98,8 @@ export class ProviderError extends Error {
     readonly detail: string;
     /** the HTTP status, wherever the SDK or the body left it */
     readonly status?: number;
+    /** the vendor's (or gateway's) symbol for the refusal — `invalid_argument`, `budget_exceeded` */
+    readonly code?: string;
     readonly attempts: number;
     readonly elapsedMs: number;
     readonly chunks?: number;
@@ -108,16 +110,33 @@ export class ProviderError extends Error {
         status: number | undefined,
         cause: unknown,
         tried: Attempted = ONCE,
+        code?: string,
     ) {
         super(`${site.doing} failed — ${where(site)}: ${detail}${trailer(tried)}`, { cause });
         this.name = 'ProviderError';
         this.site = site;
         this.detail = detail;
         this.status = status;
+        this.code = code;
         this.attempts = tried.attempts;
         this.elapsedMs = tried.elapsedMs;
         this.chunks = tried.chunks;
     }
+}
+
+/**
+ * Whether a model call was refused because the gateway's spending limit is
+ * used up — Bifrost answers `402` with `type: budget_exceeded` before it calls
+ * any provider, so nothing was spent or streamed. Read off the symbol when the
+ * body kept it, and off the sentence when an SDK dropped the body's top level
+ * (the OpenAI SDK keeps only `error`, where Bifrost's message is).
+ */
+export function isOutOfCredits(err: unknown): boolean {
+    const { status, code, detail } = err instanceof ProviderError ? err : explain(err);
+    if (code?.toLowerCase() === 'budget_exceeded') {
+        return true;
+    }
+    return status === 402 && /budget exceeded/i.test(detail);
 }
 
 /**
@@ -232,8 +251,8 @@ export function failed(site: CallSite, err: unknown, tried: Attempted = ONCE): u
     ) {
         return err;
     }
-    const { detail, status } = explain(err);
-    return new ProviderError(site, detail, status, err, tried);
+    const { detail, status, code } = explain(err);
+    return new ProviderError(site, detail, status, err, tried, code);
 }
 
 /** Bodies nest at most this deep before the unwrapping is the bug. */
@@ -259,7 +278,7 @@ interface Said {
  * The sentence a vendor buried, and the status it came with. Exported because
  * it is useful anywhere a raw provider error has to be shown to someone.
  */
-export function explain(err: unknown): { detail: string; status?: number } {
+export function explain(err: unknown): { detail: string; status?: number; code?: string } {
     let status = statusOf(err);
     let code: string | undefined;
     let about: string | undefined;
@@ -297,7 +316,7 @@ export function explain(err: unknown): { detail: string; status?: number } {
         const because = blamed(err, text);
         text = because ? (text ? `${text} — ${because}` : because) : text;
     }
-    return { detail: mark(text || String(err), status, code), status };
+    return { detail: mark(text || String(err), status, code), status, code };
 }
 
 const messageOf = (err: unknown): string =>
@@ -363,7 +382,7 @@ function body(text: string): Said | undefined {
         // Not JSON, or a body cut short. What is already in hand is the answer.
         return undefined;
     }
-    const root = parsed as { error?: unknown; message?: unknown };
+    const root = parsed as { error?: unknown; message?: unknown; type?: unknown };
     const error = root?.error ?? root;
     if (typeof error === 'string') {
         return { message: error };
@@ -395,7 +414,11 @@ function body(text: string): Said | undefined {
                   ? said.code
                   : typeof said.type === 'string'
                     ? said.type
-                    : undefined,
+                    : // Bifrost keeps the kind beside `error`, not in it:
+                      // `{"type":"budget_exceeded","error":{"message":…}}`.
+                      typeof root.type === 'string' && root.type !== 'error'
+                      ? root.type
+                      : undefined,
         about: aboutOf(said.details) ?? (typeof said.param === 'string' ? said.param : undefined),
     };
 }

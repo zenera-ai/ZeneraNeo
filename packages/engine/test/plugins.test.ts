@@ -1,5 +1,6 @@
 // Tests for plugins.ts: loading and closing plugins, name and group clashes, plugin tools selected by
-// `group:*` in a project, ZEN_PLUGINS imports and warnings, and ZEN_PLUGINS refused in a project .env.
+// `group:*` in a project, ZEN_PLUGINS imports and warnings, ZEN_PLUGINS refused in a project .env, and
+// the plugins' modelError hooks combined into one runner hook.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -68,6 +69,46 @@ function plugin(name: string, tools: AnyTool[] | (() => never)): Spy {
 }
 
 describe('loadPlugins', () => {
+    it('modelError: the first plugin that answers wins, told what the failure was', async () => {
+        const told: unknown[] = [];
+        const quiet: ZenPlugin = { name: 'quiet', modelError: () => undefined };
+        const broken: ZenPlugin = {
+            name: 'broken',
+            modelError: () => {
+                throw new Error('broker down');
+            },
+        };
+        const billing: ZenPlugin = {
+            name: 'billing',
+            modelError: (_err, info) => {
+                told.push(info);
+                return info.outOfCredits ? { reason: 'out_of_credits' } : undefined;
+            },
+        };
+        const loaded = await loadPlugins([quiet, broken, billing], ctx(), builtins);
+        const refused = Object.assign(new Error('402 Budget exceeded: customer acme'), {
+            status: 402,
+        });
+        const at = { callId: 'llm:3', model: 'gpt', state: {} as never };
+        warnings.length = 0;
+        expect(await loaded.onModelError!(refused, at)).toEqual({ reason: 'out_of_credits' });
+        expect(told[0]).toMatchObject({
+            callId: 'llm:3',
+            model: 'gpt',
+            status: 402,
+            outOfCredits: true,
+            user: { id: 'u-1' },
+        });
+        expect(warnings).toEqual(['plugin broken: modelError failed: broker down']);
+        expect(await loaded.onModelError!(new Error('500 oops'), at)).toBeUndefined();
+    });
+
+    it('modelError: no hook at all when no plugin has one', async () => {
+        expect(
+            (await loadPlugins([plugin('mcp', [])], ctx(), builtins)).onModelError,
+        ).toBeUndefined();
+    });
+
     it('collects every plugin tool and tells each plugin who the run is for', async () => {
         const mcp = plugin('mcp', [make('mcp_call', 'mcp'), make('mcp_tools', 'mcp')]);
         const other = plugin('other', [make('other_tool')]);

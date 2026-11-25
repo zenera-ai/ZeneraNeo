@@ -240,6 +240,11 @@ export function isToolReturn(v: unknown): v is ToolReturn {
 // answer as its result. What the pause is about is the host's business: the
 // runner only carries `reason`, `message` and `data` through to whoever shows
 // it, and `responseSchema` to whoever collects the answer.
+//
+// A model call can wait the same way, though not by returning anything: when it
+// is refused before answering (a spending limit used up), the host's
+// `RunnerOptions.onModelError` may answer with a `SuspendSpec`, and the run
+// stops with that call recorded as `site: 'llm'`; resuming makes it again.
 // ---------------------------------------------------------------------------
 
 // Registered (`Symbol.for`) so a plugin with no dependencies can suspend too:
@@ -270,13 +275,23 @@ export function isToolSuspend(v: unknown): v is ToolSuspend {
     return v !== null && typeof v === 'object' && TOOL_SUSPEND in v;
 }
 
-/** A pending tool call a run is suspended on. Lives in `AgentState.suspended`. */
+/**
+ * What a suspended run waits on. Lives in `AgentState.suspended`.
+ *
+ * Usually a pending tool call (`site` absent or `'tool'`). With `site: 'llm'`
+ * it is the next model call instead: the model refused before answering (the
+ * gateway's spending limit was used up) and a host's `onModelError` chose to
+ * wait rather than fail. Its `callId` is `llm:<n>`, `n` being the model calls
+ * made so far, and `name` the model id; resuming makes that call again.
+ */
 export interface Suspension extends SuspendSpec {
     callId: string;
-    /** the tool that suspended */
+    /** the tool that suspended, or the model for `site: 'llm'` */
     name: string;
     /** when it suspended, as the run's clock writes times */
     at: string;
+    /** what is waiting: a tool call (the default) or the next model call */
+    site?: 'tool' | 'llm';
 }
 
 /**

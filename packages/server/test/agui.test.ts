@@ -2,7 +2,7 @@ import { EventType, type AGUIEvent } from '@ag-ui/core';
 import type { AgentEvent, Payload } from '@zenera/neo';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { AguiTranslator, clip } from '../src/agui.ts';
+import { AguiTranslator, clip, errorCode } from '../src/agui.ts';
 
 const blobs = new Map<string, string>();
 const payload = (value: string): Payload => {
@@ -228,6 +228,47 @@ test('ends a suspended run with an interrupt outcome, one per waiting call', asy
             { id: 'c2', reason: 'input', toolCallId: 'c2' },
         ],
     });
+});
+
+test('a run waiting at a model call has an interrupt with no tool call', async () => {
+    const t = translator();
+    const suspended = [
+        {
+            callId: 'llm:2',
+            name: 'gpt',
+            at: '2025-01-01T00:00:00.000Z',
+            reason: 'out_of_credits',
+            site: 'llm',
+            data: { interruptId: 'int-9', kind: 'billing' },
+        },
+    ];
+    const out = await t.translate(
+        ev({
+            type: 'run_finished',
+            state: {},
+            result: { stopReason: 'suspended', agent: 'intake', usage, state: { suspended } },
+        }),
+    );
+    assert.deepEqual((out.at(-1) as { outcome: unknown }).outcome, {
+        type: 'interrupt',
+        interrupts: [
+            {
+                id: 'int-9',
+                reason: 'out_of_credits',
+                metadata: { interruptId: 'int-9', kind: 'billing' },
+            },
+        ],
+    });
+});
+
+test('a run refused for credits fails with code out_of_credits, others with error', () => {
+    const refused = Object.assign(new Error('402 Budget exceeded: customer acme'), {
+        status: 402,
+    });
+    assert.equal(errorCode(refused), 'out_of_credits');
+    assert.equal(errorCode(new Error('boom')), 'error');
+    const out = translator().fail(refused);
+    assert.equal((out.at(-1) as { code: string }).code, 'out_of_credits');
 });
 
 test('clips long tool output', () => {
