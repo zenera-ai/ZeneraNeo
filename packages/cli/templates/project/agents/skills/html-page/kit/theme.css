@@ -1,16 +1,16 @@
 /* The kit's look: colours from these variables only, light and dark. */
 :root {
     color-scheme: light dark;
-    --bg: #f7f7f8;
+    --bg: #f8fafc;
     --card: #ffffff;
-    --fg: #1d1d1f;
-    --muted: #6e6e73;
-    --line: #e3e3e6;
+    --fg: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
     --accent: #2563eb;
     --accent-fg: #ffffff;
-    --up: #15803d;
-    --down: #b91c1c;
-    --danger: #b91c1c;
+    --up: #047857;
+    --down: #dc2626;
+    --danger: #dc2626;
     --gap: 16px;
     --radius: 10px;
     font:
@@ -22,14 +22,14 @@
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #141416;
-        --card: #1e1e21;
-        --fg: #ececf0;
-        --muted: #9a9aa2;
-        --line: #2e2e33;
-        --accent: #60a5fa;
-        --accent-fg: #0b1220;
-        --up: #4ade80;
+        --bg: #0b0f19;
+        --card: #111827;
+        --fg: #e2e8f0;
+        --muted: #94a3b8;
+        --line: #1f2937;
+        --accent: #3b82f6;
+        --accent-fg: #ffffff;
+        --up: #34d399;
         --down: #f87171;
         --danger: #f87171;
     }
