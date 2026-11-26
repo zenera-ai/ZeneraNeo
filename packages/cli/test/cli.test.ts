@@ -2189,13 +2189,13 @@ describe('the scaffold', () => {
      * tools: a guide to tools the agent was not given is one it can only
      * misuse, and a granted tool nothing mentions is one nothing uses.
      */
-    it('gives the mcp tools, and their skill, only when asked to', async () => {
+    it('gives the mcp and wait tools, and the mcp skill, only when asked to', async () => {
         const plain = join(root, 'no-mcp');
         mkdirSync(plain, { recursive: true });
         scaffold({ dir: plain, model: 'gpt-4o' });
         const connected = join(root, 'mcp');
         mkdirSync(connected, { recursive: true });
-        scaffold({ dir: connected, model: 'gpt-4o', mcp: true, web: true });
+        scaffold({ dir: connected, model: 'gpt-4o', mcp: true, web: true, wait: true });
 
         const read = (dir: string, rel: string) => readFileSync(join(dir, rel), 'utf8');
         const skills = (dir: string) => readdirSync(join(dir, 'agents', 'skills')).sort();
@@ -2213,11 +2213,15 @@ describe('the scaffold', () => {
             expect(read(plain, rel)).not.toContain('{{');
             expect(read(connected, rel)).not.toContain('{{');
             expect(read(plain, rel)).not.toMatch(/mcp/i);
+            expect(read(plain, rel)).not.toMatch(/wait:\*|`wait`|Waiting —/);
         }
         expect(read(connected, 'agents.yaml')).toMatch(/^ {10}- mcp:\*$/m);
+        expect(read(connected, 'agents.yaml')).toMatch(/^ {10}- wait:\*$/m);
         expect(read(connected, 'SPECIFICATION.md')).toContain('External services (MCP)');
+        expect(read(connected, 'SPECIFICATION.md')).toContain('Waiting —');
         const prompt = read(connected, 'agents/prompts/default.md');
         expect(prompt).toContain('`mcp_*` tools');
+        expect(prompt).toContain('the `wait` tool');
         expect(prompt).toContain('- `mcp` —');
         expect(prompt).toContain('- `web-research` —');
 

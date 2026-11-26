@@ -275,12 +275,16 @@ const FORK_RULES = 'agents/fork-instructions.md';
 const MCP_RULES = 'agents/mcp-instructions.md';
 /** What an MCP agent with a memory store may commit about those calls. */
 const MCP_MEMORY_RULES = 'agents/mcp-memory-instructions.md';
+/** How a run pauses until a time and goes on, with the `wait` tool. */
+const WAIT_RULES = 'agents/wait-instructions.md';
 /** How a text answer is formatted. */
 const MARKDOWN_RULES = 'agents/markdown-instructions.md';
 /** When to answer with an A2UI surface. */
 const A2UI_RULES = 'agents/a2ui-instructions.md';
 /** The tool group Zenera's MCP plugin registers. */
 const MCP_GROUP = 'mcp';
+/** The group of the `wait` tool, which Zenera's MCP plugin also registers. */
+const WAIT_GROUP = 'wait';
 /** The conditioned documents `zen` ships, which land whether or not they apply. */
 const OURS = new Set([
     A2UI_RULES,
@@ -290,6 +294,7 @@ const OURS = new Set([
     FORK_RULES,
     MCP_RULES,
     MCP_MEMORY_RULES,
+    WAIT_RULES,
 ]);
 const PROMPTS_DIR = 'agents/prompts';
 const SKILLS_DIR = 'agents/skills';
@@ -750,6 +755,24 @@ export async function validateProject(opts: ValidateOptions): Promise<Report> {
                 message:
                     'an agent has both the mcp tools and memory, but nothing tells it to ' +
                     'commit tool routes and never the results, which are the user’s data',
+                fix: 'zen check --fix, which writes the current rules back',
+            });
+        }
+    }
+
+    // The same again for `wait`: a plugin tool, so its schema is all a model
+    // would otherwise have, and it says nothing about when not to wait, what
+    // a Stop or a new message does, or how a loop repeats.
+    if (config.agents.some((a) => grantsGroup(a.tools, WAIT_GROUP))) {
+        const path = join(root, WAIT_RULES);
+        if (!existsSync(path) || empty(path)) {
+            add({
+                severity: 'error',
+                code: 'wait.uninstructed',
+                where: WAIT_RULES,
+                message:
+                    'an agent has the wait tool, but nothing tells it when to wait, how to ' +
+                    'give the time, or what to do when the user stops it or writes meanwhile',
                 fix: 'zen check --fix, which writes the current rules back',
             });
         }

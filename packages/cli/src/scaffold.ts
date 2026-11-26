@@ -73,6 +73,9 @@ const MCP_RULES = join('agents', 'mcp-instructions.md');
 /** What an MCP agent with a store commits about its calls: routes, never results. */
 const MCP_MEMORY_RULES = join('agents', 'mcp-memory-instructions.md');
 
+/** How the `wait` tool is used: reaching only agents granted that group. */
+const WAIT_RULES = join('agents', 'wait-instructions.md');
+
 /** How a text answer is formatted: Markdown, and how files and images are linked. */
 const MARKDOWN_RULES = join('agents', 'markdown-instructions.md');
 
@@ -107,6 +110,7 @@ export const SHARED_RULES: readonly string[] = [
     MCP_MEMORY_RULES,
     MEMORY_RULES,
     TOOL_RULES,
+    WAIT_RULES,
 ];
 
 /**
@@ -350,6 +354,8 @@ export interface ScaffoldOptions {
     web?: boolean;
     /** give the default agent `mcp:*` — set when a plugin provides the group */
     mcp?: boolean;
+    /** give the default agent `wait:*` — set when a plugin provides the group */
+    wait?: boolean;
     /**
      * What vectorises the memory graph, as a provider-prefixed ref. Left out
      * when the project's provider publishes no embeddings API — memory still
@@ -376,10 +382,14 @@ export interface Scaffolded {
  * the first set under twice as many lines about the second.
  */
 export function scaffold(opts: ScaffoldOptions): Scaffolded {
-    // `web` and `mcp` are each stated three times - in the grant, the
+    // `web`, `mcp` and `wait` are each stated three times - in the grant, the
     // specification and the prompt - because those are read by different
     // readers, and a tool nothing says to use is not one.
-    const flags = { web: opts.web ?? false, mcp: opts.mcp ?? false };
+    const flags = {
+        web: opts.web ?? false,
+        mcp: opts.mcp ?? false,
+        wait: opts.wait ?? false,
+    };
     const files = copyTree(join(TEMPLATES, 'project'), opts.dir, '', {
         keep: true,
         flags,

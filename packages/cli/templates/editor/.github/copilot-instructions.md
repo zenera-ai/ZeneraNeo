@@ -50,6 +50,7 @@ the editor skill for each one - `zen-memory` for a `memory:` block,
 `zen-rag-docs` for an index, `zen-code-python` for an agent that writes or runs
 code, `zen-topology` for `handoffs:` or `fork:` on any agent,
 `zen-mcp` for `mcp:*` or any `mcp_*` tool on any agent,
+`zen-wait` for `wait:*` or the `wait` tool on any agent,
 `zen-sandbox-capacity` before any `zen run batch`
 (except under `zen-finetune`, which sets its own concurrency),
 `zen-cli` always. A capability that is already
@@ -253,6 +254,7 @@ my-project/
 │   ├── mcp-memory-instructions.md and more - what of them memory keeps
 │   ├── memory-instructions.md     and more - how the graph is used
 │   ├── tools-instructions.md      and more - how tools are called
+│   ├── wait-instructions.md       and more - how a run pauses until a time
 │   ├── prompts/
 │   │   ├── intake.md             one agent's own brief
 │   │   └── adjuster.md
@@ -667,10 +669,10 @@ follow. So:
 Target 20-60 lines each. If one exceeds ~100, split the stable half out into a
 preloaded skill.
 
-Eight of these documents are **`zen`'s, not the project's** -
+Nine of these documents are **`zen`'s, not the project's** -
 `tools-instructions.md`, `files-instructions.md`, `memory-instructions.md`,
 `fork-instructions.md`, `mcp-instructions.md`, `mcp-memory-instructions.md`,
-`markdown-instructions.md` and `a2ui-instructions.md` - and so are the `a2ui` and `a2ui-charts` skills.
+`wait-instructions.md`, `markdown-instructions.md` and `a2ui-instructions.md` - and so are the `a2ui` and `a2ui-charts` skills.
 They are replaced by `zen check --fix`, and a copy that
 differs is reported as `rules.stale`. This project's own rules on any of those
 subjects go in a topic file beside them - `agents/files-policy-instructions.md`,
@@ -869,6 +871,13 @@ A request to "add GitHub MCP", "connect Linear" or the like is about **this
 project's agents**: grant them `mcp:*` (`/add-mcp`, or `zen-mcp`). It never
 means editing `.vscode/mcp.json` - that gives the editor tools, not the
 project, and a project declares no servers or credentials.
+
+The same host also provides `wait:*` - one tool, `wait`, that pauses a run until
+a time (N minutes, a moment, or the next slot of a cron schedule) and then goes
+on by itself, for "check again later" and "every weekday at 9". It works only in
+the app's chats and Test tab. Its house rules, `agents/wait-instructions.md`,
+reach every agent granted the group (`requires: [tools:wait]`). Load `zen-wait`
+before granting or reviewing it.
 
 ### 3.6 The file tools (`files:*`, alias `workspace:*`)
 
@@ -1981,6 +1990,7 @@ Before finishing any change here:
 - [ ] If any agent has file tools, `agents/files-instructions.md` is present - §3.6
 - [ ] If any agent has `fork:`, `agents/fork-instructions.md` is present - zen-topology §8
 - [ ] If any agent has `mcp:*`, `agents/mcp-instructions.md` is present - zen-mcp
+- [ ] If any agent has `wait:*`, `agents/wait-instructions.md` is present - zen-wait
 - [ ] No `rules.stale`: the files that are `zen`'s rather than yours say
       what this version of the runtime does, and `zen check --fix` replaces them
 - [ ] Any change to an `agents/*instructions.md` was made with the
@@ -2079,6 +2089,7 @@ candidates; these are the judgements to make about each one)**
 | Cites a page it only saw the excerpt of       | A prompt line: `web_read` before quoting - §3.8                     |
 | Every web call refuses                        | No Exa key: `zen key add exa` - `zen check` warns - §3.8            |
 | Every MCP call says it is not available       | Run it in the app chat or Test tab - zen-mcp                        |
+| Every wait says it is not available           | Run it in the app chat or Test tab - zen-wait                       |
 | A model or embedder refuses every call        | `zen models test <ref>` - if `blocked`, `zen models ls` - §8        |
 | Answers instead of routing                    | Router prompt prohibition; check `handoffs:`                        |
 | Routes to the wrong specialist                | The target agents' `description:` fields                            |

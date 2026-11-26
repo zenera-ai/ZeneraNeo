@@ -3,7 +3,7 @@
 ## `zen init`
 
 ```
-zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--force]
+zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--wait | --no-wait] [--force]
 ```
 
 Creates a project here, or in `<dir>`, and records it in the registry so `zen
@@ -15,13 +15,17 @@ list` and `zen open` can find it by name.
 | `--model <ref>` | The model to scaffold with, taken as written            |
 | `--mcp`         | Grant the default agent `mcp:*` and write the mcp skill |
 | `--no-mcp`      | Do not, even when a `ZEN_PLUGINS` plugin provides them  |
+| `--wait`        | Grant the default agent `wait:*` (pause, go on later)   |
+| `--no-wait`     | Do not, even when a `ZEN_PLUGINS` plugin provides it    |
 | `--force`       | Write into a directory that already holds a project     |
 
 Without `--mcp` or `--no-mcp`, the `mcp` tools are granted when a plugin in
 `$ZEN_PLUGINS` provides them - which is how Zenera Lite's project pods offer the
-connected services. An explicit `--model` naming an OpenAI reasoning model
-(gpt-5, o-series) gets the same `api: responses` and reasoning summary as the
-default; any other is taken as written.
+connected services. `wait:*` follows the same rule with `--wait` / `--no-wait`:
+granted when a plugin provides the `wait` tool, which Zenera Lite's does. An
+explicit `--model` naming an OpenAI reasoning model (gpt-5, o-series) gets the
+same `api: responses` and reasoning summary as the default; any other is taken
+as written.
 
 What it writes:
 
@@ -35,6 +39,7 @@ agents/files-instructions.md     more of them, for agents that work with files
 agents/fork-instructions.md     more of them, for agents that can fork
 agents/mcp-instructions.md      more of them, for agents granted the mcp tools
 agents/mcp-memory-instructions.md   the same, for those that also have memory
+agents/wait-instructions.md     more of them, for agents granted the wait tool
 agents/memory-instructions.md   more of them, for agents with the memory store
 agents/tools-instructions.md    more of them, about how tools are called
 agents/prompts/default.md       the default agent's prompt: a general-purpose assistant

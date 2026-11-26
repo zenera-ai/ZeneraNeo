@@ -152,3 +152,39 @@ describe('zen init on a machine whose plugins provide the mcp tools', () => {
         expect(await hasMcp({ dir: root, name: 'p' })).toBe(false);
     });
 });
+
+/** A plugin module providing the `wait` group beside `mcp`, the way Zenera Lite's does. */
+function waitPlugin(): string {
+    const path = join(root, `wait-${n++}.mjs`);
+    const tool = (name: string, group: string) =>
+        `{ name: '${name}', group: '${group}', description: '${name}', parameters: { type: 'object', properties: {} }, execute: () => ({}) }`;
+    writeFileSync(
+        path,
+        `export default { name: 'mcp', tools: () => [${tool('mcp_call', 'mcp')}, ${tool('wait', 'wait')}] };\n`,
+    );
+    return path;
+}
+
+describe('zen init on a machine whose plugins provide the wait tool', () => {
+    it('finds it, and the project it then scaffolds loads with it and its rules', async () => {
+        vi.stubEnv('ZEN_PLUGINS', waitPlugin());
+        const { hasWait, pluginGroups } = await import('../src/commands/init.ts');
+        const { scaffold } = await import('../src/scaffold.ts');
+        const { validateProject } = await import('../src/validate.ts');
+        const dir = join(root, `p${n++}`);
+        mkdirSync(dir, { recursive: true });
+
+        expect(await hasWait({ dir, name: 'p' })).toBe(true);
+        expect([...(await pluginGroups({ dir, name: 'p' }))].sort()).toEqual(['mcp', 'wait']);
+        scaffold({ dir, model: 'gpt-4o', wait: true });
+        const report = await validateProject({ dir, sandbox: { enabled: false } });
+        expect(report.findings.filter((f) => f.severity === 'error')).toEqual([]);
+        expect(report.agents[0]?.instructions).toContain('agents/wait-instructions.md');
+    });
+
+    it('finds nothing without it, even where the mcp tools are', async () => {
+        vi.stubEnv('ZEN_PLUGINS', mcpPlugin());
+        const { hasWait } = await import('../src/commands/init.ts');
+        expect(await hasWait({ dir: root, name: 'p' })).toBe(false);
+    });
+});

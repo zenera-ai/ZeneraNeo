@@ -146,4 +146,11 @@ describe('editorSkills', () => {
         writeFileSync(join(root, 'agents', 'prompts', 'b.md'), 'Call mcp_describe first.\n');
         expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).toContain('zen-mcp');
     });
+
+    it('names zen-wait for a wait:* grant, and not otherwise', () => {
+        writeFileSync(join(root, 'agents.yaml'), 'agents:\n  - name: a\n    tools: [wait:*]\n');
+        expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).toContain('zen-wait');
+        writeFileSync(join(root, 'agents.yaml'), 'agents:\n  - name: a\n');
+        expect(editorSkills(root, [{ phase: 'nomem' }]).map(([n]) => n)).not.toContain('zen-wait');
+    });
 });

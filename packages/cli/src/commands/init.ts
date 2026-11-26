@@ -34,7 +34,8 @@ import {
     yellow,
 } from '../term.ts';
 
-const USAGE = 'zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--force]';
+const USAGE =
+    'zen init [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--wait | --no-wait] [--force]';
 
 interface Flags {
     name?: string;
@@ -42,6 +43,8 @@ interface Flags {
     force?: boolean;
     mcp?: boolean;
     'no-mcp'?: boolean;
+    wait?: boolean;
+    'no-wait'?: boolean;
 }
 
 interface ModelChoice {
@@ -131,14 +134,25 @@ export function explicitModel(ref: string): ModelChoice {
 }
 
 /**
- * Whether the plugins this machine names in `ZEN_PLUGINS` provide the `mcp`
- * tools — which is how a host such as Zenera Lite offers its users' connected
- * services. Asked the way `zen check` asks, so a project granted `mcp:*` here
- * is one that loads here. A plugin that fails says nothing, and the answer is no.
+ * The tool groups the plugins this machine names in `ZEN_PLUGINS` provide -
+ * which is how a host such as Zenera Lite offers its users' connected services
+ * (`mcp`) and runs that pause until a time (`wait`). Asked the way `zen check`
+ * asks, so a project granted those groups here is one that loads here. A
+ * plugin that fails says nothing, and its groups are not there.
  */
-export async function hasMcp(project: { dir: string; name: string }): Promise<boolean> {
+export async function pluginGroups(project: { dir: string; name: string }): Promise<Set<string>> {
     const tools = await machinePluginTools(project, [], { warn: () => {} });
-    return tools.some((t) => t.group === 'mcp');
+    return new Set(tools.flatMap((t) => (t.group ? [t.group] : [])));
+}
+
+/** Whether this machine's plugins provide the `mcp` tools. */
+export async function hasMcp(project: { dir: string; name: string }): Promise<boolean> {
+    return (await pluginGroups(project)).has('mcp');
+}
+
+/** Whether this machine's plugins provide the `wait` tool. */
+export async function hasWait(project: { dir: string; name: string }): Promise<boolean> {
+    return (await pluginGroups(project)).has('wait');
 }
 
 /**
@@ -221,7 +235,9 @@ export const init: Command = {
         'The default agent is a general-purpose assistant. It gets the file',
         'tools and a sandboxed shell, plus `exa:*` when the keyring holds an',
         'Exa key and `mcp:*` when a plugin in $ZEN_PLUGINS provides the mcp',
-        'tools (--mcp / --no-mcp decide instead). Its skills cover',
+        'tools (--mcp / --no-mcp decide instead), and `wait:*` - pause and go',
+        'on later by itself - when a plugin provides the wait tool (--wait /',
+        '--no-wait). Its skills cover',
         'data analysis and A2UI forms and charts, and web research and the',
         'connected services when it has those tools. It keeps a memory of its',
         'own work in memory/, vectorised by the same provider as the model',
@@ -241,11 +257,16 @@ export const init: Command = {
                 force: { type: 'boolean' },
                 mcp: { type: 'boolean' },
                 'no-mcp': { type: 'boolean' },
+                wait: { type: 'boolean' },
+                'no-wait': { type: 'boolean' },
             },
             USAGE,
         );
         if (values.mcp && values['no-mcp']) {
             throw usageError('--mcp and --no-mcp contradict each other', USAGE);
+        }
+        if (values.wait && values['no-wait']) {
+            throw usageError('--wait and --no-wait contradict each other', USAGE);
         }
 
         const dir = resolve(ctx.cwd, one(positionals, 'directory', USAGE) ?? '.');
@@ -267,7 +288,15 @@ export const init: Command = {
             : DEFAULT_MODEL[provider ?? 'openai'];
         const model = choice.ref;
         const web = hasExa(store);
-        const mcp = values['no-mcp'] ? false : (values.mcp ?? (await hasMcp({ dir, name })));
+        // Asked once, and only when a flag leaves the answer open: loading the
+        // plugins is the slow part.
+        const groups =
+            (values.mcp === undefined && !values['no-mcp']) ||
+            (values.wait === undefined && !values['no-wait'])
+                ? await pluginGroups({ dir, name })
+                : new Set<string>();
+        const mcp = values['no-mcp'] ? false : (values.mcp ?? groups.has('mcp'));
+        const wait = values['no-wait'] ? false : (values.wait ?? groups.has('wait'));
         const embedding = defaultEmbedding(providerOf(model));
         const written = scaffold({
             dir,
@@ -275,6 +304,7 @@ export const init: Command = {
             modelOptions: choice.options,
             web,
             mcp,
+            wait,
             embedding,
         });
 
@@ -302,6 +332,7 @@ export const init: Command = {
                 credential: provider ?? null,
                 web,
                 mcp,
+                wait,
                 sandbox,
             });
             return;
@@ -314,6 +345,12 @@ export const init: Command = {
         if (mcp) {
             note(
                 `${green('mcp tools found')} ${dim('— the default agent gets the connected services')}`,
+            );
+            note();
+        }
+        if (wait) {
+            note(
+                `${green('wait tool found')} ${dim('— the default agent can pause and go on later')}`,
             );
             note();
         }

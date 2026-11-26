@@ -47,7 +47,7 @@ strip_urls() {
 # The three trees §2.5 names, prose only: a skill's own script is code the
 # sandbox runs, not text rendered into a prompt, and its paths are its own.
 #
-# The copies `zen` ships (a2ui-, files-, fork-, markdown-, mcp-, mcp-memory-, memory-,
+# The copies `zen` ships (a2ui-, files-, fork-, markdown-, mcp-, mcp-memory-, memory-, wait-,
 # tools-instructions.md, and the a2ui and a2ui-charts skills)
 # are left out on purpose. They are full of worked examples, so they fail this
 # sweep by design, and the project cannot edit them anyway: `zen check` reports
@@ -63,7 +63,7 @@ files() {
         for file in agents/*instructions.md; do
             if [ -f "$file" ]; then echo "$file"; fi
         done
-    } | grep -Ev '^agents/(a2ui|files|fork|markdown|mcp|mcp-memory|memory|tools)-instructions\.md$' |
+    } | grep -Ev '^agents/(a2ui|files|fork|markdown|mcp|mcp-memory|memory|tools|wait)-instructions\.md$' |
         grep -Ev '^agents/skills/(a2ui|a2ui-charts)/SKILL\.md$' |
         grep -Ev '^agents/skills/html-page/' | sort -u
 }

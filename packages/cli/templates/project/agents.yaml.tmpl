@@ -69,6 +69,14 @@ agents:
           # line there.
           - mcp:*
           {{/if}}
+          {{#if wait}}
+          # wait:* lets the agent pause and go on later by itself - in N
+          # minutes, at a time, or at the next slot of a schedule - when the
+          # user asks it to wait, repeat or check back. Here because the host
+          # that ran `zen init` provides the wait tool; a machine without it
+          # fails to load this agent, so drop the line there.
+          - wait:*
+          {{/if}}
       #
       # The skills in agents/skills, listed in the prompt for it to load when a
       # case needs one — among them a2ui and a2ui-charts, for forms and charts,

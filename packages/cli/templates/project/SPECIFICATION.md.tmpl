@@ -59,6 +59,11 @@ data in it — and report what was done in enough detail to be checked.
   as the signed-in user. Reads are free; anything that changes data there is
   confirmed with the user first, unless that change was the request.
 {{/if}}
+{{#if wait}}
+- Waiting — pause a run and go on by itself later (in some minutes, at a time,
+  or at the next slot of a schedule), only when the user asks to wait, repeat
+  or check back. How is `agents/wait-instructions.md`.
+{{/if}}
 - Skills — guides in `agents/skills`, loaded when a request needs one:
     - `data-analysis` — calculations, tables and statistics over data, in Python.
     - `html-page` — interactive HTML pages: dashboards and reports with charts,
