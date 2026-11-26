@@ -17,7 +17,7 @@ failed, `2` usage, `3` invalid project, `4` no usable credential, `5` sandbox.
 ## The commands
 
 ```
-zen init     [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--force]
+zen init     [dir] [--name <name>] [--model <ref>] [--mcp | --no-mcp] [--wait | --no-wait] [--force]
 zen list     [--sessions] [--runs] [--limit <n>] [--prune]
 zen run      [project] [prompt] [options]
 zen run      batch --input <file> [--batch-dir <dir>] [--concurrency <n>] [--memory-read-only]

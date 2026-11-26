@@ -100,6 +100,7 @@ confused by.
 | `agents/fork-instructions.md`           | **ours**  | `fork`                | what a branch is, what returns, when it is worth it       |
 | `agents/mcp-instructions.md`            | **ours**  | `tools:mcp`           | finding, describing and calling a service; connect pause  |
 | `agents/mcp-memory-instructions.md`     | **ours**  | `tools:mcp`, `memory` | commit MCP routes, never results                          |
+| `agents/wait-instructions.md`           | **ours**  | `tools:wait`          | when to wait, giving the time, Stop and new messages      |
 | `agents/markdown-instructions.md`       | **ours**  | `text-output`         | answers in Markdown; how files and images are linked      |
 | `agents/a2ui-instructions.md`           | **ours**  | `text-output`         | when to answer with an A2UI surface; which skill to load  |
 | `agents/tools-<topic>-instructions.md`  | project's | yours                 | **this project's** tool policy                            |
@@ -131,13 +132,14 @@ inside. Anything this project decides for itself on a subject one of ours
 covers - which audience holds what, what must never be written down, how wide a
 fan-out may go, which tools are off limits here - is its own document:
 
-| Instead of editing       | Write                                                         |
-| ------------------------ | ------------------------------------------------------------- |
-| `files-instructions.md`  | `agents/files-policy-instructions.md`                         |
-| `memory-instructions.md` | `agents/memory-policy-instructions.md`                        |
-| `fork-instructions.md`   | `agents/fork-policy-instructions.md`                          |
-| `tools-instructions.md`  | `agents/tools-policy-instructions.md`                         |
-| `mcp-instructions.md`    | `agents/mcp-policy-instructions.md` (`requires: [tools:mcp]`) |
+| Instead of editing       | Write                                                           |
+| ------------------------ | --------------------------------------------------------------- |
+| `files-instructions.md`  | `agents/files-policy-instructions.md`                           |
+| `memory-instructions.md` | `agents/memory-policy-instructions.md`                          |
+| `fork-instructions.md`   | `agents/fork-policy-instructions.md`                            |
+| `tools-instructions.md`  | `agents/tools-policy-instructions.md`                           |
+| `mcp-instructions.md`    | `agents/mcp-policy-instructions.md` (`requires: [tools:mcp]`)   |
+| `wait-instructions.md`   | `agents/wait-policy-instructions.md` (`requires: [tools:wait]`) |
 
 `<topic>` is yours; `policy` is the convention and needs no explaining. Then a
 `zen check --fix`, a `zen init` or a `zen open` refreshes our copy and takes
@@ -212,6 +214,7 @@ It reads `agents/*instructions.md` and exits `1` on any candidate.
 | `fork.uninstructed`       | error    | an agent can fork and `fork-instructions.md` is missing or empty         |
 | `mcp.uninstructed`        | error    | an agent has `mcp` tools and `mcp-instructions.md` is absent             |
 | `mcp-memory.uninstructed` | error    | an agent has `mcp` tools and memory, `mcp-memory-instructions.md` absent |
+| `wait.uninstructed`       | error    | an agent has the `wait` tool and `wait-instructions.md` is absent        |
 | `rules.stale`             | warning  | one of ours is not the copy this `zen` ships                             |
 | `house-rules.empty`       | warning  | a document contributes nothing but a prompt section                      |
 | `rules.unreached`         | note     | a document of **yours** whose `requires:` no agent satisfies             |
