@@ -34,12 +34,16 @@ out your own steps.
 Give exactly one of:
 
 - `minutes`: from now, 1 to 43200.
-- `until`: an ISO 8601 time **with its offset**, e.g.
-  `2026-11-27T09:00:00+04:00`, from 1 minute to 30 days ahead.
-- `cron`: a 5-field schedule (minute hour day-of-month month day-of-week),
-  with `tz` - the user's IANA time zone, e.g. `Asia/Dubai`. The wait ends at
-  the next matching slot. Without `tz` it is UTC: if you do not know the
-  user's zone, ask.
+- `until`: an ISO 8601 time from 1 minute to 30 days ahead. Without an offset,
+  e.g. `2026-11-27T09:00`, it is the user's local time.
+- `cron`: a 5-field schedule (minute hour day-of-month month day-of-week). The
+  wait ends at the next matching slot. For the next time a time of day comes
+  round ("at 9"), use `cron` (`0 9 * * *`) rather than working out a date.
+
+Times of day are in the user's own time zone, as their browser reports it. Pass
+`tz` (an IANA zone, e.g. `Asia/Dubai`) only when the user names another one. If
+a call is refused because their zone is not known, ask them for it and pass it
+as `tz`.
 
 The time is computed by the host, not by you: never work out a timestamp from
 what you remember the date to be. Add a short `reason` - it is shown on the
@@ -47,7 +51,7 @@ card.
 
 ## When it ends
 
-The call returns `{ waited: true, firedAt }`, and:
+The call returns `{ waited: true, firedAt }`, `tz` when a zone was used, and:
 
 - `early: true` - the user pressed Run now.
 - For `cron`: `slot`, the slot it waited for, and `missed`, how many slots
