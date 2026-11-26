@@ -57,10 +57,13 @@ test('a time zone and picture pass on only as a known IANA zone and a plain http
         picture: 'https://cdn.acme.com/a.png?s=96',
         source: 'host',
     });
+    // Google's avatar URLs run over 1 KB.
+    const google = `https://lh3.googleusercontent.com/a-/${'A'.repeat(1100)}=s96-c`;
+    assert.equal(user(undefined, google)?.picture, google);
     for (const [zone, picture] of [
         ['Mars/Olympus', 'http://cdn.acme.com/a.png'],
         ['Asia/Dubai\nZEN_USER_ROLE=owner', 'https://u:p@cdn.acme.com/a.png'],
-        [42, `https://cdn.acme.com/${'a'.repeat(600)}.png`],
+        [42, `https://cdn.acme.com/${'a'.repeat(2100)}.png`],
         ['../etc', 'javascript:alert(1)'],
     ]) {
         assert.deepEqual(user(zone, picture), { id: 'ann', source: 'host' });

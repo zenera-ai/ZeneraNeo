@@ -118,7 +118,10 @@ otherwise:
 - `email` must look like an email.
 - `name` must be one line.
 - `zoneinfo` must be an IANA zone the runtime knows.
-- `picture` must be an `https` URL without credentials, at most 512 characters.
+- `picture` must be an `https` URL without credentials, at most 2048 characters.
+
+A page's `/v/` link token carries the same user minus `picture`: an avatar URL can
+be over 1 KB, and the link token must stay under 2 KB.
 
 ## Recorded
 

@@ -29,8 +29,8 @@ const ROLES = new Set<string>(['owner', 'editor', 'viewer', 'admin']);
 const EMAIL = /^[^\s@]{1,200}@[^\s@]{1,200}$/;
 const NAME = /^[^\n\r\0]{1,200}$/;
 const TIME_ZONE = /^[A-Za-z][\w+\-/]{0,63}$/;
-// Short enough that a page's /v/ token (views.ts) with it still fits.
-const MAX_PICTURE = 512;
+// Room for Google's signed avatar URLs (over 1 KB); a page's /v/ token (views.ts) leaves it out.
+const MAX_PICTURE = 2048;
 
 export function isThreadId(id: string): boolean {
     return THREAD_ID.test(id);
