@@ -24,7 +24,8 @@ import { workspaceMount } from './uploads.ts';
 //                      in `view` mode (a page's view URL) it is shown inline instead,
 //                      sandboxed by viewCsp, and its text is gzipped when the client takes it
 //   viewCsp          - the policy a page shown that way runs under
-//   fileTrees, contentTypeOf, AgentFileError, agentFileStatus - helpers
+//   fileTrees        - a session's trees; its workspace's .tmp is readable
+//   contentTypeOf, AgentFileError, agentFileStatus - helpers
 //
 // Used by: @zenera/server files.ts and views.ts (zen server's file routes),
 // ZeneraLite's zenera-project chatFiles.ts (Test-tab and builder chats), and the
@@ -77,7 +78,10 @@ export function agentFileStatus(code: AgentFileErrorCode): number {
     return code === 'invalid' ? 400 : code === 'missing' ? 404 : 403;
 }
 
-/** A session's trees in a project: its workspace, the workdir and the assets the project has. */
+/**
+ * A session's trees in a project: its workspace, the workdir and the assets the project has.
+ * The workspace's `.tmp` is readable; other dot-folders stay hidden.
+ */
 export function fileTrees(projectDir: string, workspace: string): FileTrees {
     let assets: string | undefined;
     try {
@@ -86,7 +90,14 @@ export function fileTrees(projectDir: string, workspace: string): FileTrees {
     } catch {
         // A config that does not load has no assets to show; the workspace still has its files.
     }
-    return { workspace, workdir: workspaceMount(projectDir), ...(assets ? { assets } : {}) };
+    const workdir = workspaceMount(projectDir);
+    return {
+        workspace,
+        workdir,
+        ...(assets ? { assets } : {}),
+        // The agent's scratch files (downloads, generated images) are its own to show in a chat.
+        dotted: [posix.join(workdir, '.tmp')],
+    };
 }
 
 const FILE_SCHEME = 'file://';

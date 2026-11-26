@@ -15,6 +15,7 @@ import {
     agentFilePath,
     agentFileStatus,
     contentTypeOf,
+    fileTrees,
     resolveAgentFile,
     sendAgentFile,
     type FileTrees,
@@ -32,7 +33,14 @@ const trees: FileTrees = { workspace, workdir: '/workspace', assets };
 const BIG = `<!doctype html><p>${'row of a report '.repeat(400)}</p>`;
 
 beforeAll(() => {
-    for (const d of [workspace, assets, skills, join(workspace, 'out'), join(workspace, '.data')]) {
+    for (const d of [
+        workspace,
+        assets,
+        skills,
+        join(workspace, 'out'),
+        join(workspace, '.data'),
+        join(workspace, '.tmp'),
+    ]) {
         mkdirSync(d, { recursive: true });
     }
     writeFileSync(join(workspace, 'a b.txt'), 'spaces');
@@ -42,6 +50,7 @@ beforeAll(() => {
     writeFileSync(join(workspace, 'data.parquet'), '0123456789');
     writeFileSync(join(workspace, '.env'), 'KEY=1');
     writeFileSync(join(workspace, '.data', 'state.json'), '{}');
+    writeFileSync(join(workspace, '.tmp', 'profile.jpg'), 'jpg');
     writeFileSync(join(assets, 'logo.svg'), '<svg/>');
     writeFileSync(join(skills, 'SKILL.md'), 'skill');
     writeFileSync(secret, 'secret');
@@ -123,6 +132,13 @@ describe('resolveAgentFile', () => {
         expect(refused('/workspace/.env', { ...trees, dotted: ['/workspace/.data'] })).toBe(
             'hidden',
         );
+    });
+
+    it("lets a project session show its workspace's .tmp, and no other dot-folder", () => {
+        const t = fileTrees(join(root, 'no-project'), workspace);
+        expect(resolveAgentFile('file:///workspace/.tmp/profile.jpg', t).size).toBe(3);
+        expect(refused('/workspace/.env', t)).toBe('hidden');
+        expect(refused('/workspace/.data/state.json', t)).toBe('hidden');
     });
 });
 
