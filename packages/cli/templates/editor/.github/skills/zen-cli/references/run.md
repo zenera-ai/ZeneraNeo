@@ -292,8 +292,9 @@ ZEN_USER_ROLE=viewer zen run --as ann@acme.com "…"      a role too
 zen run batch --input cases.json --as ann@acme.com      every item as Ann
 ```
 
-An email sets both the id and `ZEN_USER_EMAIL`; `ZEN_USER_ROLE` and
-`ZEN_USER_NAME`, when exported, fill in the rest. It is always `source: local` -
+An email sets both the id and `ZEN_USER_EMAIL`; `ZEN_USER_ROLE`,
+`ZEN_USER_NAME`, `ZEN_USER_TIME_ZONE` and `ZEN_USER_PICTURE`, when exported,
+fill in the rest. It is always `source: local` -
 a statement, not a login - so code that trusts the identity only for `host`
 treats it as untrusted, which is what a test of that code should see. Without
 `--as`, already-exported `ZEN_USER_*` are used the same way. A project's `.env`

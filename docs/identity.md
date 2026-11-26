@@ -13,7 +13,7 @@ the user is. The agent and the code it runs can read that, but they cannot chang
 | Host                         | How                                                        | `source` |
 | ---------------------------- | ---------------------------------------------------------- | -------- |
 | The Zenera app (ZeneraLite)  | the signed-in user, from the token the app signs           | `host`   |
-| A server using the engine    | `openEngine({ user: { id, email, name, role } })`          | `host`   |
+| A server using the engine    | `openEngine({ user: { id, email, name, role, … } })`       | `host`   |
 | `zen run --as ann@acme.com`  | whoever you say, for trying a project                      | `local`  |
 | A `zen run` inside a sandbox | inherited from the parent run's `ZEN_USER_*`               | `local`  |
 | Plain `zen run`              | nobody: `current_user` says so and the variables are unset | -        |
@@ -34,10 +34,17 @@ arguments and returns:
     "authenticated": true,
     "id": "3f0c…",
     "email": "ann@acme.com",
+    "name": "Ann Lee",
     "role": "editor",
+    "timeZone": "Europe/Berlin",
+    "picture": "https://cdn.acme.com/avatars/ann.png",
     "source": "host"
 }
 ```
+
+Only `id` and `source` are always there; the rest appear when the host knows them.
+`timeZone` is an IANA zone, so the agent can tell the user's local time and schedule
+for it. `picture` is an `https` URL of their avatar.
 
 or `{ "authenticated": false, … }`. Its description is the same for every user, so
 chats on a shared project keep sending identical tool schemas, which keeps
@@ -49,20 +56,22 @@ To take it away from an agent, say `-current_user` (or `-identity:*`) in its `to
 
 Each command the agent runs gets these variables. Unknown fields are left unset.
 
-| Variable          |                                 |
-| ----------------- | ------------------------------- |
-| `ZEN_USER_ID`     | stable user id                  |
-| `ZEN_USER_EMAIL`  |                                 |
-| `ZEN_USER_NAME`   |                                 |
-| `ZEN_USER_ROLE`   | the user's role in this project |
-| `ZEN_USER_SOURCE` | `host` or `local`               |
+| Variable             |                                 |
+| -------------------- | ------------------------------- |
+| `ZEN_USER_ID`        | stable user id                  |
+| `ZEN_USER_EMAIL`     |                                 |
+| `ZEN_USER_NAME`      |                                 |
+| `ZEN_USER_ROLE`      | the user's role in this project |
+| `ZEN_USER_TIME_ZONE` | IANA zone, e.g. `Europe/Berlin` |
+| `ZEN_USER_PICTURE`   | `https` URL of their avatar     |
+| `ZEN_USER_SOURCE`    | `host` or `local`               |
 
 ```python
 import zenera
 
 me = zenera.identity()            # None when no one is signed in
 me = zenera.require_identity()    # raises zenera.NoIdentityError instead
-print(me.id, me.email, me.role)
+print(me.id, me.email, me.name, me.role, me.time_zone, me.picture)
 ```
 
 ```js
@@ -97,6 +106,19 @@ tokens there.
 - The engine never forwards one from its own environment into the container.
 
 The only way in is the host's `user`.
+
+## From a host's token (`zen server`)
+
+`zen server` takes the user from the token the host signs for each request. It reads
+`sub`, `role`, `email`, `name`, `zoneinfo` (the time zone) and `picture`. These are
+the OIDC standard claim names. It keeps a value only when it looks right and drops it
+otherwise:
+
+- `role` must be a known role.
+- `email` must look like an email.
+- `name` must be one line.
+- `zoneinfo` must be an IANA zone the runtime knows.
+- `picture` must be an `https` URL without credentials, at most 512 characters.
 
 ## Recorded
 

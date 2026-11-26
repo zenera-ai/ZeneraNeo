@@ -34,6 +34,8 @@ const ANN: RunIdentity = {
     email: 'ann@example.com',
     name: 'Ann',
     role: 'editor',
+    timeZone: 'Europe/Berlin',
+    picture: 'https://cdn.example.com/ann.png',
     source: 'host',
 };
 
@@ -55,6 +57,8 @@ describe('the identity as variables', () => {
             ZEN_USER_EMAIL: 'ann@example.com',
             ZEN_USER_NAME: 'Ann',
             ZEN_USER_ROLE: 'editor',
+            ZEN_USER_TIME_ZONE: 'Europe/Berlin',
+            ZEN_USER_PICTURE: 'https://cdn.example.com/ann.png',
             ZEN_USER_SOURCE: 'host',
         });
         expect(identityEnv(undefined)).toEqual({});

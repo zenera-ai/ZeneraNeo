@@ -47,6 +47,26 @@ test('a role, email or name that is not one is left out, not passed on', () => {
     assert.deepEqual(runUser(req), { id: 'ann', source: 'host' });
 });
 
+test('a time zone and picture pass on only as a known IANA zone and a plain https URL', () => {
+    server('jwt');
+    const user = (zoneinfo: unknown, picture: unknown) =>
+        runUser(request({ sub: 'ann', zoneinfo, picture }));
+    assert.deepEqual(user('Asia/Dubai', 'https://cdn.acme.com/a.png?s=96'), {
+        id: 'ann',
+        timeZone: 'Asia/Dubai',
+        picture: 'https://cdn.acme.com/a.png?s=96',
+        source: 'host',
+    });
+    for (const [zone, picture] of [
+        ['Mars/Olympus', 'http://cdn.acme.com/a.png'],
+        ['Asia/Dubai\nZEN_USER_ROLE=owner', 'https://u:p@cdn.acme.com/a.png'],
+        [42, `https://cdn.acme.com/${'a'.repeat(600)}.png`],
+        ['../etc', 'javascript:alert(1)'],
+    ]) {
+        assert.deepEqual(user(zone, picture), { id: 'ann', source: 'host' });
+    }
+});
+
 test('a thread id is one safe path segment, and the token’s own when it names one', () => {
     server('jwt');
     for (const bad of ['', '..', 'a/b', '.hidden', 'x'.repeat(81)]) {

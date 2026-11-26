@@ -23,6 +23,10 @@ export interface CallerClaims extends JWTPayload {
     role?: string;
     email?: string;
     name?: string;
+    /** IANA time zone (OIDC standard claim) */
+    zoneinfo?: string;
+    /** avatar URL (OIDC standard claim) */
+    picture?: string;
     /** the host's lease generation for this user on this server (userState.ts) */
     gen?: number;
 }

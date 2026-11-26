@@ -28,6 +28,9 @@ const ROLES = new Set<string>(['owner', 'editor', 'viewer', 'admin']);
 // An email goes into an environment variable, so it is held to the shape of one.
 const EMAIL = /^[^\s@]{1,200}@[^\s@]{1,200}$/;
 const NAME = /^[^\n\r\0]{1,200}$/;
+const TIME_ZONE = /^[A-Za-z][\w+\-/]{0,63}$/;
+// Short enough that a page's /v/ token (views.ts) with it still fits.
+const MAX_PICTURE = 512;
 
 export function isThreadId(id: string): boolean {
     return THREAD_ID.test(id);
@@ -59,13 +62,34 @@ export function identify(req: Request): Identity {
     return { userId: userFolder(claims.sub), threadId };
 }
 
+/** An IANA zone this runtime knows, e.g. `Europe/Berlin`. */
+function timeZoneOf(value: unknown): string | undefined {
+    if (typeof value !== 'string' || !TIME_ZONE.test(value)) return undefined;
+    try {
+        return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
+    } catch (err) {
+        // A RangeError is a zone this runtime doesn't know: dropped, like any other bad claim.
+        if (err instanceof RangeError) return undefined;
+        throw err;
+    }
+}
+
+/** An https URL with no credentials in it. */
+function pictureOf(value: unknown): string | undefined {
+    if (typeof value !== 'string' || value.length > MAX_PICTURE) return undefined;
+    const url = URL.parse(value);
+    if (url?.protocol !== 'https:' || url.username || url.password) return undefined;
+    return url.href.length <= MAX_PICTURE ? url.href : undefined;
+}
+
 export function runUser(req: Request): RunIdentity | null {
     return identityOf(caller(req));
 }
 
 /**
- * Who `claims` say a run or a page's call acts for: the subject, and the role, email and name
- * when they have a safe shape (each goes into an environment variable); others are dropped.
+ * Who `claims` say a run or a page's call acts for: the subject, and the role, email, name,
+ * time zone (`zoneinfo`) and picture when they have a safe shape (each goes into an environment
+ * variable); others are dropped.
  */
 export function identityOf(claims: { sub: string; [claim: string]: unknown }): RunIdentity {
     const role =
@@ -74,11 +98,15 @@ export function identityOf(claims: { sub: string; [claim: string]: unknown }): R
         typeof claims.email === 'string' && EMAIL.test(claims.email) ? claims.email : undefined;
     const name =
         typeof claims.name === 'string' && NAME.test(claims.name) ? claims.name : undefined;
+    const timeZone = timeZoneOf(claims.zoneinfo);
+    const picture = pictureOf(claims.picture);
     return {
         id: UUID.test(claims.sub) ? claims.sub.toLowerCase() : claims.sub,
         ...(role ? { role } : {}),
         ...(email ? { email } : {}),
         ...(name ? { name } : {}),
+        ...(timeZone ? { timeZone } : {}),
+        ...(picture ? { picture } : {}),
         // An unsigned token is only someone's say-so.
         source: settings().auth.mode === 'jwt' ? 'host' : 'local',
     };

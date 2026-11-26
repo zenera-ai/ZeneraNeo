@@ -789,6 +789,7 @@ describe('files a chat names', () => {
                         email: 'ann@example.com',
                         name: 'Ann',
                         role: 'nobody-special',
+                        zoneinfo: 'Asia/Dubai',
                     })}`,
                 },
             },
@@ -812,13 +813,16 @@ describe('files a chat names', () => {
         expect(existsSync(join(workspace, 'pages', 'todo', 'api', '.data', 'app.sqlite'))).toBe(
             true,
         );
-        // The call runs as the token's user, as a turn's commands do; a role not known is dropped.
+        // The call runs as the token's user (time zone included), as a turn's commands do; a role
+        // not known is dropped.
         expect(await (await post('who', {})).json()).toEqual({
             id: ANN,
             email: 'ann@example.com',
             name: 'Ann',
             role: null,
             source: 'local',
+            time_zone: 'Asia/Dubai',
+            picture: null,
         });
         expect(await (await post('nope', { id: 3 })).json()).toEqual({ error: 'no item 3' });
         expect((await post('nope', { id: 3 })).status).toBe(404);
@@ -882,6 +886,8 @@ describe('files a chat names', () => {
             name: null,
             role: 'editor',
             source: 'host',
+            time_zone: null,
+            picture: null,
             n: 2,
         });
         // A call's own failure is marked too, so the host never asks again.

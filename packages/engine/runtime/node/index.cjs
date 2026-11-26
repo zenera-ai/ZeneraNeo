@@ -21,6 +21,8 @@ function identity() {
         email: get('ZEN_USER_EMAIL'),
         name: get('ZEN_USER_NAME'),
         role: get('ZEN_USER_ROLE'),
+        timeZone: get('ZEN_USER_TIME_ZONE'),
+        picture: get('ZEN_USER_PICTURE'),
         source: get('ZEN_USER_SOURCE') || 'local',
     };
 }

@@ -7,8 +7,8 @@
 //   /api/sessions/t1/files?path=/workspace/charts/dash.html  -> 303 (files.ts)
 //   /v/<token>/workspace/charts/dash.html                    -> the page
 //   /v/<token>/workspace/data/prices.json                    -> what it fetches
-// The token (@zenera/engine viewTokens.ts) names the user (their folder, and id, email, name and
-// role, which a page's calls act as) and the thread, and lasts an hour; it
+// The token (@zenera/engine viewTokens.ts) names the user (their folder, and id, email, name,
+// role, time zone and picture, which a page's calls act as) and the thread, and lasts an hour; it
 // reaches what the chat's own file links reach and nothing more. Files go out in `view` mode:
 // inline, sandboxed, readable by the page (engine viewCsp).
 // A path that names no file but a function of an `*.api.py` beside it is a call:
@@ -55,8 +55,8 @@ function key(): Buffer {
 
 /**
  * `/v/<token>/<agent path>`, each segment encoded, for a resolved agent path (`/workspace/x`).
- * The token carries who opened it (`user`: id, email, name, role), so the page's calls act for
- * them as the chat's turns do.
+ * The token carries who opened it (`user`: id, email, name, role, time zone, picture), so the
+ * page's calls act for them as the chat's turns do.
  */
 export function viewUrl(t: ChatThread, agentPath: string, user?: RunIdentity | null): string {
     const who: Record<string, string> = {};
@@ -65,6 +65,8 @@ export function viewUrl(t: ChatThread, agentPath: string, user?: RunIdentity | n
         if (user.email) who.email = user.email;
         if (user.name) who.name = user.name;
         if (user.role) who.role = user.role;
+        if (user.timeZone) who.zoneinfo = user.timeZone;
+        if (user.picture) who.picture = user.picture;
     }
     const token = mintViewToken(key(), { sub: t.owner, tid: t.id, ...who });
     return `/v/${token}${agentPath.split('/').map(encodeURIComponent).join('/')}`;

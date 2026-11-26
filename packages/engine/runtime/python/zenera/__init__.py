@@ -8,7 +8,7 @@ reads them, so code an agent writes can depend on who is asking::
 
     me = zenera.identity()          # None when no one is signed in
     if me:
-        print(me.id, me.email, me.role)
+        print(me.id, me.email, me.name, me.role, me.time_zone, me.picture)
 
     me = zenera.require_identity()  # raises when no one is signed in
 
@@ -29,6 +29,9 @@ class Identity(NamedTuple):
     name: Optional[str] = None
     role: Optional[str] = None
     source: str = "local"
+    # Last, so code that built one positionally before these existed still does.
+    time_zone: Optional[str] = None
+    picture: Optional[str] = None
 
 
 class NoIdentityError(RuntimeError):
@@ -51,6 +54,8 @@ def identity() -> Optional[Identity]:
         name=_get("ZEN_USER_NAME"),
         role=_get("ZEN_USER_ROLE"),
         source=_get("ZEN_USER_SOURCE") or "local",
+        time_zone=_get("ZEN_USER_TIME_ZONE"),
+        picture=_get("ZEN_USER_PICTURE"),
     )
 
 

@@ -201,13 +201,25 @@ describe('the zenera libraries', () => {
 
     it('answer from node, both module systems', () => {
         const { node } = installed();
-        const vars = env({ ZEN_USER_ID: 'u-1', ZEN_USER_ROLE: 'viewer', ZEN_USER_SOURCE: 'host' });
+        const vars = env({
+            ZEN_USER_ID: 'u-1',
+            ZEN_USER_ROLE: 'viewer',
+            ZEN_USER_TIME_ZONE: 'Asia/Dubai',
+            ZEN_USER_PICTURE: 'https://cdn.example.com/ann.png',
+            ZEN_USER_SOURCE: 'host',
+        });
         const cjs = spawnSync(
             process.execPath,
             ['-e', `console.log(JSON.stringify(require(${JSON.stringify(node)}).identity()))`],
             { env: vars, encoding: 'utf8' },
         );
-        expect(JSON.parse(cjs.stdout)).toMatchObject({ id: 'u-1', role: 'viewer', source: 'host' });
+        expect(JSON.parse(cjs.stdout)).toMatchObject({
+            id: 'u-1',
+            role: 'viewer',
+            timeZone: 'Asia/Dubai',
+            picture: 'https://cdn.example.com/ann.png',
+            source: 'host',
+        });
 
         const esm = spawnSync(
             process.execPath,
@@ -239,7 +251,12 @@ describe('the zenera libraries', () => {
                 encoding: 'utf8',
             });
         const ok = run(
-            { ZEN_USER_ID: 'u-1', ZEN_USER_EMAIL: 'ann@example.com', ZEN_USER_SOURCE: 'host' },
+            {
+                ZEN_USER_ID: 'u-1',
+                ZEN_USER_EMAIL: 'ann@example.com',
+                ZEN_USER_TIME_ZONE: 'Asia/Dubai',
+                ZEN_USER_SOURCE: 'host',
+            },
             'import zenera, json; print(json.dumps(zenera.identity()._asdict()))',
         );
         expect(JSON.parse(ok.stdout)).toEqual({
@@ -248,6 +265,8 @@ describe('the zenera libraries', () => {
             name: null,
             role: null,
             source: 'host',
+            time_zone: 'Asia/Dubai',
+            picture: null,
         });
         const none = run({}, 'import zenera; print(zenera.identity()); zenera.require_identity()');
         expect(none.stdout.trim()).toBe('None');

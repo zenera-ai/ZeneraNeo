@@ -1177,11 +1177,13 @@ agent can read it and cannot change it.
 
 - **The model** has the `current_user` tool in group `identity` - every agent,
   without `tools:` naming it. No arguments; it returns
-  `{ authenticated, id, email, name, role, source }`, or
+  `{ authenticated, id, email, name, role, timeZone, picture, source }` (each
+  field but `id` and `source` only when known), or
   `{ authenticated: false }` when no one is signed in. `-current_user` in an
   agent's `tools:` takes it away - only for an agent that must never know.
 - **Code in the sandbox** sees the same on every command as `ZEN_USER_ID`,
-  `ZEN_USER_EMAIL`, `ZEN_USER_NAME`, `ZEN_USER_ROLE` and `ZEN_USER_SOURCE`, and
+  `ZEN_USER_EMAIL`, `ZEN_USER_NAME`, `ZEN_USER_ROLE`, `ZEN_USER_TIME_ZONE`,
+  `ZEN_USER_PICTURE` and `ZEN_USER_SOURCE`, and
   through the `zenera` library already installed there:
   `import zenera; zenera.require_identity()` in Python,
   `require('zenera').requireIdentity()` in Node. Scripts read it from there and

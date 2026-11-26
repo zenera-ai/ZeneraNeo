@@ -32,6 +32,10 @@ export interface RunIdentity {
     name?: string;
     /** the user's role in this project, in the host's own words */
     role?: string;
+    /** IANA time zone the user is in, e.g. `Europe/Berlin` */
+    timeZone?: string;
+    /** https URL of the user's avatar */
+    picture?: string;
     source: IdentitySource;
 }
 
@@ -41,8 +45,13 @@ export const IDENTITY_ENV = {
     email: 'ZEN_USER_EMAIL',
     name: 'ZEN_USER_NAME',
     role: 'ZEN_USER_ROLE',
+    timeZone: 'ZEN_USER_TIME_ZONE',
+    picture: 'ZEN_USER_PICTURE',
     source: 'ZEN_USER_SOURCE',
 } as const;
+
+/** The optional fields, in the order they are exported. */
+const IDENTITY_FIELDS = ['email', 'name', 'role', 'timeZone', 'picture'] as const;
 
 /** Every name under it is the host's to set; a project may not. */
 export const IDENTITY_ENV_PREFIX = 'ZEN_USER_';
@@ -78,7 +87,7 @@ export function identityEnv(identity: RunIdentity | undefined): Record<string, s
         [IDENTITY_ENV.id]: identity.id,
         [IDENTITY_ENV.source]: identity.source,
     };
-    for (const key of ['email', 'name', 'role'] as const) {
+    for (const key of IDENTITY_FIELDS) {
         const value = identity[key];
         if (value) {
             env[IDENTITY_ENV[key]] = value;
@@ -104,6 +113,8 @@ export function identityFromEnv(env: NodeJS.ProcessEnv): RunIdentity | undefined
         email: pick(IDENTITY_ENV.email),
         name: pick(IDENTITY_ENV.name),
         role: pick(IDENTITY_ENV.role),
+        timeZone: pick(IDENTITY_ENV.timeZone),
+        picture: pick(IDENTITY_ENV.picture),
         source: 'local',
     });
 }
@@ -125,12 +136,14 @@ export function identityTools<TCtx = unknown>(identity?: RunIdentity): AnyTool<T
         name: 'current_user',
         group: IDENTITY_GROUP,
         description:
-            'Returns the signed-in user this run is acting for: id, and email, name and role ' +
-            'when known. Use it when an answer depends on who is asking, instead of asking ' +
-            'them or guessing. `source: "host"` means the application authenticated them; ' +
-            '`"local"` means it was only stated on this machine. Code you run in the sandbox ' +
-            `sees the same as $${IDENTITY_ENV.id}, $${IDENTITY_ENV.email}, $${IDENTITY_ENV.name} ` +
-            `and $${IDENTITY_ENV.role}, or through the \`zenera\` library: ` +
+            'Returns the signed-in user this run is acting for: id, and email, name, role, ' +
+            'timeZone (IANA, e.g. "Europe/Berlin") and picture (avatar URL) when known. Use it ' +
+            'when an answer depends on who is asking - how to address them, their local time - ' +
+            'instead of asking them or guessing. `source: "host"` means the application ' +
+            'authenticated them; `"local"` means it was only stated on this machine. Code you ' +
+            `run in the sandbox sees the same as $${IDENTITY_ENV.id}, $${IDENTITY_ENV.email}, ` +
+            `$${IDENTITY_ENV.name}, $${IDENTITY_ENV.role}, $${IDENTITY_ENV.timeZone} and ` +
+            `$${IDENTITY_ENV.picture}, or through the \`zenera\` library: ` +
             '`import zenera; zenera.identity()` in Python, `require("zenera").identity()` in Node.',
         parameters: { type: 'object', properties: {}, additionalProperties: false },
         execute: () =>
