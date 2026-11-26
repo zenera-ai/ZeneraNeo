@@ -253,8 +253,10 @@ message`. Fix each one and build again until it prints `✓ wrote index.html`.
 - The main findings with their numbers in two to four sentences, or for an
   app what it does - the reply must stand on its own for someone who never
   opens the page.
-- Then the page as a link, alone in its own paragraph (the build prints it).
-  The link's text is the page's name, as its `title` - not an instruction
+- Then the page as a link, alone in its own paragraph, written exactly like
+  the one below (no backticks, nothing between the brackets and the
+  parenthesis; the build prints it). The link's text is the page's name, as
+  its `title` - not an instruction
   ("Open the …", "Click here"): the chat shows it as a card with the title,
   the description and buttons to open it.
 
