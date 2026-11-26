@@ -442,6 +442,17 @@ describe('a turn', () => {
             const valid = await call(`${url}/api/sessions`, { headers: { origin: 'null' } });
             expect(valid.status).toBe(200);
             expect(valid.headers.get('access-control-allow-origin')).toBe('null');
+            const vite = await fetch(`${url}/api/sessions`, {
+                method: 'OPTIONS',
+                headers: { ...headers, origin: 'http://localhost:5173' },
+            });
+            expect(vite.status).toBe(204);
+            expect(vite.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+            const lookalike = await fetch(`${url}/api/sessions`, {
+                method: 'OPTIONS',
+                headers: { ...headers, origin: 'http://localhost.evil.com' },
+            });
+            expect(lookalike.headers.get('access-control-allow-origin')).toBeNull();
             const web = await fetch(`${url}/api/sessions`, {
                 method: 'OPTIONS',
                 headers: { ...headers, origin: 'https://example.com' },

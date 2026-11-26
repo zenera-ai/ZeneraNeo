@@ -134,7 +134,8 @@ zen server token  --user <id> [--email …] [--role …] [--name …] [--thread 
   file; its build automatically copies it to a sibling ZeneraNeo checkout when present.
   No frontend build is needed in ZeneraNeo. The page route is public only in insecure mode;
   API routes still require a caller token, and secure mode does not expose the page.
-  Only insecure servers allow local-file (`Origin: null`) CORS preflights. `GET /api/sessions`
+  Only insecure servers allow local-file (`Origin: null`) and loopback (`http://localhost:5173`,
+  `http://127.0.0.1:*`, `http://[::1]:*`; e.g. a Vite dev server) CORS requests. `GET /api/sessions`
   lists the caller's sessions from engine metadata; history, streaming and cancellation use
   the existing AG-UI routes.
 - **Startup memory** (`cli/src/seed.ts`): the host CLI takes a consistent snapshot of the

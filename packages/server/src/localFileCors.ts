@@ -1,6 +1,7 @@
 /**
  * Express middleware allowing the standalone file:// chat to reach an insecure runtime.
- * localFileCors handles Origin: null responses and restricted preflight methods/headers;
+ * localFileCors handles Origin: null and loopback-origin responses and restricted preflight
+ * methods/headers;
  * server.ts installs it before requireCaller so preflights work without bypassing
  * authentication on actual API requests. Secure servers do not enable this CORS policy.
  */
@@ -11,14 +12,33 @@ import { HttpError } from './http.ts';
 const METHODS = new Set(['GET', 'POST', 'DELETE']);
 const HEADERS = new Set(['authorization', 'content-type', 'accept']);
 
-/** Local HTML has an opaque origin. This opt-in exists only for insecure dev servers. */
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function isLoopbackOrigin(origin: string): boolean {
+    try {
+        const url = new URL(origin);
+        return url.origin === origin && url.protocol === 'http:' && LOOPBACK.has(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Local HTML has an opaque origin, and a local dev server (Vite) has a loopback one. This opt-in
+ * exists only for insecure dev servers; the allowed origin is echoed back, never `*`.
+ */
 export function localFileCors(req: Request, res: Response, next: NextFunction): void {
-    if (settings().auth.mode !== 'insecure' || req.get('origin') !== 'null') {
+    const origin = req.get('origin');
+    if (
+        settings().auth.mode !== 'insecure' ||
+        !origin ||
+        (origin !== 'null' && !isLoopbackOrigin(origin))
+    ) {
         next();
         return;
     }
     res.vary('Origin');
-    res.set('Access-Control-Allow-Origin', 'null');
+    res.set('Access-Control-Allow-Origin', origin);
     if (req.method !== 'OPTIONS') {
         next();
         return;
