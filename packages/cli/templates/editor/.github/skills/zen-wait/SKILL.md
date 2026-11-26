@@ -12,13 +12,13 @@ one tool, `wait`, in group `wait`. A project grants the group; Zenera records
 the wait, computes when it ends, and resumes the run then. Nothing runs and
 nothing is spent meanwhile, and the user's agent pod may sleep.
 
-| Argument  | What it is                                                                   |
-| --------- | ---------------------------------------------------------------------------- |
-| `minutes` | Wait this many minutes, 1 to 43200 (30 days)                                 |
-| `until`   | Wait until this ISO 8601 time **with its offset**, 1 minute to 30 days ahead |
-| `cron`    | Wait for the next slot of this 5-field schedule, within 30 days              |
-| `tz`      | The IANA time zone of `cron`, e.g. `Asia/Dubai`; UTC without it              |
-| `reason`  | One short line shown on the chat's card                                      |
+| Argument  | What it is                                                                 |
+| --------- | -------------------------------------------------------------------------- |
+| `minutes` | Wait this many minutes, 1 to 43200 (30 days)                               |
+| `until`   | Wait until this ISO 8601 time, 1 minute to 30 days ahead; no offset: local |
+| `cron`    | Wait for the next slot of this 5-field schedule, within 30 days            |
+| `tz`      | An IANA zone, e.g. `Asia/Dubai`; the user's own zone without it            |
+| `reason`  | One short line shown on the chat's card                                    |
 
 Exactly one of `minutes`, `until`, `cron`. The call returns
 `{ waited: true, firedAt }`, with `early: true` after Run now, and for cron
@@ -84,9 +84,10 @@ weeks, or alongside other chatting, is not what waits are for.
    asks you to check again later or on a schedule, use `wait`."_
 4. **Side effects outside the wait.** A prompt or skill that loops must do its
    sends, posts and writes in the agent's turn, and say whether to ask first.
-5. **The user's time zone for schedules.** A prompt or skill that waits on a
-   schedule must say where `tz` comes from (ask the user, or a fixed zone the
-   project is for); without it, cron is UTC.
+5. **Time zones.** Times of day are in the user's own zone, which Zenera takes
+   from their browser. A prompt or skill needs a fixed `tz` only when the
+   project is about another place (a store's opening hours, a market's close);
+   then it says which zone.
 
 ## 5. Review checklist
 
@@ -95,7 +96,7 @@ weeks, or alongside other chatting, is not what waits are for.
 - [ ] No prompt or skill tells the agent to wait on its own initiative, or to
       sleep or poll in a command instead of `wait`.
 - [ ] Loops do their writes in the agent's turn, and say when to ask first.
-- [ ] Schedules say where the time zone comes from.
+- [ ] Schedules about a place other than the user's say which `tz`.
 - [ ] No dataset or `zen run` check expects a wait to complete.
 
 ## 6. When it goes wrong
@@ -106,8 +107,8 @@ weeks, or alongside other chatting, is not what waits are for.
 | Every call: _"Waiting is not available in this run"_       | A terminal, batch or job run. Use the chat or Test tab                                 |
 | `wait.uninstructed`                                        | The house rules file is missing or empty. `zen check --fix`                            |
 | `give exactly one of minutes, until or cron`               | The agent passed none or several - check the prompt does not ask for both              |
-| `until is an ISO 8601 time with its offset`                | A time without `Z` or `+hh:mm`, or an impossible date                                  |
-| A cron wait fires at the wrong hour                        | No `tz`, so UTC - §4.5                                                                 |
+| `until is an ISO 8601 time …` / `time zone is not known`   | An impossible date; or a local time from a user whose browser never reported a zone    |
+| A cron wait fires at the wrong hour                        | The user's zone is not known yet (UTC), or a prompt fixes the wrong `tz` - §4.5        |
 | `you already have 20 waits pending`                        | Old waits in other chats. Stop them from their cards                                   |
 | The card shows the wait ended, but the agent did not go on | The chat or user was busy; it is retried every 15 s. Or the run failed: send a message |
 | A loop stopped after the user asked something              | Expected: a new message ends the wait - §3. Ask the agent to restart it                |
