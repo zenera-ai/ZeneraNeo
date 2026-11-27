@@ -373,6 +373,82 @@ export default (req: any) => {
 });
 
 // ---------------------------------------------------------------------------
+// A list of a chosen length (`--pages`), end to end: through the worker, the
+// response check and the backstop, with no agent asked for anything.
+// ---------------------------------------------------------------------------
+
+describe('an operation asked for a long list', () => {
+    let b: Booted | undefined;
+    afterEach(async () => {
+        await b?.live.close();
+        await b?.r.close();
+        b = undefined;
+    });
+
+    // An ordinary handler, the kind the builder writes: three machines through ctx.page.
+    const PAGED = `
+const MACHINES = [{ id: 'm-a', name: 'a' }, { id: 'm-b', name: 'b' }, { id: 'm-c', name: 'c' }];
+export default (req: any, ctx: any) => {
+    const p = ctx.page(MACHINES, { token: req.query.cursor, size: req.query.page_size });
+    return { results: p.items, cursor: p.nextToken, has_more: p.hasMore };
+};`;
+
+    const walk = async (
+        base: string,
+        path: string,
+    ): Promise<{ bodies: any[]; tokens: string[] }> => {
+        const bodies: any[] = [];
+        const tokens: string[] = [];
+        let cursor: string | null = null;
+        for (let n = 0; n < 1000; n++) {
+            const sep = path.includes('?') ? '&' : '?';
+            const url: string = cursor
+                ? `${base}${path}${sep}cursor=${encodeURIComponent(cursor)}`
+                : `${base}${path}`;
+            const res: Response = await fetch(url);
+            expect(res.status).toBe(200);
+            const body: any = await res.json();
+            bodies.push(body);
+            if (!body.cursor) {
+                return { bodies, tokens };
+            }
+            tokens.push(body.cursor);
+            cursor = body.cursor;
+        }
+        throw new Error('the list never ended');
+    };
+
+    it('serves exactly 200 pages, ends cleanly, and never repeats a token', async () => {
+        b = await boot(
+            'paged.yaml',
+            { listMachines: PAGED },
+            { server: { maxPages: 2, pages: { listMachines: 200 } } },
+        );
+        const { bodies, tokens } = await walk(b.base, '/machines?page_size=4');
+        expect(bodies).toHaveLength(200);
+        expect(bodies.every((x) => x.results.length === 4)).toBe(true);
+        expect(new Set(tokens).size).toBe(199);
+        expect(bodies.at(-1)).toMatchObject({ cursor: null, has_more: false });
+        const ids = bodies.flatMap((x) => x.results.map((m: any) => m.id));
+        expect(new Set(ids).size).toBe(800);
+        // Nothing was cut and nothing was rewritten: the handler ended it itself.
+        expect(b.log.filter((l) => l.includes('cut'))).toEqual([]);
+        expect(b.log.filter((l) => / 200 /.test(l))).toHaveLength(200);
+    });
+
+    it('leaves every other operation to the default limit', async () => {
+        b = await boot(
+            'paged.yaml',
+            { listMachines: PAGED, collectAuditLogs: PAGED },
+            { server: { maxPages: 2, pages: { collectAuditLogs: 200 } } },
+        );
+        const { bodies } = await walk(b.base, '/machines?page_size=1');
+        expect(bodies).toHaveLength(2);
+        expect(b.log.at(-1)).toContain('cut pagination at max pages (2)');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Logging, dumps and regeneration
 // ---------------------------------------------------------------------------
 

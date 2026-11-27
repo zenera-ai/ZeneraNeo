@@ -5,6 +5,7 @@ import {
     HttpError,
     type Bindings,
     type HandlerRequest,
+    type LongList,
     type SynthesisRequest,
     type Use,
 } from './runtime.ts';
@@ -33,6 +34,8 @@ export type ToWorker =
           db: string;
           input: HandlerRequest;
           bindings: Bindings;
+          /** set only for the operation `--pages` stretches */
+          long?: LongList;
       }
     | { type: 'synthesized'; id: number; call: number; records?: unknown[]; error?: string }
     | { type: 'close'; db: string };
@@ -123,6 +126,7 @@ async function run(message: Extract<ToWorker, { type: 'run' }>): Promise<void> {
             },
             message.bindings,
             record,
+            message.long,
         );
         const value = await handle(structuredClone(message.input), ctx);
         reply({ type: 'done', id, ok: true, value: value === undefined ? null : value });

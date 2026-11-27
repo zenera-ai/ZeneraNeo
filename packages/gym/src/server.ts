@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { WorkerUnavailable, type Box, type Outcome } from './box.ts';
 import { BuildFailed, type Cache } from './cache.ts';
-import type { HandlerRequest } from './runtime.ts';
+import type { HandlerRequest, LongList } from './runtime.ts';
 import { reason } from './generate.ts';
 import {
     formatLogLine,
@@ -66,6 +66,12 @@ export interface ServerOptions {
     limiter?: RegenerationLimiter;
     maxPages?: number | (() => number);
     paginationLimiter?: PaginationLimiter;
+    /**
+     * Operations that serve a list of a chosen length, by operationId: the
+     * number of pages each runs to (`zen gym serve --pages listMachines=200`).
+     * Every other operation keeps the default.
+     */
+    pages?: Readonly<Record<string, number>>;
 }
 
 export interface Listening {
@@ -390,9 +396,10 @@ async function handle(
         seed: seedFor(opts.seed, operation, pathParams, url.searchParams),
     };
 
+    const long = longListOf(operation, opts.pages);
     let outcome: Outcome;
     try {
-        outcome = await opts.box.run(operation.key, input);
+        outcome = await opts.box.run(operation.key, input, { long });
     } catch (err) {
         if (err instanceof WorkerUnavailable) {
             await workerDown(err, { requestBody: body, cacheStatus });
@@ -540,7 +547,7 @@ async function handle(
             );
 
             // Re-run the request with the newly regenerated handler
-            outcome = await opts.box.run(operation.key, input);
+            outcome = await opts.box.run(operation.key, input, { long });
             if (
                 outcome.ok &&
                 outcome.status === undefined &&
@@ -618,6 +625,7 @@ async function handle(
         body,
         opts.paginationLimiter,
         streamKey,
+        long?.pages,
     );
     opts.history!.recordSuccess(operation.key, input, outcome.value);
     if (!operation.success.schema) {
@@ -654,7 +662,8 @@ async function handle(
  * that costs the client rather than the mock: it hangs.
  *
  * In addition, pagination is tracked and capped to prevent infinite loops (random
- * 1-10 max pages by default) and repetitive cycling tokens.
+ * 1-10 max pages by default, or the operation's `--pages`) and repetitive cycling
+ * tokens.
  */
 function cut(
     operation: Operation,
@@ -663,6 +672,7 @@ function cut(
     body?: unknown,
     limiter?: PaginationLimiter,
     streamKey = 'default',
+    pages?: number,
 ): PaginationCutResult | undefined {
     const paging =
         operation.paging ?? pagingSeen(operation.params, operation.success.schema, query, body);
@@ -671,12 +681,104 @@ function cut(
     }
     const sent = getSentToken(query, body, paging);
     if (limiter) {
-        return limiter.process(operation.key, streamKey, sent, value, paging);
+        return limiter.process(operation.key, streamKey, sent, value, paging, pages);
     }
     if (sent !== undefined && cutLoop(value, paging, sent)) {
         return { cut: true, reason: 'cut a looping page token' };
     }
     return undefined;
+}
+
+/**
+ * The length one operation was asked to serve, and how its items' ids may be
+ * told apart. Read off the response schema here, on the host, because the
+ * worker never sees a schema and a copy whose id breaks one would be answered
+ * as a handler fault.
+ */
+export function longListOf(
+    operation: Operation,
+    pages: Readonly<Record<string, number>> | undefined,
+): LongList | undefined {
+    const n = pages?.[operation.operationId];
+    if (n === undefined) {
+        return undefined;
+    }
+    return { pages: n, id: idRule(itemIdSchema(operation)) };
+}
+
+function itemIdSchema(operation: Operation): Record<string, unknown> | undefined {
+    const items = operation.paging?.items;
+    const root = operation.success.schema as Record<string, unknown> | undefined;
+    if (!items || !root) {
+        return undefined;
+    }
+    // A shared or recursive type is a local `$ref` into `$defs` after
+    // normalising, so every step resolves one before looking inside it.
+    const at = (node: unknown): Record<string, unknown> | undefined => deref(node, root);
+    // The items array sits on the body or one envelope down, as `pagingOf` finds it.
+    const body = at(root);
+    const holders = [body, ...Object.values(propsOf(body)).map(at)];
+    for (const holder of holders) {
+        const list = at(propsOf(holder)[items]);
+        const id = at(propsOf(at(list?.items)).id);
+        if (id) {
+            return id;
+        }
+    }
+    return undefined;
+}
+
+/** Follows local `#/...` references against `root`; anything else is returned as it is. */
+function deref(node: unknown, root: Record<string, unknown>): Record<string, unknown> | undefined {
+    let current = node;
+    for (let hops = 0; hops < 16 && isRecordish(current); hops++) {
+        const ref = current.$ref;
+        if (typeof ref !== 'string') {
+            return current;
+        }
+        if (!ref.startsWith('#')) {
+            return undefined;
+        }
+        let target: unknown = root;
+        for (const raw of ref.slice(1).split('/').filter(Boolean)) {
+            const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+            target = isRecordish(target) ? target[key] : undefined;
+        }
+        current = target;
+    }
+    return undefined;
+}
+
+function propsOf(schema: unknown): Record<string, unknown> {
+    return isRecordish(schema) && isRecordish(schema.properties) ? schema.properties : {};
+}
+
+const isRecordish = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Only ids the schema leaves room to change are changed; anything else is kept.
+ * One type only: a copy can rewrite an integer or a string, not guess which
+ * branch of a union a value came from, so a union keeps its ids.
+ */
+function idRule(id: Record<string, unknown> | undefined): LongList['id'] {
+    if (!id || 'enum' in id || 'const' in id || 'multipleOf' in id) {
+        return 'keep';
+    }
+    const types = (Array.isArray(id.type) ? id.type : [id.type]).filter((t) => t !== 'null');
+    if (types.length !== 1) {
+        return 'keep';
+    }
+    if (types[0] === 'integer') {
+        return 'maximum' in id || 'exclusiveMaximum' in id ? 'keep' : 'number';
+    }
+    if (types[0] !== 'string' || 'pattern' in id || 'maxLength' in id) {
+        return 'keep';
+    }
+    if (id.format === 'uuid') {
+        return 'uuid';
+    }
+    return id.format === undefined ? 'suffix' : 'keep';
 }
 
 function check(
