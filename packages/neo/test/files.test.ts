@@ -162,7 +162,18 @@ describe('workspace containment', () => {
         it('is a name, not a way out', async () => {
             await expect(mounted.within('/workspace/../etc/passwd')).rejects.toThrow();
             await expect(mounted.within('/workspaceX/a')).rejects.toThrow();
+            await expect(mounted.within('/Workspace/a.txt')).rejects.toThrow();
             await expect(mounted.within('/etc/passwd')).rejects.toThrow();
+        });
+
+        it('refuses Windows device and network paths', async () => {
+            await expect(mounted.within('\\\\?\\C:\\Windows\\win.ini')).rejects.toThrow();
+            await expect(mounted.within('\\\\localhost\\C$\\Windows\\win.ini')).rejects.toThrow();
+        });
+
+        it('refuses a way out spelled with backslashes', async () => {
+            await expect(mounted.within('\\workspace\\..\\etc\\passwd')).rejects.toThrow();
+            await expect(mounted.within('/workspace\\..\\etc\\passwd')).rejects.toThrow();
         });
 
         it('is not accepted when nothing is mounted there', async () => {
