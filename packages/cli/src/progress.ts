@@ -181,6 +181,9 @@ export class BatchProgress {
                 case 'tool_call_detected':
                     item.stage = `calling ${event.name}`;
                     break;
+                case 'model_retry':
+                    item.stage = `model failing, retry ${event.attempt + 1} at ${event.retryAt.slice(11, 19)}Z`;
+                    break;
                 default:
                     break;
             }

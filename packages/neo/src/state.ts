@@ -68,8 +68,29 @@ export interface AgentState {
     usage: TokenUsage;
     /** serialized user context (must be JSON) */
     context?: unknown;
-    /** set when phase === 'failed' */
+    /** set when phase === 'failed', and with `stalled` */
     error?: string;
+    /**
+     * The model call the run stopped at because its provider kept failing for
+     * a reason that may pass (see `RunnerOptions.modelRetry`). The run is
+     * otherwise intact, still before that call: `runner.resume` makes it again,
+     * and a new message is answered from there.
+     */
+    stalled?: Stall;
+}
+
+/** See `AgentState.stalled`. */
+export interface Stall {
+    /** the model call's id, `llm:<n>` like a suspended one */
+    callId: string;
+    /** the model's id */
+    model: string;
+    /** when the run gave up, as the run's clock writes times */
+    at: string;
+    /** how many times the call was made */
+    attempts: number;
+    /** the last failure, and how long it was tried */
+    error: string;
 }
 
 export interface RunResult<T = string> {

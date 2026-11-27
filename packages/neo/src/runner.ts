@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { Agent, AgentRegistry, type AgentOptions } from './agent.ts';
 import { describeArchitecture, type Architecture } from './architecture.ts';
+import { classify, retryAfterMs, statusOf } from './embeddings/rate-limit.ts';
 import {
     EventQueue,
     RunStream,
@@ -9,6 +10,7 @@ import {
     type CheckpointEvent,
     type EventBase,
     type PendingToolCall,
+    type RetryNotice,
     type StreamDelta,
 } from './events.ts';
 import { systemClock, type IdClock } from './ids.ts';
@@ -148,7 +150,34 @@ export interface RunnerOptions<TCtx = unknown> {
      * answer was streamed yet; an abort is never offered.
      */
     onModelError?: ModelErrorHandler;
+    /**
+     * How long a model call that keeps failing for a reason that may pass (a
+     * 5xx, a dropped connection, a 429) is made again before the run stops.
+     * Each wait is announced with a `model_retry` event. A run that runs out of
+     * patience stops `failed` with `state.stalled` set, at that call, so
+     * `runner.resume` makes it again.
+     */
+    modelRetry?: ModelRetryPolicy;
 }
+
+/** See `RunnerOptions.modelRetry`. */
+export interface ModelRetryPolicy {
+    /**
+     * how long a call may keep failing, from its first attempt (default 15
+     * minutes); 0: neither retried nor stalled, the error ends the run
+     */
+    windowMs?: number;
+    /** the wait after the first failure, doubling after each (default 5 s) */
+    initialMs?: number;
+    /** the longest wait between attempts (default 60 s) */
+    maxMs?: number;
+}
+
+const DEFAULT_MODEL_RETRY: Required<ModelRetryPolicy> = {
+    windowMs: 15 * 60_000,
+    initialMs: 5_000,
+    maxMs: 60_000,
+};
 
 /** What `onModelError` is told about the call that failed. */
 export interface ModelErrorContext {
@@ -213,12 +242,14 @@ export class AgentRunner<TCtx = unknown> {
     readonly #recordRequests: boolean;
     readonly #clock: IdClock;
     readonly #onModelError?: ModelErrorHandler;
+    readonly #retry: Required<ModelRetryPolicy>;
 
     constructor(opts: RunnerOptions<TCtx> = {}) {
         this.#model = opts.model;
         this.#context = opts.context;
         this.#clock = opts.clock ?? systemClock;
         this.#onModelError = opts.onModelError;
+        this.#retry = { ...DEFAULT_MODEL_RETRY, ...opts.modelRetry };
         this.services =
             opts.services ??
             new Services({
@@ -280,7 +311,8 @@ export class AgentRunner<TCtx = unknown> {
 
     /**
      * Continues a persisted run from its own snapshot. A run that stopped
-     * `suspended` continues once `answers` answer its suspended calls.
+     * `suspended` continues once `answers` answer its suspended calls; one that
+     * stalled at a model call (`state.stalled`) makes that call again.
      */
     resume<T = string>(state: AgentState, opts: ResumeOptions<T, TCtx> = {}): RunStream<T> {
         return new RunStream<T>(this.#resumeAndDrive(state, opts));
@@ -405,7 +437,8 @@ export class AgentRunner<TCtx = unknown> {
         Kernel.checkOutputSchema(initial, env);
         const branch = opts.branch;
         const signal = opts.signal;
-        let state = initial;
+        // A run that stalled at a model call goes on from it (a retry, or a new message).
+        let state = Kernel.clearStall(initial);
 
         for (;;) {
             if (signal?.aborted) {
@@ -431,44 +464,94 @@ export class AgentRunner<TCtx = unknown> {
                     const digest = Kernel.requestDigest(req);
                     const model = this.#modelFor(state);
 
-                    const deltas = new EventQueue<AgentEvent>();
-                    let streamed = 0;
-                    const call = (
-                        this.#stream && model.stream
-                            ? model.stream({ ...req, signal }, (d: StreamDelta) => {
-                                  streamed++;
-                                  deltas.push(tag(state, branch, d));
-                              })
-                            : model.generate({ ...req, signal })
-                    ).finally(() => deltas.close());
-                    // Deltas arrive in a callback, which a generator cannot
-                    // yield from; draining the queue while the call is in
-                    // flight bridges the two.
-                    yield* deltas.drain();
-                    let res: ModelResponse;
-                    try {
-                        res = await call;
-                    } catch (err) {
-                        // Waiting is only sound while nothing of the answer is
-                        // on screen; otherwise the call would be shown twice.
-                        const spec =
-                            branch || streamed || signal?.aborted
-                                ? undefined
-                                : await this.#onModelError?.(err, {
-                                      callId: modelCallId(state),
-                                      model: model.id,
-                                      state,
-                                  });
-                        if (!spec) {
+                    const firstTry = Date.now();
+                    let attempt = 1;
+                    let res: ModelResponse | undefined;
+                    while (!res) {
+                        const deltas = new EventQueue<AgentEvent>();
+                        let streamed = 0;
+                        const call = (
+                            this.#stream && model.stream
+                                ? model.stream({ ...req, signal }, (d: StreamDelta) => {
+                                      streamed++;
+                                      deltas.push(tag(state, branch, d));
+                                  })
+                                : model.generate({ ...req, signal })
+                        ).finally(() => deltas.close());
+                        // Deltas arrive in a callback, which a generator cannot
+                        // yield from; draining the queue while the call is in
+                        // flight bridges the two.
+                        yield* deltas.drain();
+                        try {
+                            res = await call;
+                        } catch (err) {
+                            // Nothing of the answer is on screen yet, and the
+                            // provider may be back soon: the same call again,
+                            // after telling whoever watches.
+                            const retryable =
+                                !streamed && !signal?.aborted && classify(err) !== 'fatal';
+                            const delay = retryable
+                                ? nextRetryDelay(this.#retry, attempt, err)
+                                : undefined;
+                            if (
+                                delay !== undefined &&
+                                Date.now() - firstTry + delay <= this.#retry.windowMs
+                            ) {
+                                yield tag(state, branch, {
+                                    type: 'model_retry',
+                                    attempt,
+                                    error: errorText(err),
+                                    status: statusOf(err),
+                                    retryAt: new Date(Date.now() + delay).toISOString(),
+                                    model: model.id,
+                                });
+                                await pause(delay, signal);
+                                if (signal?.aborted) {
+                                    return yield* this.#finish(state, branch, 'aborted');
+                                }
+                                attempt++;
+                                continue;
+                            }
+                            // Waiting is only sound while nothing of the answer is
+                            // on screen; otherwise the call would be shown twice.
+                            const spec =
+                                branch || streamed || signal?.aborted
+                                    ? undefined
+                                    : await this.#onModelError?.(err, {
+                                          callId: modelCallId(state),
+                                          model: model.id,
+                                          state,
+                                      });
+                            if (spec) {
+                                state = Kernel.applyModelSuspension(
+                                    state,
+                                    { callId: modelCallId(state), name: model.id },
+                                    spec,
+                                    this.#clock.now(),
+                                );
+                                return yield* this.#finish(state, branch, 'suspended');
+                            }
+                            // Out of patience with a provider that may yet come
+                            // back: the run stops at this call, kept, so `retry`
+                            // makes it again rather than the message being lost.
+                            if (retryable && !branch && this.#retry.windowMs > 0) {
+                                state = Kernel.applyStall(state, {
+                                    callId: modelCallId(state),
+                                    model: model.id,
+                                    at: this.#clock.now(),
+                                    attempts: attempt,
+                                    error: `${errorText(err)} (gave up after ${attempt} attempt${attempt === 1 ? '' : 's'} in ${elapsed(Date.now() - firstTry)})`,
+                                });
+                                return yield* this.#finish(state, branch, 'failed');
+                            }
                             throw err;
                         }
-                        state = Kernel.applyModelSuspension(
-                            state,
-                            { callId: modelCallId(state), name: model.id },
-                            spec,
-                            this.#clock.now(),
-                        );
-                        return yield* this.#finish(state, branch, 'suspended');
+                    }
+                    if (attempt > 1) {
+                        yield tag(state, branch, {
+                            type: 'model_retry_recovered',
+                            attempts: attempt,
+                        });
                     }
 
                     const before = state;
@@ -871,7 +954,7 @@ export class AgentRunner<TCtx = unknown> {
 // helpers
 // ---------------------------------------------------------------------------
 
-function tag<E extends StreamDelta | Omit<CheckpointEvent, keyof EventBase>>(
+function tag<E extends StreamDelta | RetryNotice | Omit<CheckpointEvent, keyof EventBase>>(
     state: AgentState,
     branch: BranchRef | undefined,
     event: E,
@@ -885,6 +968,48 @@ function tag<E extends StreamDelta | Omit<CheckpointEvent, keyof EventBase>>(
  */
 function appended(before: AgentState, after: AgentState): TrajectoryNode[] {
     return after.trajectory.slice(before.trajectory.length);
+}
+
+/**
+ * The wait before attempt `attempt + 1`: doubling from `initialMs` up to
+ * `maxMs`, ±20 % so runs that failed together do not come back together. A
+ * provider's own `Retry-After` wins when it asks for longer.
+ */
+function nextRetryDelay(
+    policy: Required<ModelRetryPolicy>,
+    attempt: number,
+    err: unknown,
+): number | undefined {
+    if (policy.windowMs <= 0) {
+        return undefined;
+    }
+    const base = Math.min(policy.initialMs * 2 ** (attempt - 1), policy.maxMs);
+    const jittered = Math.round(base * (0.8 + Math.random() * 0.4));
+    return Math.max(jittered, retryAfterMs(err) ?? 0);
+}
+
+/** Sleeps `ms`, or less when `signal` aborts. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve();
+            return;
+        }
+        const done = () => {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', done);
+            resolve();
+        };
+        const timer = setTimeout(done, ms);
+        signal?.addEventListener('abort', done, { once: true });
+    });
+}
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+function elapsed(ms: number): string {
+    const s = Math.round(ms / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
 }
 
 /** The id a suspended model call goes by: stable until that call is made. */

@@ -47,7 +47,12 @@ export interface AgentRun {
 }
 
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRun> {
-    const runner = new AgentRunner({ model: opts.model, recordRequests: Boolean(opts.reportDir) });
+    const runner = new AgentRunner({
+        model: opts.model,
+        recordRequests: Boolean(opts.reportDir),
+        // The cache has its own answer to a provider failing: forget it, try on the next request.
+        modelRetry: { windowMs: 0 },
+    });
     const agent = runner.agent({
         name: opts.name,
         instructions: opts.instructions,

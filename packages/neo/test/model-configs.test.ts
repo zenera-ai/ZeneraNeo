@@ -214,7 +214,7 @@ describe('configs/providers', () => {
 describe('retries', () => {
     it('gives an undeclared connection the default budget', async () => {
         const p = await load('providers');
-        expect(conn(p.models.client('primary')).maxRetries).toBe(4);
+        expect(conn(p.models.client('primary')).maxRetries).toBe(2);
     });
 
     it('honours a declared count', async () => {
@@ -225,7 +225,7 @@ describe('retries', () => {
     it('asks the genai client to retry, which it otherwise never does', async () => {
         const p = await load('vendors');
         // `attempts` counts the initial call.
-        expect(conn(p.models.client('gemini')).httpOptions?.retryOptions?.attempts).toBe(5);
+        expect(conn(p.models.client('gemini')).httpOptions?.retryOptions?.attempts).toBe(3);
     });
 
     it('gives openrouter a backoff strategy', async () => {

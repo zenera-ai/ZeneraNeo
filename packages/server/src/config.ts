@@ -9,6 +9,7 @@
 // server holds only the public key. `insecure` reads the token without checking its signature,
 // for trying a server on this machine.
 import type { SandboxSetup, ZenPlugin } from '@zenera/engine';
+import type { ModelRetryPolicy } from '@zenera/neo';
 import { ZENERA_BWRAP, type CommandLimits, type SandboxFactory } from '@zenera/sandbox';
 import { existsSync } from 'node:fs';
 import type { UserStateStore } from './userState.ts';
@@ -54,6 +55,8 @@ export interface ServerSettings {
     /** how many runs one user may have going at once */
     maxUserRuns: number;
     maxRunMinutes: number;
+    /** how long a failing model call is made again before the run stops; unset: 15 minutes */
+    modelRetry?: ModelRetryPolicy;
     runLogMaxBytes: number;
     /**
      * Where users' data lives beyond this disk (userState.ts): loaded before their first request,

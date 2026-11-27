@@ -214,6 +214,7 @@ Session routes operate only on the JWT subject's own sessions.
 | `POST /api/sessions/:tid/runs`                 | Start a turn, streaming AG-UI events over SSE.  |
 | `GET /api/sessions/:tid/runs/:runId/events`    | Follow or replay a run.                         |
 | `POST /api/sessions/:tid/runs/:runId/cancel`   | Cancel a run.                                   |
+| `POST /api/sessions/:tid/seen`                 | The user saw the last failure: list unmarks it. |
 | `DELETE /api/sessions/:tid`                    | Delete a session and its files.                 |
 | `POST /api/sessions/:tid/uploads?name=&type=`  | Stage one file for the next message.            |
 | `DELETE /api/sessions/:tid/uploads/:id`        | Take a staged file off before sending.          |
@@ -223,6 +224,23 @@ Session routes operate only on the JWT subject's own sessions.
 Runs continue after a client disconnects and can be followed again. Defaults:
 4 concurrent runs total, 2 per user (`ZEN_RUNTIME_MAX_RUNS`,
 `ZEN_RUNTIME_MAX_USER_RUNS`).
+
+### A model provider that keeps failing
+
+A model call that fails for a reason that may pass (a 5xx, a dropped
+connection, a 429) is made again for up to 15 minutes. Before each wait the run
+sends a `CUSTOM` event `zenera.retry`, `{ attempt, error, status?, retryAt,
+model }`, and `{ recovered: true, attempts }` once the provider answered; a
+client shows it until the answer starts. Cancelling the run stops the wait.
+
+If it is still failing then, the run ends with `RUN_ERROR` code
+`model_unavailable`, and nothing is lost: `POST /api/sessions/:tid/runs` with
+`{ "retry": true }` makes the same call again and goes on (409 `nothing_to_retry`
+once a later run went first). A new message is answered from there too.
+
+`GET /api/sessions` marks each session whose last run failed (an error, a
+time-out, an interrupted run; not a cancel) with `failed: { at, code, message }`,
+until `POST /api/sessions/:tid/seen` or the next run; otherwise `failed: null`.
 
 ### Attached files
 

@@ -63,9 +63,17 @@ process.env.ZENERA_HOME = join(root, 'zenera-home');
 let script = 'echo hello';
 // What the model was last asked by the person, as the provider received it.
 let lastAsked = '';
+// How many requests the provider fails with a 502 before it answers again.
+let modelDown = 0;
 const model = createHttpServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
+    if (modelDown > 0) {
+        modelDown--;
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'provider_connection_failed' } }));
+        return;
+    }
     const body = JSON.parse(Buffer.concat(chunks).toString()) as {
         messages: { role: string; content?: unknown }[];
         stream?: boolean;
@@ -138,6 +146,8 @@ writeFileSync(
         '        kind: openai-compatible',
         `        baseURL: ${modelUrl}`,
         '        apiKeyEnv: ZEN_TEST_MODEL_KEY',
+        // The runner's retries are under test (modelRetry); the SDK's would only add seconds.
+        '        maxRetries: 0',
         'agents:',
         '    - name: main',
         '      model: local:fake',
@@ -413,6 +423,104 @@ describe('a turn', () => {
                 release();
                 await events(response);
             }
+        });
+    });
+
+    describe('a model provider that keeps failing', () => {
+        const retryEvents = (evs: AGUIEvent[]) =>
+            evs
+                .filter((e) => e.type === EventType.CUSTOM && e.name === 'zenera.retry')
+                .map((e) => (e as { value: Record<string, unknown> }).value);
+        const listed = async (url: string, thread: string) => {
+            const { sessions } = (await (await call(`${url}/api/sessions`)).json()) as {
+                sessions: { id: string; failed: unknown }[];
+            };
+            return sessions.find((s) => s.id === thread);
+        };
+        const retry = async (url: string, thread: string) => {
+            const res = await call(`${url}/api/sessions/${thread}/runs`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ retry: true }),
+            });
+            if (res.status !== 200) return { status: res.status, body: await res.json(), evs: [] };
+            const evs = await events(res);
+            for (let i = 0; i < 50 && (await activity(url)); i++) {
+                await new Promise((r) => setTimeout(r, 20));
+            }
+            return { status: res.status, body: null, evs };
+        };
+        afterEach(() => {
+            modelDown = 0;
+        });
+
+        it('says it retries, and goes on once the provider answers', async () => {
+            const { url } = await start({
+                modelRetry: { windowMs: 10_000, initialMs: 5, maxMs: 5 },
+            });
+            modelDown = 2;
+            const { evs } = await turn(url, randomUUID());
+            expect(retryEvents(evs)).toEqual([
+                expect.objectContaining({ attempt: 1, status: 502, retryAt: expect.any(String) }),
+                expect.objectContaining({ attempt: 2 }),
+                { recovered: true, attempts: 3 },
+            ]);
+            expect(retryEvents(evs)[0]).toMatchObject({
+                error: expect.stringContaining('provider_connection_failed'),
+            });
+            expect(evs.at(-1)?.type).toBe(EventType.RUN_FINISHED);
+        });
+
+        it('stops retryable, marks the chat failed until seen, and retry goes on from there', async () => {
+            const { url } = await start({ modelRetry: { windowMs: 40, initialMs: 5, maxMs: 5 } });
+            const thread = randomUUID();
+            modelDown = Infinity;
+            const failed = await turn(url, thread, ANN, 'remember me');
+            const end = failed.evs.at(-1) as { type: string; code?: string; message?: string };
+            expect(end).toMatchObject({ type: EventType.RUN_ERROR, code: 'model_unavailable' });
+            expect(end.message).toMatch(/provider_connection_failed.*gave up after/);
+            expect(retryEvents(failed.evs).length).toBeGreaterThan(0);
+            expect((await listed(url, thread))?.failed).toEqual({
+                at: expect.any(String),
+                code: 'model_unavailable',
+                message: expect.stringContaining('provider_connection_failed'),
+            });
+
+            const seen = await call(`${url}/api/sessions/${thread}/seen`, { method: 'POST' });
+            expect(seen.status).toBe(204);
+            expect((await listed(url, thread))?.failed).toBeNull();
+
+            modelDown = 0;
+            const again = await retry(url, thread);
+            expect(again.status).toBe(200);
+            expect(again.evs.at(-1)?.type).toBe(EventType.RUN_FINISHED);
+            expect(textOf(again.evs)).toContain('done:');
+            // The message that failed is the one answered: nothing was lost with the run.
+            expect(lastAsked).toBe('remember me');
+            expect((await listed(url, thread))?.failed).toBeNull();
+
+            const nothing = await retry(url, thread);
+            expect(nothing).toMatchObject({ status: 409, body: { code: 'nothing_to_retry' } });
+        });
+
+        it('marks a failure that cannot be retried, and a good run clears it', async () => {
+            const { url, serverRoot } = await start({ modelRetry: { windowMs: 0 } });
+            const thread = randomUUID();
+            modelDown = 1;
+            const failed = await turn(url, thread);
+            expect(failed.evs.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'error' });
+            expect((await listed(url, thread))?.failed).toMatchObject({ code: 'error' });
+            expect((await retry(url, thread)).status).toBe(409);
+
+            await turn(url, thread);
+            expect((await listed(url, thread))?.failed).toBeNull();
+            const meta = JSON.parse(
+                readFileSync(
+                    join(serverRoot, 'users', ANN, 'sessions', thread, '.data', 'session.json'),
+                    'utf8',
+                ),
+            );
+            expect(meta.lastFailure).toBeUndefined();
         });
     });
 

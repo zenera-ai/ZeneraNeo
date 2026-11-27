@@ -66,7 +66,27 @@ export type CheckpointEvent = EventBase &
         | { type: 'run_finished'; state: AgentState; result: RunResult<unknown> }
     );
 
-export type AgentEvent = StreamEvent | CheckpointEvent;
+/**
+ * What the runner says while a provider keeps failing a model call it is
+ * about to make again (see `RunnerOptions.modelRetry`). No state, so like a
+ * delta it is safe to drop.
+ */
+export type RetryNotice =
+    | {
+          type: 'model_retry';
+          /** the attempt that failed, from 1 */
+          attempt: number;
+          error: string;
+          status?: number;
+          /** when the next attempt goes, ISO */
+          retryAt: string;
+          model: string;
+      }
+    | { type: 'model_retry_recovered'; attempts: number };
+
+export type RetryEvent = EventBase & RetryNotice;
+
+export type AgentEvent = StreamEvent | CheckpointEvent | RetryEvent;
 
 export interface PendingToolCall {
     callId: string;

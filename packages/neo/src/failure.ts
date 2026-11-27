@@ -171,7 +171,7 @@ export async function called<T>(site: CallSite, run: () => Promise<T>): Promise<
         return await run();
     } catch (err) {
         // The SDK's own retries are inside this: an OpenAI or Vertex client
-        // gives up only after four of them, so the elapsed time is the only
+        // gives up only after a few of them, so the elapsed time is the only
         // report of what the wait was spent on.
         throw failed(site, err, { attempts: 1, elapsedMs: Date.now() - started });
     }

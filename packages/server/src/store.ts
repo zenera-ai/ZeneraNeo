@@ -276,6 +276,7 @@ export async function openEngineFor(
         sandboxPlugins: false,
         ...(s.sandbox === 'podman' ? {} : { newSandbox: serverSandbox() }),
         ...(plugins.length ? { plugins } : {}),
+        ...(s.modelRetry ? { modelRetry: s.modelRetry } : {}),
     });
 }
 

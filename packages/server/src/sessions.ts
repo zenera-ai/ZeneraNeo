@@ -1,10 +1,11 @@
 /**
  * Per-user session-list endpoint mounted by server.ts at GET /api/sessions.
  * sessionsRouter reads engine metadata under the authenticated JWT subject's folder,
- * honors thread-scoped claims, adds current run ids and sorts by latest activity.
+ * honors thread-scoped claims, adds current run ids and whether the last run failed unseen
+ * (runs.ts writes it, POST /:tid/seen clears it), and sorts by latest activity.
  * The standalone chat uses this list without opening engines or creating user memory.
  */
-import { readSessionMeta, sessionPathsAt } from '@zenera/engine';
+import { readSessionMeta, sessionPathsAt, type SessionMeta } from '@zenera/engine';
 import { Router } from 'express';
 import type { Dirent } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
@@ -19,6 +20,18 @@ export interface SessionInfo {
     createdAt: string;
     updatedAt: string;
     running: { runId: string } | null;
+    /**
+     * The last run failed and the user has not opened the chat since: the list's red mark.
+     * `code` model_unavailable: POST /:tid/runs { retry: true } continues it.
+     */
+    failed: { at: string; code: string; message: string } | null;
+}
+
+/** The failure a chat list shows, if any: the last run's, unless the user has seen it. */
+export function unseenFailure(meta: SessionMeta): SessionInfo['failed'] {
+    const f = meta.lastFailure;
+    if (!f || (meta.failureSeenAt && meta.failureSeenAt >= f.at)) return null;
+    return { at: f.at, code: f.code, message: f.message };
 }
 
 /** A user's real sessions, without opening engines or creating memory. */
@@ -52,12 +65,14 @@ export function sessionsRouter(): Router {
                 throw err;
             }
             const meta = await readSessionMeta(paths);
+            const running = currentRun({ id: entry.name, owner });
             sessions.push({
                 id: entry.name,
                 title: meta.title || entry.name,
                 createdAt: meta.createdAt,
                 updatedAt: meta.lastRunAt ?? meta.createdAt,
-                running: currentRun({ id: entry.name, owner }),
+                running,
+                failed: running ? null : unseenFailure(meta),
             });
         }
         sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));

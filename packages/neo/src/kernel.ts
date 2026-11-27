@@ -20,7 +20,7 @@ import {
     type Skill,
     type SkillLoadSpec,
 } from './skills.ts';
-import type { AgentState, RunPhase, RunSpec } from './state.ts';
+import type { AgentState, RunPhase, RunSpec, Stall } from './state.ts';
 import {
     lastOfType,
     projectMessages,
@@ -1068,6 +1068,23 @@ export async function applyCompaction(
 
 export function applyFailure(state: AgentState, error: string): AgentState {
     return { ...state, phase: 'failed', error };
+}
+
+/**
+ * The run stops before a model call its provider kept refusing, still able to
+ * go on: unlike `applyFailure` the phase stays, so the call is the next step.
+ */
+export function applyStall(state: AgentState, stall: Stall): AgentState {
+    return { ...state, stalled: stall, error: stall.error };
+}
+
+/** The run goes on from a stall: the call is about to be made again. */
+export function clearStall(state: AgentState): AgentState {
+    if (!state.stalled) {
+        return state;
+    }
+    const { stalled: _stalled, error: _error, ...rest } = state;
+    return rest;
 }
 
 // ---------------------------------------------------------------------------

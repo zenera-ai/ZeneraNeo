@@ -5,7 +5,10 @@
 // (sessions.ts) says where a thread's things are.
 //   runsRouter(store)     - POST /:tid/runs (start a run and follow it; with AG-UI `resume`
 //                           entries instead of a message: continue a run that stopped suspended,
-//                           sent only by zenera-app's interrupt service), GET /:tid/runs/:runId/events
+//                           sent only by zenera-app's interrupt service; with `retry: true`: make
+//                           the model call a run stalled at again - RUN_ERROR model_unavailable),
+//                           POST /:tid/seen (the user saw the chat's failure: off the list's mark),
+//                           GET /:tid/runs/:runId/events
 //                           (follow a run, or replay it once ended), POST /:tid/runs/:runId/cancel,
 //                           DELETE /:tid (the thread, its session and its run logs), and the
 //                           thread's file uploads (uploads.ts); a message may name uploaded files,
@@ -18,6 +21,8 @@
 //   refuseRuns, runsEnded - no new runs while the server drains, and waiting for the last to end
 // A store's optional hooks: admit (before a run: e.g. the storage quota), changed (after a run
 // ended or a thread was deleted: e.g. save the user, userState.ts).
+// A run's end is also written to its session's meta: `lastFailure` when it failed (not a cancel),
+// cleared when it did not; GET /api/sessions marks the chat failed until POST /:tid/seen.
 import type { AGUIEvent, ResumeEntry, RunAgentInput } from '@ag-ui/core';
 import * as engineLib from '@zenera/engine';
 import {
@@ -37,7 +42,7 @@ import { turns, type AgentEvent } from '@zenera/neo';
 import { Router, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { AguiTranslator, errorCode } from './agui.ts';
+import { AguiTranslator, errorCode, MODEL_UNAVAILABLE } from './agui.ts';
 import { settings } from './config.ts';
 import { HttpError } from './http.ts';
 import { runUser } from './identity.ts';
@@ -255,6 +260,51 @@ function waitingOn(store: ChatStore, t: ChatThread): Set<string> {
     }
 }
 
+type Turn = { message: UserMessage } | { resume: ResumeEntry[] } | { retry: true };
+
+// Whether a thread's saved state stalled at a model call (`retry` makes it again).
+function stalled(store: ChatStore, t: ChatThread): boolean {
+    const session = store.existingSession(t);
+    if (!session || !existsSync(session.state)) return false;
+    try {
+        const state = JSON.parse(readFileSync(session.state, 'utf8')) as { stalled?: unknown };
+        return Boolean(state.stalled);
+    } catch (err) {
+        console.warn(`retry ${t.id}: reading its session state failed; nothing to retry`, err);
+        return false;
+    }
+}
+
+// The run's end in the session's meta, for the chat list: what failed, or nothing.
+async function noteOutcome(
+    store: ChatStore,
+    t: ChatThread,
+    record: RunRecord,
+    retryable: boolean,
+): Promise<void> {
+    const session = store.existingSession(t);
+    if (!session) return;
+    const meta = await readSessionMeta(session);
+    const failed = FAILED.has(record.status);
+    if (failed) {
+        meta.lastFailure = {
+            runId: record.runId,
+            at: record.finishedAt ?? new Date().toISOString(),
+            code: retryable ? MODEL_UNAVAILABLE : record.status,
+            message: (record.error ?? 'the run failed').slice(0, 500),
+        };
+    } else if (!meta.lastFailure) {
+        return;
+    } else {
+        delete meta.lastFailure;
+        delete meta.failureSeenAt;
+    }
+    writeSessionMeta(session, meta);
+}
+
+// The run statuses a chat list marks as failed; a cancel is the user's own doing.
+const FAILED = new Set<RunRecord['status']>(['error', 'timeout', 'interrupted']);
+
 type ResumeEngine = (
     engine: Engine,
     answers: Record<string, ResumeAnswer>,
@@ -266,6 +316,19 @@ type ResumeEngine = (
 function resumeEngineFn(): ResumeEngine {
     const fn = (engineLib as unknown as { resumeEngine?: ResumeEngine }).resumeEngine;
     if (!fn) throw new Error('this zen version cannot resume a suspended run; update zen');
+    return fn;
+}
+
+type RetryEngine = (
+    engine: Engine,
+    onEvent?: (event: AgentEvent) => void,
+    signal?: AbortSignal,
+) => ReturnType<typeof runEngine>;
+
+// The same for retry.
+function retryEngineFn(): RetryEngine {
+    const fn = (engineLib as unknown as { retryEngine?: RetryEngine }).retryEngine;
+    if (!fn) throw new Error('this zen version cannot retry a failed run; update zen');
     return fn;
 }
 
@@ -321,7 +384,7 @@ async function execute(
     store: ChatStore,
     t: ChatThread,
     run: ActiveRun,
-    turn: { message: UserMessage } | { resume: ResumeEntry[] },
+    turn: Turn,
     memory: boolean,
     user: RunIdentity | null,
     mcpToken: string | null,
@@ -349,7 +412,7 @@ async function execute(
         ...('resume' in turn ? { resume: turn.resume } : {}),
         tools: [],
         context: [],
-        forwardedProps: {},
+        forwardedProps: 'retry' in turn ? { retry: true } : {},
     };
     log.append(translator.started(input));
     const maxMinutes = settings().maxRunMinutes;
@@ -399,12 +462,14 @@ async function execute(
                       onEvent,
                       controller.signal,
                   )
-                : await resumeEngineFn()(
-                      engine,
-                      answersFor(engine.state, turn.resume),
-                      onEvent,
-                      controller.signal,
-                  );
+                : 'resume' in turn
+                  ? await resumeEngineFn()(
+                        engine,
+                        answersFor(engine.state, turn.resume),
+                        onEvent,
+                        controller.signal,
+                    )
+                  : await retryEngineFn()(engine, onEvent, controller.signal);
         recordOutcome(run.record, outcome, before);
         const why = stopped();
         if (why) {
@@ -433,6 +498,12 @@ async function execute(
         } catch (err) {
             console.error(`run ${runId}: saving diagnostics:`, err);
         }
+        await noteOutcome(store, t, run.record, Boolean(engine?.state?.stalled)).catch((err) =>
+            console.warn(
+                `run ${runId}: noting its outcome for the chat list failed; not marked`,
+                err,
+            ),
+        );
         await log.end().catch((err) => console.error(`run ${runId}: saving its log:`, err));
         runs.delete(t.id);
         store.changed?.(t, 'run-end');
@@ -475,7 +546,11 @@ export function runsRouter(store: ChatStore): Router {
     router.post('/:tid/runs', async (req, res) => {
         const t = store.thread(req);
         const resume = resumeOf(req.body);
-        const turn = resume ? { resume } : { message: inputOf(req.body, Boolean(store.uploads)) };
+        const turn: Turn = resume
+            ? { resume }
+            : req.body?.retry === true
+              ? { retry: true }
+              : { message: inputOf(req.body, Boolean(store.uploads)) };
         const runId = ID.test(req.body?.runId ?? '') ? String(req.body.runId) : randomUUID();
         // Over its storage quota, a user gets no new run (checked before the slot is taken).
         await store.admit?.(t);
@@ -504,6 +579,14 @@ export function runsRouter(store: ChatStore): Router {
             res.status(409).json({ error: 'this chat is still answering', runId: running.runId });
             return;
         }
+        // A retry after a new message (or another retry) went first: nothing stalled to retry.
+        if ('retry' in turn && !stalled(store, t)) {
+            res.status(409).json({
+                error: 'the last answer of this chat did not stop at a failed model call',
+                code: 'nothing_to_retry',
+            });
+            return;
+        }
         if (runs.size >= settings().maxRuns) {
             res.set('Retry-After', '10');
             throw new HttpError(
@@ -523,7 +606,7 @@ export function runsRouter(store: ChatStore): Router {
 
         // The message's files move into the workspace now, all or none: a file gone (taken off,
         // or waiting longer than staging keeps it) refuses the message before it takes the slot.
-        const message = turn.message;
+        const message = 'message' in turn ? turn.message : undefined;
         if (message?.uploads.length) {
             const places = store.uploads!(t);
             try {
@@ -576,6 +659,20 @@ export function runsRouter(store: ChatStore): Router {
         }
         run.controller.abort(new RunStop('cancelled', 'cancelled'));
         res.status(202).json({ ok: true });
+    });
+
+    // The user saw the chat's last failure: the list stops marking it.
+    router.post('/:tid/seen', async (req, res) => {
+        const t = store.thread(req);
+        const session = store.existingSession(t);
+        if (session) {
+            const meta = await readSessionMeta(session);
+            if (meta.lastFailure) {
+                meta.failureSeenAt = new Date().toISOString();
+                writeSessionMeta(session, meta);
+            }
+        }
+        res.status(204).end();
     });
 
     router.delete('/:tid', async (req, res) => {

@@ -70,6 +70,23 @@ export interface SessionMeta {
     workspace: string;
     lastRunAt?: string;
     title?: string;
+    /**
+     * The last run's failure, when it failed (an error, a time-out, a server
+     * stopping under it - not a cancel); a run that starts clears it. For a
+     * chat list's red mark, with `failureSeenAt`.
+     */
+    lastFailure?: SessionFailure;
+    /** when the user last looked at the chat after a failure */
+    failureSeenAt?: string;
+}
+
+/** See `SessionMeta.lastFailure`. */
+export interface SessionFailure {
+    runId: string;
+    at: string;
+    /** the run's status: error, timeout, interrupted; or model_unavailable, which `retry` continues */
+    code: string;
+    message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +123,8 @@ export async function readSessionMeta(p: SessionPaths): Promise<SessionMeta> {
         workspace: meta.workspace ?? p.workspace,
         lastRunAt: meta.lastRunAt,
         title: meta.title,
+        ...(meta.lastFailure ? { lastFailure: meta.lastFailure } : {}),
+        ...(meta.failureSeenAt ? { failureSeenAt: meta.failureSeenAt } : {}),
     };
 }
 

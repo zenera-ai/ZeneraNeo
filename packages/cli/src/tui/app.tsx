@@ -721,6 +721,24 @@ function App({ engine, options, theme }: Props): React.ReactElement {
     // watching happen and not worth a row once it has.
     const onEvent = useCallback(
         (event: AgentEvent): void => {
+            // A provider failing for minutes would otherwise look like a hung
+            // spinner; esc stops the wait like any turn.
+            if (event.type === 'model_retry' || event.type === 'model_retry_recovered') {
+                if (event.branch) {
+                    return;
+                }
+                if (event.type === 'model_retry') {
+                    const at = new Date(event.retryAt).toLocaleTimeString();
+                    push(
+                        'note',
+                        `⟳ attempt ${event.attempt} failed, again at ${at}`,
+                        `${event.error} · esc stops`,
+                    );
+                } else {
+                    push('note', `✓ the model answered after ${event.attempts} attempts`);
+                }
+                return;
+            }
             if (!isCheckpoint(event)) {
                 // Only the trunk's answer is drawn. A fork has several running
                 // at once, and appending them all to one string is not a

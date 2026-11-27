@@ -110,20 +110,29 @@ providers:
 | `location`    | **vertex only** - a region, or `global`                                                                      |
 | `headers`     | Sent on every request: gateway routing, attribution, api versions                                            |
 | `timeoutMs`   | Per-request timeout                                                                                          |
-| `maxRetries`  | Retry count; defaults to `4`, `0` disables                                                                   |
+| `maxRetries`  | Retry count; defaults to `2`, `0` disables                                                                   |
 | `concurrency` | Ceiling on **embedding** requests in flight on this connection                                               |
 
 ### Retries
 
 Every kind retries the same way, whichever SDK is behind it: up to `maxRetries`
 extra attempts on a rate limit (`429`), a request timeout (`408`) or a `5xx`,
-waiting 1s, then 2s, 4s, 8s - doubling up to a minute - and honouring a
+waiting 1s, then 2s - doubling up to a minute - and honouring a
 `Retry-After` header when the provider sends one. A 429 is the provider asking
 to be called again shortly, so it costs a few seconds rather than the run.
 
 Retrying happens at the transport, below the adapter, so a retried call is one
 that never started: no partial stream is replayed and nothing reaches the
 trajectory twice. Set `maxRetries: 0` to fail fast instead.
+
+A provider that stays down longer is waited for one layer up, by the runner:
+the same model call is made again, for up to 15 minutes (5s, 10s, 20s, 40s,
+then every minute), as long as nothing of the answer was streamed yet. Each
+wait is announced as a `model_retry` event - `zen` prints it, a chat shows it -
+and cancelling the run stops it. A run that runs out of patience stops at that
+call with `state.stalled` set and nothing lost: resuming it (`zen` server's
+Retry) makes the call again, and a new message is answered from there.
+`RunnerOptions.modelRetry` changes the window; `windowMs: 0` turns it off.
 
 Embeddings are the exception, and deliberately: they retry one layer up, in the
 adapter, because a batch is thousands of requests and a 429 the transport

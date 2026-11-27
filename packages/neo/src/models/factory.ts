@@ -963,9 +963,11 @@ export class ModelRegistry {
  *
  * Retries live at the transport, not around `Model.generate`, so a retried call
  * is one that never started: no partial stream is replayed, and a `Retry-After`
- * header is honoured by the SDK that read it.
+ * header is honoured by the SDK that read it. They are few and quick, for a
+ * blip; a provider that stays down is the runner's to wait for
+ * (`RunnerOptions.modelRetry`), where the wait can be shown and stopped.
  */
-const DEFAULT_MAX_RETRIES = 4;
+const DEFAULT_MAX_RETRIES = 2;
 
 /** wait after the first failure; doubles per attempt up to `RETRY_MAX_MS` */
 const RETRY_INITIAL_MS = 1_000;

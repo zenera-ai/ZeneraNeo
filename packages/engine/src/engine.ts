@@ -22,6 +22,7 @@ import {
     type AgentEvent,
     type AgentProject,
     type AgentState,
+    type ModelRetryPolicy,
     type Input,
     type ResumeAnswer,
     type MemoryIndex,
@@ -162,6 +163,8 @@ export interface EngineOptions {
     plugins?: ZenPlugin[];
     /** false: ignore `ZEN_PLUGINS` and use only `plugins` */
     envPlugins?: boolean;
+    /** how long a failing model call is made again (`RunnerOptions.modelRetry`); unset: the runner's */
+    modelRetry?: ModelRetryPolicy;
     /**
      * false: a plugin that provides the sandbox is not asked, and podman on
      * this machine is used — `zen run --podman`. Its tools still load.
@@ -363,6 +366,7 @@ export async function openEngine(opts: EngineOptions): Promise<Engine> {
             recordRequests: true,
             model: opts.model ? project.models.model(opts.model) : undefined,
             onModelError: loaded.onModelError,
+            ...(opts.modelRetry ? { modelRetry: opts.modelRetry } : {}),
         });
 
         state = await loadState(opts.session);
@@ -575,8 +579,38 @@ export async function resumeEngine(
     if (!engine.state?.suspended?.length) {
         throw usageError('this session is not waiting on anything to resume');
     }
+    const input = `(resumed: ${Object.entries(answers)
+        .map(([id, a]) => `${id} ${a.status}`)
+        .join(', ')})`;
+    return continueEngine(engine, engine.state, input, { answers, signal }, onEvent);
+}
+
+/**
+ * Continues a session whose last run stalled at a model call its provider kept
+ * refusing (`state.stalled`): the call is made again, and the run goes on from
+ * there as if it had not stopped. Recorded like any other turn.
+ */
+export async function retryEngine(
+    engine: Engine,
+    onEvent?: (event: AgentEvent) => void,
+    signal?: AbortSignal,
+): Promise<RunOutcome> {
+    const stall = engine.state?.stalled;
+    if (!engine.state || !stall) {
+        throw usageError('the last run of this session did not stop at a failed model call');
+    }
+    return continueEngine(engine, engine.state, `(retried: ${stall.callId})`, { signal }, onEvent);
+}
+
+async function continueEngine(
+    engine: Engine,
+    state: AgentState,
+    input: string,
+    opts: { answers?: Record<string, ResumeAnswer>; signal?: AbortSignal },
+    onEvent?: (event: AgentEvent) => void,
+): Promise<RunOutcome> {
     const startedAt = new Date();
-    const stream = engine.runner.resume<string>(engine.state, { answers, signal });
+    const stream = engine.runner.resume<string>(state, opts);
     if (onEvent) {
         for await (const event of stream) {
             onEvent(event);
@@ -585,9 +619,6 @@ export async function resumeEngine(
     const result = await stream.final();
     const durationMs = Date.now() - startedAt.getTime();
     engine.state = result.state;
-    const input = `(resumed: ${Object.entries(answers)
-        .map(([id, a]) => `${id} ${a.status}`)
-        .join(', ')})`;
     const outcome = await record(engine, input, result, startedAt, durationMs);
     if (result.stopReason === 'failed') {
         throw new EngineError(

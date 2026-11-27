@@ -4,7 +4,9 @@
 //   AguiTranslator  - neo AgentEvent -> AG-UI events, in order (await each call before the next)
 //   clip            - the cap on tool output sent to a browser
 //   interruptsOf    - what a suspended run waits for, as AG-UI interrupts (RUN_FINISHED outcome)
-//   errorCode       - a RUN_ERROR's code for a failure: out_of_credits, else error
+//   errorCode       - a RUN_ERROR's code for a failure: out_of_credits, else error; a run that
+//                     stalled at a model call ends model_unavailable (retryable)
+//   RETRY_EVENT     - CUSTOM zenera.retry: a model call is made again ({ attempt, error, retryAt })
 import {
     EventType,
     type AGUIEvent,
@@ -31,6 +33,12 @@ export function clip(text: string, max = MAX_TOOL_OUTPUT): string {
 }
 
 export type Resolve = (payload: Payload) => Promise<string>;
+
+/** The CUSTOM event saying a model call is being made again (see `model_retry`). */
+export const RETRY_EVENT = 'zenera.retry';
+
+/** RUN_ERROR's code for a run that stopped at a model call it may retry (POST runs { retry }). */
+export const MODEL_UNAVAILABLE = 'model_unavailable';
 
 /**
  * The RUN_ERROR code for a run that failed with `err`: `out_of_credits` when the gateway's
@@ -267,6 +275,29 @@ export class AguiTranslator {
                 }
                 break;
             }
+            // zenera.retry: the provider keeps failing and the call goes again at retryAt;
+            // { recovered } once it answered. A chat shows it until the answer comes.
+            case 'model_retry':
+                out.push({
+                    type: EventType.CUSTOM,
+                    name: RETRY_EVENT,
+                    value: {
+                        attempt: ev.attempt,
+                        error: ev.error,
+                        ...(ev.status !== undefined ? { status: ev.status } : {}),
+                        retryAt: ev.retryAt,
+                        model: ev.model,
+                        ...sub,
+                    },
+                });
+                break;
+            case 'model_retry_recovered':
+                out.push({
+                    type: EventType.CUSTOM,
+                    name: RETRY_EVENT,
+                    value: { recovered: true, attempts: ev.attempts, ...sub },
+                });
+                break;
             case 'run_finished':
                 // A branch's own end is reported by branch_finished on its parent.
                 if (!ev.branch) out.push(...this.#finish(ev.result));
@@ -297,7 +328,8 @@ export class AguiTranslator {
             out.push({
                 type: EventType.RUN_ERROR,
                 message: result.state.error ?? 'the run failed',
-                code: 'failed',
+                // Stalled at a model call its provider kept refusing: `retry` continues it.
+                code: result.state.stalled ? MODEL_UNAVAILABLE : 'failed',
                 usage,
             });
             return out;

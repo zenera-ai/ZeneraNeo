@@ -35,6 +35,20 @@ export class Narrator {
         if (this.#quiet) {
             return;
         }
+        // Said even when deltas are not: a run sitting silent for minutes looks hung.
+        if (event.type === 'model_retry') {
+            this.#break();
+            const at = new Date(event.retryAt).toLocaleTimeString();
+            note(
+                `${yellow('⟳')} ${event.error} ${dim(`— attempt ${event.attempt}, again at ${at}`)}`,
+            );
+            return;
+        }
+        if (event.type === 'model_retry_recovered') {
+            this.#break();
+            note(`${green('✓')} ${dim(`the model answered after ${event.attempts} attempts`)}`);
+            return;
+        }
         if (!isCheckpoint(event)) {
             this.#delta(event);
             return;
