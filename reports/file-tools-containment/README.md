@@ -114,3 +114,15 @@ never weighed.
 This also defeats a read-only tree. Hard-link a file out of `/assets` into the
 workspace and it can be written under a name the gate believes is writable,
 which is the one thing the read-only tree says cannot happen.
+
+## 6. Manual finding verification
+
+The automated cases exercise `RootedFs` and the file tools directly. To check
+that the broken-symlink finding is reachable by an agent rather than only by a
+test, a `zen` agent ran in a Podman sandbox with the file tools and a workspace
+holding four planted link entries.
+
+Three `write_file` calls against broken symlinks returned `"written":true` and
+put bytes outside the workspace. The one link whose target existed was refused.
+The call log, with every result verbatim, is in
+[`agent-run.md`](./agent-run.md).
