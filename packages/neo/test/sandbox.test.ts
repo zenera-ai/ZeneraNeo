@@ -707,6 +707,24 @@ describe('a refused connection', () => {
         expect(n).toBe(1);
     });
 
+    it('returns the first result without retrying after output', async () => {
+        let n = 0;
+        const first = answer({
+            code: 1,
+            stdout: 'partial',
+            stderr: 'connection reset by peer',
+        });
+        const run: Runner = () => {
+            n++;
+            return Promise.resolve(n === 1 ? first : answer({ stdout: 'second attempt' }));
+        };
+
+        const res = await resilient(run)('podman', ['exec']);
+
+        expect(res).toEqual(first);
+        expect(n).toBe(1);
+    });
+
     it('stops when the turn is abandoned', async () => {
         const f = flaky(99, 'ssh: handshake failed');
         const res = await resilient(f.run)('podman', ['ps'], {
