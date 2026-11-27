@@ -133,6 +133,17 @@ describe('workspace containment', () => {
         expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
     });
 
+    it('refuses a path that became a link out since the last call', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        await call('write_file', { path: 'notes.txt', content: 'first' });
+        rmSync(join(root, 'notes.txt'));
+        symlinkSync(join(outside, 'secret.txt'), join(root, 'notes.txt'));
+
+        const writing = call('write_file', { path: 'notes.txt', content: 'second' });
+        await expect(writing).rejects.toThrow('notes.txt cannot be reached');
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
     /**
      * The sandbox mounts this same directory at /workspace, so a path copied
      * out of a command's output has to land on the same file as a relative one.

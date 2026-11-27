@@ -98,6 +98,17 @@ describe('RootedFs containment', () => {
         expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
     });
 
+    it('refuses a path that became a link out of the trees since the last call', async () => {
+        await fs.writeFile('/workspace/notes.txt', 'first');
+        rmSync(join(ws, 'notes.txt'));
+        symlinkSync(join(outside, 'secret.txt'), join(ws, 'notes.txt'));
+
+        await expect(fs.writeFile('/workspace/notes.txt', 'second')).rejects.toMatchObject({
+            code: 'EACCES',
+        });
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
     it('refuses to change a read-only tree, directly or through a link', async () => {
         await expect(fs.writeFile('/assets/x.md', 'x')).rejects.toMatchObject({ code: 'EROFS' });
         await expect(fs.rm('/assets/ref.md')).rejects.toMatchObject({ code: 'EROFS' });
