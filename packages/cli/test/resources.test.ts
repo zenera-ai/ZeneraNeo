@@ -1,5 +1,6 @@
 import type { ProcResult } from '@zenera/neo';
 import { describe, expect, it } from 'vitest';
+import stringWidth from 'string-width';
 
 import {
     clock,
@@ -298,6 +299,16 @@ describe('a view of two samples', () => {
 });
 
 describe('laying out the view', () => {
+    it('clips Unicode project and container names without shifting resource columns', async () => {
+        const view = await sampler().next();
+        view.containers[0]!.project = '你好'.repeat(20);
+        view.containers[0]!.name = '👩🏽‍💻'.repeat(80);
+        const lines = layout(view, { width: 80, explain: false }).map(text);
+        const row = lines.find((line) => line.includes('👩🏽‍💻'))!;
+        expect(row).toBeDefined();
+        expect(stringWidth(row)).toBeLessThanOrEqual(80);
+        expect(row).toContain('…');
+    });
     it('explains every figure, and says nothing extra when brief', async () => {
         const view = await sampler().next();
         const long = layout(view, { width: 200, explain: true, wrapNotes: true }).map(text);

@@ -1,3 +1,7 @@
+import stringWidth from 'string-width';
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 // ---------------------------------------------------------------------------
 // Measuring in rows
 //
@@ -18,16 +22,18 @@
  * that the terminal will not wrap it again.
  *
  * Only the tail is ever wanted, so only the tail is wrapped: `width * rows * 2`
- * characters is more than enough to fill the window whatever the wrapping does,
- * and bounds the work per keystroke on a stream that never stops growing.
+ * code units is an approximate tail budget, not a column count. Keep the whole
+ * grapheme at the cut, even if a long combining sequence exceeds that budget.
  */
 export function windowOf(text: string, width: number, rows: number): string[] {
     const w = Math.max(8, width);
     const n = Math.max(1, rows);
     // Trailing blank rows are never information, and a stream that ends on a
     // paragraph break would spend one of the few rows it has on nothing.
+    const start = Math.max(0, text.length - w * n * 2);
+    const boundary = graphemes.segment(text).containing(start)?.index ?? start;
     const tail = text
-        .slice(-w * n * 2)
+        .slice(boundary)
         .replace(/\n{2,}/g, '\n')
         .trimEnd();
     return wrap(tail, w).slice(-n);
@@ -39,9 +45,36 @@ export function windowOf(text: string, width: number, rows: number): string[] {
  * argument or a result preview arrives with whatever shape it happened to have.
  */
 export function clip(text: string, width: number): string {
-    const flat = text.replace(/\s+/g, ' ').trim();
+    return clipColumns(text.replace(/\s+/g, ' ').trim(), width);
+}
+
+/** Clip plain text without changing whitespace, preserving complete graphemes. */
+export function clipColumns(flat: string, width: number): string {
     const w = Math.max(1, width);
-    return flat.length <= w ? flat : `${flat.slice(0, w - 1)}…`;
+    if (stringWidth(flat) <= w) {
+        return flat;
+    }
+    let head = '';
+    let columns = 0;
+    for (const { segment } of graphemes.segment(flat)) {
+        const size = stringWidth(segment);
+        if (columns + size > w - 1) {
+            break;
+        }
+        head += segment;
+        columns += size;
+    }
+    return `${head}…`;
+}
+
+/** Pad plain text to a display width, without truncating text that is wider. */
+export function padEndCols(text: string, columns: number): string {
+    return text + ' '.repeat(Math.max(0, columns - stringWidth(text)));
+}
+
+/** Left-pad plain text to a display width without truncating it. */
+export function padStartCols(text: string, columns: number): string {
+    return ' '.repeat(Math.max(0, columns - stringWidth(text))) + text;
 }
 
 /** Word wrap. Every returned row is at most `width` columns wide. */
@@ -51,20 +84,33 @@ export function wrap(text: string, width: number): string[] {
     for (const paragraph of text.split('\n')) {
         let line = '';
         for (const word of paragraph.split(' ')) {
-            // A word wider than the terminal has to be broken somewhere, and
-            // anywhere is as good as anywhere else.
-            let rest = word;
-            while (rest.length > w) {
+            // Split only between graphemes. Match Ink's display-width model;
+            // a two-column glyph cannot fit a one-column row, so replace it.
+            const chunks: string[] = [];
+            let rest = '';
+            let columns = 0;
+            for (const { segment } of graphemes.segment(word)) {
+                const size = stringWidth(segment);
+                const glyph = size > w ? '�' : segment;
+                const used = size > w ? 1 : size;
+                if (columns + used > w) {
+                    chunks.push(rest);
+                    rest = '';
+                    columns = 0;
+                }
+                rest += glyph;
+                columns += used;
+            }
+            for (const chunk of chunks) {
                 if (line) {
                     out.push(line);
                     line = '';
                 }
-                out.push(rest.slice(0, w));
-                rest = rest.slice(w);
+                out.push(chunk);
             }
             if (!line) {
                 line = rest;
-            } else if (line.length + 1 + rest.length <= w) {
+            } else if (stringWidth(line) + 1 + columns <= w) {
                 line += ` ${rest}`;
             } else {
                 out.push(line);
@@ -209,11 +255,11 @@ export function boxWidth(text: string, columns: number): number {
         // A fence is drawn behind a `│ ` gutter; a table row is not.
         const lines =
             block.kind === 'code'
-                ? (block.lines ?? []).map((l) => l.length + 6)
+                ? (block.lines ?? []).map((l) => stringWidth(l) + 6)
                 : block.kind === 'table'
                   ? textOf(block)
                         .split('\n')
-                        .map((l) => l.length + 4)
+                        .map((l) => stringWidth(l) + 4)
                   : [];
         for (const width of lines) {
             rigid = Math.max(rigid, width);
@@ -960,7 +1006,7 @@ export function blocksOf(text: string): Block[] {
 // ---------------------------------------------------------------------------
 
 /** What a run of spans measures, which is the text and never the styling. */
-const lengthOf = (spans: Span[]): number => spans.reduce((n, s) => n + s.text.length, 0);
+const lengthOf = (spans: Span[]): number => stringWidth(spans.map((s) => s.text).join(''));
 
 /** A cell in its column, set where the rule row asked for it. */
 function padOf(spans: Span[], width: number, align: Align): Span[] {

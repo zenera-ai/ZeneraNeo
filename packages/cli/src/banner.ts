@@ -1,3 +1,4 @@
+import stringWidth from 'string-width';
 import { appearance, dim, drivenByAgent, note, styled, type Appearance } from './term.ts';
 
 // ---------------------------------------------------------------------------
@@ -172,7 +173,8 @@ export function bannerLines(text: BannerText, columns = process.stderr.columns |
     const tone = ACCENTS[text.hue ?? 'orange'];
     const ink = HEADS[appearance()];
     const margin = ' '.repeat(INDENT);
-    const width = INDENT + head[0].length + GAP + Math.max(...accent.map((row) => row.length));
+    const width =
+        INDENT + stringWidth(head[0]) + GAP + Math.max(...accent.map((row) => stringWidth(row)));
 
     if (width > columns) {
         return [
@@ -190,7 +192,7 @@ export function bannerLines(text: BannerText, columns = process.stderr.columns |
     const caption = `───  ${spaced(text.subtitle)}  ───`;
     lines.push('');
     lines.push(
-        `${' '.repeat(Math.max(INDENT, Math.round((width - caption.length) / 2)))}${dim(caption)}`,
+        `${' '.repeat(Math.max(INDENT, Math.round((width - stringWidth(caption)) / 2)))}${dim(caption)}`,
     );
     return lines;
 }

@@ -1,3 +1,5 @@
+import stringWidth from 'string-width';
+import { clip as clipColumns } from '../tui/wrap.ts';
 import { KeyStore, loadProjectEnv } from '@zenera/engine';
 import {
     ALL_AGENTS,
@@ -1230,8 +1232,7 @@ async function migrate(o: Omit<Opened, 'store'>, asJson: boolean): Promise<void>
 // ---------------------------------------------------------------------------
 
 function clip(text: string, n: number): string {
-    const one = text.replace(/\s+/g, ' ').trim();
-    return one.length > n ? one.slice(0, n - 1) + '…' : one;
+    return clipColumns(text, n);
 }
 
 /**
@@ -1239,7 +1240,9 @@ function clip(text: string, n: number): string {
  * and whole when nobody is looking at a terminal — a pipe or an agent wants all of it.
  */
 function textLast(rows: string[][], texts: string[]): string[] {
-    const widths = rows[0]?.map((_, c) => Math.max(...rows.map((r) => plain(r[c] ?? '').length)));
+    const widths = rows[0]?.map((_, c) =>
+        Math.max(...rows.map((r) => stringWidth(plain(r[c] ?? '')))),
+    );
     const room = process.stdout.isTTY
         ? Math.max(
               24,

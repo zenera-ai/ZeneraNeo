@@ -1,10 +1,11 @@
+import stringWidth from 'string-width';
 import { isProjectDir, Registry, sessionIds, sessionsDir } from '@zenera/engine';
 import { runProcess } from '@zenera/neo';
 import { cpus as hostCpus, platform as hostPlatform, totalmem } from 'node:os';
 import { basename, join } from 'node:path';
 import { idleContainers, ownedContainers, type OwnedContainer } from './podman.ts';
 import { ago, bytes } from './term.ts';
-import { wrap } from './tui/wrap.ts';
+import { clipColumns, padEndCols, padStartCols, wrap } from './tui/wrap.ts';
 
 // ---------------------------------------------------------------------------
 // Where the memory and the cpu go — `zen sandbox top`
@@ -834,15 +835,18 @@ class Lines {
         note = '',
         short = '',
     ): void {
-        const head = [sp(`  ${label.padEnd(LABEL)}`, 'dim'), sp(value.padStart(VALUE), tone)];
-        const used = [...head, ...detail].reduce((n, s) => n + s.text.length, 0);
+        const head = [
+            sp(`  ${padEndCols(label, LABEL)}`, 'dim'),
+            sp(padStartCols(value, VALUE), tone),
+        ];
+        const used = stringWidth([...head, ...detail].map((s) => s.text).join(''));
         if (!this.#o.explain || !note) {
             this.push(...head, ...detail);
             return;
         }
         const column = Math.max(NOTE_COLUMN, used + 2);
         const gap = sp(' '.repeat(column - used));
-        if (column + note.length <= this.#o.width) {
+        if (column + stringWidth(note) <= this.#o.width) {
             this.push(...head, ...detail, gap, sp(note, 'dim'));
             return;
         }
@@ -1147,7 +1151,10 @@ function containerHead(l: Lines, v: ResourceView, o: LayoutOptions): void {
         sp('  '),
         ...tableColumns(o.width).flatMap((c, i) => [
             sp(i > 0 ? ' ' : ''),
-            sp(c.align === 'right' ? c.title.padStart(c.width) : c.title.padEnd(c.width), 'strong'),
+            sp(
+                c.align === 'right' ? padStartCols(c.title, c.width) : padEndCols(c.title, c.width),
+                'strong',
+            ),
         ]),
     );
 }
@@ -1281,7 +1288,7 @@ function containerRows(v: ResourceView, o: LayoutOptions): Line[] {
             sp('  '),
             ...cols.flatMap((col) => {
                 const spans = col.cell(c);
-                const len = spans.reduce((n, s) => n + s.text.length, 0);
+                const len = stringWidth(spans.map((s) => s.text).join(''));
                 const pad = sp(' '.repeat(Math.max(0, col.width - len)));
                 return col.align === 'right' ? [pad, ...spans, sp(' ')] : [...spans, pad, sp(' ')];
             }),
@@ -1291,7 +1298,7 @@ function containerRows(v: ResourceView, o: LayoutOptions): Line[] {
 }
 
 function clipTo(text: string, width: number): string {
-    return text.length <= width ? text : `${text.slice(0, width - 1)}…`;
+    return clipColumns(text, width);
 }
 
 function hintSection(l: Lines, v: ResourceView, o: LayoutOptions): void {

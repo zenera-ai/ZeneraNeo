@@ -1,3 +1,4 @@
+import stringWidth from 'string-width';
 import {
     display,
     KeyStore,
@@ -441,7 +442,7 @@ function askPanel(
     border: (line: string) => string,
 ): string[] {
     const inner = outer - 4;
-    const rule = ASK_BOX.h.repeat(Math.max(1, outer - title.length - 5));
+    const rule = ASK_BOX.h.repeat(Math.max(1, outer - stringWidth(title) - 5));
     return [
         border(`${ASK_BOX.tl}${ASK_BOX.h} ${title} ${rule}${ASK_BOX.tr}`),
         ...formatMarkdown(text, inner).map(

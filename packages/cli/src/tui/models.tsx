@@ -17,6 +17,7 @@
 
 import { Box, render, Text, useApp, useInput, useStdout } from 'ink';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import stringWidth from 'string-width';
 
 import type { Provider } from '@zenera/engine';
 import {
@@ -31,7 +32,7 @@ import {
 } from '../catalog.ts';
 import { ago } from '../term.ts';
 import { resolveTheme, type Theme } from './theme.ts';
-import { clip, scrollTop, wrap } from './wrap.ts';
+import { clip, padEndCols, padStartCols, scrollTop, wrap } from './wrap.ts';
 
 export interface ProviderRow {
     provider: Provider;
@@ -169,6 +170,62 @@ function Via({
             <Text inverse bold color={theme.warn}>{` ⇄ ${gateway.name} `}</Text>
             <Text color={theme.chrome.color}>{` ${gateway.url}`}</Text>
         </>
+    );
+}
+
+const CTX_W = 9;
+const PRICE_W = 10;
+
+/** The model listing's rendered row, shared with deterministic layout tests. */
+export function ModelTableRow({
+    entry: e,
+    here,
+    verdict,
+    theme,
+    idW,
+    roleWidth,
+    withMaker,
+    priced,
+}: {
+    entry: CatalogEntry;
+    here: boolean;
+    verdict: Verdict | 'asking' | undefined;
+    theme: Theme;
+    idW: number;
+    roleWidth: number;
+    withMaker: boolean;
+    priced: boolean;
+}): React.JSX.Element {
+    const v = said(verdict, theme);
+    return (
+        <Row>
+            <Text color={here ? theme.accent : undefined} bold={here}>
+                {here ? '› ' : '  '}
+                {padEndCols(clip(e.id, idW - 2), idW)}
+            </Text>
+            {withMaker ? (
+                <Text color={isPartner(e) ? theme.warn : theme.code.color}>
+                    {padEndCols(clip(e.publisher ?? '', 11), 12)}
+                </Text>
+            ) : null}
+            <Text color={theme.chrome.color}>
+                {padEndCols(e.roles.join('+'), roleWidth)}
+                {padEndCols(padStartCols(thousands(e.contextLength), CTX_W - 2), CTX_W)}
+            </Text>
+            {priced ? (
+                <Text color={e.pricing?.free ? theme.code.color : undefined}>
+                    {padEndCols(padStartCols(perMillion(e.pricing?.prompt), PRICE_W - 2), PRICE_W)}
+                    {padEndCols(
+                        padStartCols(
+                            e.pricing?.free ? '' : perMillion(e.pricing?.completion),
+                            PRICE_W - 2,
+                        ),
+                        PRICE_W,
+                    )}
+                </Text>
+            ) : null}
+            {v ? <Text color={v.color}>{v.text}</Text> : null}
+        </Row>
     );
 }
 
@@ -439,7 +496,7 @@ function Browser({ options, theme, onPick }: BrowserProps): React.JSX.Element | 
     const width = Math.max(20, size.columns - 1);
 
     if (screen === 'providers') {
-        const nameW = Math.max(...options.providers.map((p) => p.provider.length)) + 2;
+        const nameW = Math.max(...options.providers.map((p) => stringWidth(p.provider))) + 2;
         return (
             <Box flexDirection="column">
                 <Row>
@@ -461,17 +518,17 @@ function Browser({ options, theme, onPick }: BrowserProps): React.JSX.Element | 
                         <Row key={p.provider}>
                             <Text color={here ? theme.accent : undefined} bold={here}>
                                 {here ? '› ' : '  '}
-                                {p.provider.padEnd(nameW)}
+                                {padEndCols(p.provider, nameW)}
                             </Text>
                             {p.credential ? (
-                                <Text color={theme.code.color}>{p.credential.padEnd(15)}</Text>
+                                <Text color={theme.code.color}>{padEndCols(p.credential, 15)}</Text>
                             ) : (
                                 <Text color={theme.line.error.color}>
-                                    {'no credential'.padEnd(15)}
+                                    {padEndCols('no credential', 15)}
                                 </Text>
                             )}
                             <Text color={theme.chrome.color}>
-                                {`${count} model${count === 1 ? '' : 's'}`.padEnd(13)}
+                                {padEndCols(`${count} model${count === 1 ? '' : 's'}`, 13)}
                                 {p.credential ? fresh : `zen key add ${p.provider}`}
                             </Text>
                             {b && typeof b !== 'string' ? (
@@ -505,24 +562,27 @@ function Browser({ options, theme, onPick }: BrowserProps): React.JSX.Element | 
         : provider;
     const withMaker = rows.some((e) => e.publisher);
     const priced = rows.some((e) => e.pricing);
-    const ROLE_W = Math.max(4, ...rows.map((e) => e.roles.join('+').length)) + 2;
-    const CTX_W = 9;
-    const PRICE_W = 10;
+    const ROLE_W = Math.max(4, ...rows.map((e) => stringWidth(e.roles.join('+')))) + 2;
     const fixed =
-        (withMaker ? 12 : 0) + ROLE_W + CTX_W + (priced ? PRICE_W * 2 : 0) + 'test'.length + 2;
+        (withMaker ? 12 : 0) +
+        ROLE_W +
+        CTX_W +
+        (priced ? PRICE_W * 2 : 0) +
+        stringWidth('test') +
+        2;
     const idW = Math.max(
         10,
-        Math.min(46, Math.max(8, ...rows.map((e) => e.id.length)) + 2, width - fixed),
+        Math.min(46, Math.max(8, ...rows.map((e) => stringWidth(e.id))) + 2, width - fixed),
     );
     const shown = rows.slice(top.current, top.current + height);
     const filter = typing ? `/${query}▌` : query ? `/${query}` : '';
     const columns = [
-        `  ${'model'.padEnd(idW)}`,
-        withMaker ? 'maker'.padEnd(12) : '',
-        'role'.padEnd(ROLE_W),
-        'context'.padStart(CTX_W - 2).padEnd(CTX_W),
-        priced ? 'in $/1M'.padStart(PRICE_W - 2).padEnd(PRICE_W) : '',
-        priced ? 'out $/1M'.padStart(PRICE_W - 2).padEnd(PRICE_W) : '',
+        `  ${padEndCols('model', idW)}`,
+        withMaker ? padEndCols('maker', 12) : '',
+        padEndCols('role', ROLE_W),
+        padEndCols(padStartCols('context', CTX_W - 2), CTX_W),
+        priced ? padEndCols(padStartCols('in $/1M', PRICE_W - 2), PRICE_W) : '',
+        priced ? padEndCols(padStartCols('out $/1M', PRICE_W - 2), PRICE_W) : '',
         'test',
     ].join('');
 
@@ -542,36 +602,18 @@ function Browser({ options, theme, onPick }: BrowserProps): React.JSX.Element | 
             <>
                 {shown.map((e, i) => {
                     const here = top.current + i === index;
-                    const v = said(verdicts.get(e.ref), theme);
                     return (
-                        <Row key={e.ref}>
-                            <Text color={here ? theme.accent : undefined} bold={here}>
-                                {here ? '› ' : '  '}
-                                {clip(e.id, idW - 2).padEnd(idW)}
-                            </Text>
-                            {withMaker ? (
-                                <Text color={isPartner(e) ? theme.warn : theme.code.color}>
-                                    {clip(e.publisher ?? '', 11).padEnd(12)}
-                                </Text>
-                            ) : null}
-                            <Text color={theme.chrome.color}>
-                                {e.roles.join('+').padEnd(ROLE_W)}
-                                {thousands(e.contextLength)
-                                    .padStart(CTX_W - 2)
-                                    .padEnd(CTX_W)}
-                            </Text>
-                            {priced ? (
-                                <Text color={e.pricing?.free ? theme.code.color : undefined}>
-                                    {perMillion(e.pricing?.prompt)
-                                        .padStart(PRICE_W - 2)
-                                        .padEnd(PRICE_W)}
-                                    {(e.pricing?.free ? '' : perMillion(e.pricing?.completion))
-                                        .padStart(PRICE_W - 2)
-                                        .padEnd(PRICE_W)}
-                                </Text>
-                            ) : null}
-                            {v ? <Text color={v.color}>{v.text}</Text> : null}
-                        </Row>
+                        <ModelTableRow
+                            key={e.ref}
+                            entry={e}
+                            here={here}
+                            verdict={verdicts.get(e.ref)}
+                            theme={theme}
+                            idW={idW}
+                            roleWidth={ROLE_W}
+                            withMaker={withMaker}
+                            priced={priced}
+                        />
                     );
                 })}
             </>
@@ -718,14 +760,14 @@ function Detail({
             <Text> </Text>
             {facts.map(([label, value]) => (
                 <Row key={label}>
-                    <Text color={theme.chrome.color}>{`  ${label.padEnd(12)}`}</Text>
+                    <Text color={theme.chrome.color}>{`  ${padEndCols(label, 12)}`}</Text>
                     <Text>{value}</Text>
                 </Row>
             ))}
             <Row>
                 <Text color={theme.chrome.color}>
                     {'  '}
-                    {'asked'.padEnd(12)}
+                    {padEndCols('asked', 12)}
                 </Text>
                 {v ? (
                     <Text color={v.color}>{v.text}</Text>

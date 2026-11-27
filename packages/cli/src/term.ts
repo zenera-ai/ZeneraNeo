@@ -1,3 +1,4 @@
+import stringWidth from 'string-width';
 import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { styleText } from 'node:util';
@@ -146,10 +147,11 @@ const ANSI = /\u001b\[[0-9;]*m/g;
 /** The text as it reads without styling, which is what a file wants. */
 export const plain = (s: string): string => s.replace(ANSI, '');
 
-const width = plain;
+const width = stringWidth;
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 export function pad(s: string, to: number): string {
-    return s + ' '.repeat(Math.max(0, to - width(s).length));
+    return s + ' '.repeat(Math.max(0, to - width(s)));
 }
 
 /** Column-aligned rows. Trailing whitespace is trimmed so `diff` stays quiet. */
@@ -160,7 +162,7 @@ export function table(rows: readonly (readonly string[])[], gap = 2): string[] {
     const columns = Math.max(...rows.map((r) => r.length));
     const widths: number[] = [];
     for (let c = 0; c < columns; c++) {
-        widths[c] = Math.max(...rows.map((r) => width(r[c] ?? '').length));
+        widths[c] = Math.max(...rows.map((r) => width(r[c] ?? '')));
     }
     return rows.map((r) =>
         r
@@ -618,24 +620,28 @@ export function* keysIn(data: string): Generator<string> {
  * either cuts too early or leaves a colour turned on.
  */
 export function cut(s: string, max: number): string {
-    if (width(s).length <= max) {
+    if (width(s) <= max) {
         return s;
+    }
+    let end = 0;
+    let columns = 0;
+    for (const { segment } of graphemes.segment(plain(s))) {
+        const size = stringWidth(segment);
+        if (columns + size > max - 1) break;
+        columns += size;
+        end += segment.length;
     }
     let out = '';
     let seen = 0;
     for (let i = 0; i < s.length;) {
         if (s[i] === '\u001b') {
-            const end = s.indexOf('m', i);
-            if (end < 0) {
-                break;
-            }
-            out += s.slice(i, end + 1);
-            i = end + 1;
+            const sgr = /^\u001b\[[0-9;]*m/.exec(s.slice(i));
+            if (!sgr) break;
+            out += sgr[0];
+            i += sgr[0].length;
             continue;
         }
-        if (seen === max - 1) {
-            break;
-        }
+        if (seen >= end) break;
         out += s[i++];
         seen++;
     }
