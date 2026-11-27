@@ -40,6 +40,8 @@ describe('RootedFs containment', () => {
     symlinkSync(assets, join(ws, 'to-assets'));
     linkSync(join(outside, 'secret.txt'), join(ws, 'secret'));
     symlinkSync(join(outside, 'missing-file.txt'), join(ws, 'link-to-missing-file'));
+    symlinkSync(join(outside, 'secret.txt'), join(ws, 'to-secret-link'));
+    writeFileSync(join(ws, 'payload.md'), 'payload');
 
     const fs = new RootedFs([
         { at: '/workspace', dir: ws },
@@ -81,6 +83,19 @@ describe('RootedFs containment', () => {
             code: 'EACCES',
         });
         expect(existsSync(join(outside, 'missing-file.txt'))).toBe(false);
+    });
+
+    it('does not write outside the trees through a symlink destination', async () => {
+        await expect(fs.writeFile('/workspace/to-secret-link', 'yes')).rejects.toMatchObject({
+            code: 'EACCES',
+        });
+        await expect(
+            fs.copy('/workspace/payload.md', '/workspace/to-secret-link'),
+        ).rejects.toMatchObject({ code: 'EACCES' });
+        await expect(
+            fs.rename('/workspace/payload.md', '/workspace/to-secret-link'),
+        ).rejects.toMatchObject({ code: 'EACCES' });
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
     });
 
     it('refuses to change a read-only tree, directly or through a link', async () => {

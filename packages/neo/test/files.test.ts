@@ -110,6 +110,29 @@ describe('workspace containment', () => {
         expect(out.error).toContain('cannot be reached');
     });
 
+    it('does not write outside through a symlink destination', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(join(outside, 'secret.txt'), join(root, 'links', 'to-secret-link'));
+        writeFileSync(join(root, 'payload.md'), 'payload');
+
+        const writing = call('write_file', { path: 'links/to-secret-link', content: 'yes' });
+        await expect(writing).rejects.toThrow('links/to-secret-link cannot be reached');
+        const copying = call('copy_file', {
+            from: 'payload.md',
+            to: 'links/to-secret-link',
+            overwrite: true,
+        });
+        await expect(copying).rejects.toThrow('links/to-secret-link cannot be reached');
+        const moving = call('move_file', {
+            from: 'payload.md',
+            to: 'links/to-secret-link',
+            overwrite: true,
+        });
+        await expect(moving).rejects.toThrow('links/to-secret-link cannot be reached');
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
     /**
      * The sandbox mounts this same directory at /workspace, so a path copied
      * out of a command's output has to land on the same file as a relative one.
