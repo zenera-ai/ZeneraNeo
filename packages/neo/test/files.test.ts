@@ -1,5 +1,6 @@
 import {
     existsSync,
+    linkSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -58,6 +59,26 @@ describe('workspace containment', () => {
         await expect(read.execute({ path: 'links/out/secret.txt' }, {} as never)).rejects.toThrow(
             'links/out/secret.txt cannot be reached',
         );
+    });
+
+    it('does not reach a file outside through a hard link', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        mkdirSync(join(root, 'links'), { recursive: true });
+        linkSync(join(outside, 'secret.txt'), join(root, 'links', 'secret'));
+
+        const tools = fileTools({ root });
+        const run = async (name: string, args: unknown): Promise<any> => {
+            const found = tools.find((t) => t.name === name);
+            return await found!.execute(args, {} as never);
+        };
+
+        await expect(run('read_file', { path: 'links/secret' })).rejects.toThrow(
+            'links/secret cannot be reached',
+        );
+        await expect(run('write_file', { path: 'links/secret', content: 'yes' })).rejects.toThrow(
+            'links/secret cannot be reached',
+        );
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
     });
 
     /**

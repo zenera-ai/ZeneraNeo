@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+    linkSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -28,6 +37,7 @@ describe('RootedFs containment', () => {
     writeFileSync(join(outside, 'secret.txt'), 'no');
     symlinkSync(outside, join(ws, 'out'));
     symlinkSync(assets, join(ws, 'to-assets'));
+    linkSync(join(outside, 'secret.txt'), join(ws, 'secret'));
     const fs = new RootedFs([
         { at: '/workspace', dir: ws },
         { at: '/assets', dir: assets, readOnly: true },
@@ -55,6 +65,12 @@ describe('RootedFs containment', () => {
         await expect(fs.writeFile('/workspace/out/new.txt', 'x')).rejects.toMatchObject({
             code: 'EACCES',
         });
+    });
+
+    it('does not reach a file outside the trees through a hard link', async () => {
+        await expect(fs.readFile('/workspace/secret')).rejects.toMatchObject({ code: 'EACCES' });
+        await expect(fs.writeFile('/workspace/secret', 'yes')).rejects.toThrow();
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
     });
 
     it('refuses to change a read-only tree, directly or through a link', async () => {
