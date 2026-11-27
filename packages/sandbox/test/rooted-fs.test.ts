@@ -1,4 +1,5 @@
 import {
+    existsSync,
     linkSync,
     mkdirSync,
     mkdtempSync,
@@ -38,6 +39,8 @@ describe('RootedFs containment', () => {
     symlinkSync(outside, join(ws, 'out'));
     symlinkSync(assets, join(ws, 'to-assets'));
     linkSync(join(outside, 'secret.txt'), join(ws, 'secret'));
+    symlinkSync(join(outside, 'missing-file.txt'), join(ws, 'link-to-missing-file'));
+
     const fs = new RootedFs([
         { at: '/workspace', dir: ws },
         { at: '/assets', dir: assets, readOnly: true },
@@ -71,6 +74,13 @@ describe('RootedFs containment', () => {
         await expect(fs.readFile('/workspace/secret')).rejects.toMatchObject({ code: 'EACCES' });
         await expect(fs.writeFile('/workspace/secret', 'yes')).rejects.toThrow();
         expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
+    it('does not write outside the trees through a broken symlink', async () => {
+        await expect(fs.writeFile('/workspace/link-to-missing-file', 'yes')).rejects.toMatchObject({
+            code: 'EACCES',
+        });
+        expect(existsSync(join(outside, 'missing-file.txt'))).toBe(false);
     });
 
     it('refuses to change a read-only tree, directly or through a link', async () => {

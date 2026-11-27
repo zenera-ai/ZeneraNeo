@@ -25,6 +25,11 @@ describe('workspace containment', () => {
     });
 
     const ws = new Workspace({ root });
+    const tools = fileTools({ root });
+    const call = async (name: string, args: unknown): Promise<any> => {
+        const found = tools.find((t) => t.name === name);
+        return await found!.execute(args, {} as never);
+    };
 
     it('allows paths inside, including ones that do not exist yet', async () => {
         expect(await ws.within('notes.md')).toBe(join(ws.root, 'notes.md'));
@@ -66,19 +71,43 @@ describe('workspace containment', () => {
         mkdirSync(join(root, 'links'), { recursive: true });
         linkSync(join(outside, 'secret.txt'), join(root, 'links', 'secret'));
 
-        const tools = fileTools({ root });
-        const run = async (name: string, args: unknown): Promise<any> => {
-            const found = tools.find((t) => t.name === name);
-            return await found!.execute(args, {} as never);
-        };
+        const reading = call('read_file', { path: 'links/secret' });
+        await expect(reading).rejects.toThrow('links/secret cannot be reached');
 
-        await expect(run('read_file', { path: 'links/secret' })).rejects.toThrow(
-            'links/secret cannot be reached',
-        );
-        await expect(run('write_file', { path: 'links/secret', content: 'yes' })).rejects.toThrow(
-            'links/secret cannot be reached',
-        );
+        const writing = call('write_file', { path: 'links/secret', content: 'yes' });
+        await expect(writing).rejects.toThrow('links/secret cannot be reached');
+
         expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
+    it('does not write outside through a broken symlink', async () => {
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(join(outside, 'missing-file.txt'), join(root, 'links', 'link-to-missing-file'));
+
+        const writing = call('write_file', {
+            path: 'links/link-to-missing-file',
+            content: 'yes',
+        });
+        await expect(writing).rejects.toThrow('links/link-to-missing-file cannot be reached');
+        expect(existsSync(join(outside, 'missing-file.txt'))).toBe(false);
+    });
+
+    it('does not add a file outside through a broken symlink', async () => {
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(
+            join(outside, 'missing-patch-file.txt'),
+            join(root, 'links', 'link-to-missing-patch-file'),
+        );
+
+        const out = await call('apply_patch', {
+            patch:
+                '*** Begin Patch\n' +
+                '*** Add File: links/link-to-missing-patch-file\n' +
+                '+x\n' +
+                '*** End Patch',
+        });
+        expect(existsSync(join(outside, 'missing-patch-file.txt'))).toBe(false);
+        expect(out.error).toContain('cannot be reached');
     });
 
     /**
