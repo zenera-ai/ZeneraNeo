@@ -57,28 +57,60 @@ jobs:
             - name: Pack every package (dry run)
               run: npm pack --dry-run $(node scripts/release.mjs workspaces)
 
-            # One workspace at a time, in dependency order, skipping whatever the
-            # registry already has — re-running after a partial failure has to be
-            # able to finish. No --provenance: npm rejects it (422) unless the
-            # source repository is public. Add it back here if this repo is opened up.
-            # `tr | grep` because re-running an OLD tag checks out that tag's
-            # release.mjs, which may predate --paths and print `-w <dir>` pairs.
-            - name: Publish to npm
+            # Fail before publishing package 1 if any workspace has never been
+            # bootstrapped on npm (OIDC trusted publishing requires the package to
+            # exist on npm first; otherwise the loop dies mid-way with ENEEDAUTH).
+            - name: Verify all packages exist on npm
               run: |
+                  missing=0
                   for dir in $(node scripts/release.mjs workspaces --paths | tr ' ' '\n' | grep '^packages/'); do
                       name=$(node -p "require('./$dir/package.json').name")
-                      version=$(node -p "require('./$dir/package.json').version")
-                      if npm view "$name@$version" version > /dev/null 2>&1; then
-                          echo "already published: $name@$version"
-                      else
-                          npm publish -w "$dir" --access public
+                      if ! npm view "$name" name > /dev/null 2>&1; then
+                          echo "not bootstrapped on npm (publish initial version manually): $name" >&2
+                          missing=1
                       fi
+                  done
+                  [ "$missing" -eq 0 ]
+
+            # Two-phase stage-then-promote in dependency order:
+            # 1) Publish missing packages under a temporary staging dist-tag so a
+            #    mid-loop failure never exposes a half-published version on `latest`.
+            # 2) Once all packages exist on npm, promote `latest` across every
+            #    workspace and clean up the staging tag.
+            # `tr | grep` because re-running an OLD tag checks out that tag's
+            # release.mjs, which may predate --paths and print `-w <dir>` pairs.
+            - name: Publish to npm (stage then promote)
+              run: |
+                  dirs=$(node scripts/release.mjs workspaces --paths | tr ' ' '\n' | grep '^packages/')
+                  version=$(node -p "require('./packages/cli/package.json').version")
+                  staging_tag="staging-$version"
+
+                  for dir in $dirs; do
+                      name=$(node -p "require('./$dir/package.json').name")
+                      pkg_version=$(node -p "require('./$dir/package.json').version")
+                      if npm view "$name@$pkg_version" version > /dev/null 2>&1; then
+                          echo "already published: $name@$pkg_version"
+                      else
+                          npm publish -w "$dir" --access public --tag "$staging_tag"
+                      fi
+                  done
+
+                  for dir in $dirs; do
+                      name=$(node -p "require('./$dir/package.json').name")
+                      pkg_version=$(node -p "require('./$dir/package.json').version")
+                      npm dist-tag add "$name@$pkg_version" latest
+                      npm dist-tag rm "$name" "$staging_tag" > /dev/null 2>&1 || true
                   done
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
             - name: GitHub release
-              run: gh release create "$TAG" --generate-notes --title "$TAG"
+              run: |
+                  if gh release view "$TAG" > /dev/null 2>&1; then
+                      echo "already exists: GitHub release $TAG"
+                  else
+                      gh release create "$TAG" --generate-notes --title "$TAG"
+                  fi
               env:
                   GH_TOKEN: ${{ github.token }}
                   TAG: ${{ inputs.tag || github.ref_name }}
