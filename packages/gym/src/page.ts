@@ -175,6 +175,12 @@ interface Field {
     type: string;
     /** a closed set, so the box is a menu */
     choices?: string[];
+    /** Inclusive JSON Schema numeric bounds, for browser-side validation. */
+    minimum?: number;
+    maximum?: number;
+    /** JSON Schema `multipleOf`, used as the native number input step. */
+    multipleOf?: number;
+    numeric?: 'integer' | 'number';
     description?: string;
 }
 
@@ -200,6 +206,10 @@ function callable(operation: Operation): Callable {
                 required: p.required,
                 type: typeOf(p.schema),
                 choices: choicesOf(node),
+                numeric: node.type === 'integer' || node.type === 'number' ? node.type : undefined,
+                minimum: typeof node.minimum === 'number' ? node.minimum : undefined,
+                maximum: typeof node.maximum === 'number' ? node.maximum : undefined,
+                multipleOf: typeof node.multipleOf === 'number' ? node.multipleOf : undefined,
                 description: p.description,
             };
         });
@@ -359,8 +369,13 @@ function box(field) {
         return select;
     }
     const input = document.createElement('input');
-    input.type = 'text';
+    input.type = field.numeric ? 'number' : 'text';
     input.placeholder = field.type;
+    if (field.numeric) {
+        input.step = field.multipleOf === undefined ? (field.numeric === 'integer' ? '1' : 'any') : String(field.multipleOf);
+        if (field.minimum !== undefined) input.min = String(field.minimum);
+        if (field.maximum !== undefined) input.max = String(field.maximum);
+    }
     return input;
 }
 
