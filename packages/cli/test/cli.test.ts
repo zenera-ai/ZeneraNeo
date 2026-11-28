@@ -85,7 +85,7 @@ import {
     type OwnedContainer,
 } from '../src/podman.ts';
 import { parseRequest, readRequest } from '../src/request.ts';
-import { chooseWorkspace } from '../src/resolve.ts';
+import { chooseWorkspace, project } from '../src/resolve.ts';
 import { copyTree, scaffold } from '../src/scaffold.ts';
 import * as term from '../src/term.ts';
 import { bytes, CliError, cut, EXIT, keysIn, pad, table } from '../src/term.ts';
@@ -1841,6 +1841,40 @@ describe('what a run mounts', () => {
         expect(mounts.map((m) => m.at)).toEqual(['/assets']);
         expect(mounts.some((m) => m.at === '/memory')).toBe(false);
         expect(existsSync(join(dir, 'memory'))).toBe(false);
+    });
+});
+
+describe('a -C that is not a directory', () => {
+    it('names a missing directory instead of looking for a project', async () => {
+        await expect(project({ cwd: '/no/such/dir' })).rejects.toMatchObject({
+            code: EXIT.usage,
+            message: 'not a directory: /no/such/dir',
+        });
+    });
+
+    it('names a file the same way', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'zen-c-'));
+        const file = join(dir, 'README.md');
+        writeFileSync(file, 'not a folder');
+
+        await expect(project({ cwd: file })).rejects.toMatchObject({
+            code: EXIT.usage,
+            message: `not a directory: ${file}`,
+        });
+        rmSync(dir, { recursive: true });
+    });
+
+    it('names a file inside a project, rather than finding the project above it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'zen-c-'));
+        writeFileSync(join(dir, 'agents.yaml'), 'agents: []\n'); // makes dir a project
+        const file = join(dir, 'README.md');
+        writeFileSync(file, 'not a folder');
+
+        await expect(project({ cwd: file })).rejects.toMatchObject({
+            code: EXIT.usage,
+            message: `not a directory: ${file}`,
+        });
+        rmSync(dir, { recursive: true });
     });
 });
 
