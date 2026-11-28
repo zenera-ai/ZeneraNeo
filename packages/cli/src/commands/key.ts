@@ -27,7 +27,7 @@ import {
 } from '@zenera/engine';
 import { GATEWAY_URL_ENV } from '@zenera/neo';
 import { existsSync } from 'node:fs';
-import { parse } from '../args.ts';
+import { closest, parse } from '../args.ts';
 import type { Command, Context } from '../command.ts';
 import { probe, probeAll } from '../liveness.ts';
 import {
@@ -55,7 +55,9 @@ import {
     yellow,
 } from '../term.ts';
 
-const USAGE = 'zen key <ls|add|use|mode|check|rm|show|env> [ref] [options]';
+/** The subcommands, without their aliases: what usage and the unknown-name hint list. */
+const NAMES = ['ls', 'add', 'use', 'mode', 'check', 'rm', 'show', 'env', 'token'] as const;
+const USAGE = `zen key <${NAMES.join('|')}> [ref] [options]`;
 
 // ---------------------------------------------------------------------------
 // Display
@@ -776,12 +778,19 @@ function shellQuote(value: string): string {
  * last an hour, and a session does not.
  */
 const token: Sub = async (ctx, args) => {
-    const { positionals } = parse(args, {}, 'zen key token <provider>[/name]');
+    const { positionals } = parse(args, {}, 'zen key token [provider[/name]]');
     const { provider, name } = parseRef(positionals[0] ?? 'vertex');
     const store = await KeyStore.open();
     const entry = name ? store.find(provider, name) : store.active(provider);
     if (!entry) {
-        throw credentialError(`no ${provider} key`, `add one: zen key add ${provider}`);
+        // With no argument the provider was chosen for the reader, so say so:
+        // "no vertex key" alone reads as a fault in a key they never mentioned.
+        throw positionals[0]
+            ? credentialError(`no ${provider} key`, `add one: zen key add ${provider}`)
+            : credentialError(
+                  `no vertex key (zen key token uses vertex when no key is named)`,
+                  'add one: zen key add vertex, or name another: zen key token openai',
+              );
     }
     if (entry.holds === 'secret') {
         write(store.reveal(entry));
@@ -868,7 +877,7 @@ export const key: Command = {
         '  zen key rm <provider>/<name>      Forget one.',
         '  zen key show <ref> [--reveal]     Masked by default.',
         '  zen key env [provider …]          Shell exports, for other tools.',
-        '  zen key token [ref]               One credential on stdout, minted now.',
+        '  zen key token [ref]               One credential on stdout, minted now. Default: vertex.',
     ],
     run: async (ctx) => {
         const [name, ...rest] = ctx.args;
@@ -878,9 +887,12 @@ export const key: Command = {
         }
         const sub = SUBS[name];
         if (!sub) {
+            // Only names the hint advertises: suggesting the alias `list` while
+            // listing `ls` would be two answers to one question.
+            const near = closest(name, NAMES);
             throw usageError(
-                `unknown: zen key ${name}`,
-                `try: ${cyan(Object.keys(SUBS).slice(0, 7).join(', '))}`,
+                `unknown key command "${name}"`,
+                near ? `did you mean: zen key ${cyan(near)}?` : `try: ${cyan(NAMES.join(', '))}`,
             );
         }
         await sub(ctx, rest);
