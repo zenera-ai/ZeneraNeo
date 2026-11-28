@@ -115,7 +115,8 @@ export function extract(after: readonly string[]): { rest: string[]; global: str
             continue;
         }
         if (GLOBAL_VALUED.has(arg)) {
-            global.push(arg, after[++i] ?? '');
+            global.push(arg);
+            if (i + 1 < after.length) global.push(after[++i]);
             continue;
         }
         if (arg.startsWith('--directory=') || arg.startsWith('--json=')) {
