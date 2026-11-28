@@ -398,11 +398,10 @@ export interface PaginationCutResult {
 }
 
 interface ActiveToken {
-    operationKey: string;
     page: number;
     maxPages: number;
     seenTokens: Set<string>;
-    streamKey: string;
+    lastNext?: string;
     terminated?: boolean;
     createdAt: number;
 }
@@ -429,13 +428,15 @@ export class PaginationLimiter {
         sent: string | undefined,
         value: unknown,
         paging: Paging,
+        operationMaxPages?: number,
     ): PaginationCutResult | undefined {
         this.#prune();
         const nextToken = tokenOf(value, paging);
+        const key = (token: string) => JSON.stringify([operationKey, streamKey, token]);
 
         // Case 1: First page (no cursor sent)
         if (sent === undefined) {
-            const maxPages = Math.max(1, this.#maxPagesFactory());
+            const maxPages = Math.max(1, operationMaxPages ?? this.#maxPagesFactory());
             if (maxPages === 1) {
                 if (nextToken !== undefined) {
                     cutPaging(value, paging);
@@ -444,12 +445,10 @@ export class PaginationLimiter {
                 return undefined;
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(nextToken, {
-                    operationKey,
+                this.#tokens.set(key(nextToken), {
                     page: 2,
                     maxPages,
                     seenTokens: new Set([nextToken]),
-                    streamKey,
                     createdAt: Date.now(),
                 });
             }
@@ -457,7 +456,7 @@ export class PaginationLimiter {
         }
 
         // Case 2: Cursor was sent
-        const state = this.#tokens.get(sent);
+        const state = this.#tokens.get(key(sent));
 
         // Subcase 2A: Re-requesting an already-terminated token
         if (state?.terminated) {
@@ -482,6 +481,14 @@ export class PaginationLimiter {
         }
 
         // Subcase 2C: Cycle loop (server returned a token seen earlier in this stream)
+        if (
+            operationMaxPages !== undefined &&
+            nextToken !== undefined &&
+            state?.lastNext === nextToken
+        ) {
+            // A stateless synthetic page can be requested again with the same cursor.
+            return undefined;
+        }
         if (state && nextToken !== undefined && state.seenTokens.has(nextToken)) {
             cutPaging(value, paging);
             state.terminated = true;
@@ -491,15 +498,16 @@ export class PaginationLimiter {
         // Subcase 2D: Tracked stream reached maxPages
         if (state) {
             if (state.page >= state.maxPages) {
+                if (operationMaxPages !== undefined && nextToken === undefined) {
+                    return undefined;
+                }
                 cutPaging(value, paging);
                 state.terminated = true;
                 if (nextToken !== undefined) {
-                    this.#tokens.set(nextToken, {
-                        operationKey,
+                    this.#tokens.set(key(nextToken), {
                         page: state.page + 1,
                         maxPages: state.maxPages,
                         seenTokens: state.seenTokens,
-                        streamKey,
                         terminated: true,
                         createdAt: Date.now(),
                     });
@@ -512,13 +520,12 @@ export class PaginationLimiter {
 
             // Not yet at maxPages: advance to next page
             if (nextToken !== undefined) {
+                state.lastNext = nextToken;
                 state.seenTokens.add(nextToken);
-                this.#tokens.set(nextToken, {
-                    operationKey,
+                this.#tokens.set(key(nextToken), {
                     page: state.page + 1,
                     maxPages: state.maxPages,
                     seenTokens: state.seenTokens,
-                    streamKey,
                     createdAt: Date.now(),
                 });
             }
@@ -528,7 +535,7 @@ export class PaginationLimiter {
         // Subcase 2E: Untracked token (first time seen)
         const decodedPage = parsePageFromToken(sent, paging.style);
         if (decodedPage !== undefined) {
-            const maxPages = Math.max(decodedPage, this.#maxPagesFactory());
+            const maxPages = Math.max(decodedPage, operationMaxPages ?? this.#maxPagesFactory());
             if (decodedPage >= maxPages) {
                 cutPaging(value, paging);
                 return {
@@ -537,12 +544,10 @@ export class PaginationLimiter {
                 };
             }
             if (nextToken !== undefined) {
-                this.#tokens.set(nextToken, {
-                    operationKey,
+                this.#tokens.set(key(nextToken), {
                     page: decodedPage + 1,
                     maxPages,
                     seenTokens: new Set([sent, nextToken]),
-                    streamKey,
                     createdAt: Date.now(),
                 });
             }
@@ -550,14 +555,12 @@ export class PaginationLimiter {
         }
 
         // Untracked arbitrary string token (e.g. 'page-1' in server.test.ts)
-        const maxPages = Math.max(2, this.#maxPagesFactory());
+        const maxPages = Math.max(2, operationMaxPages ?? this.#maxPagesFactory());
         if (nextToken !== undefined) {
-            this.#tokens.set(nextToken, {
-                operationKey,
+            this.#tokens.set(key(nextToken), {
                 page: 2,
                 maxPages,
                 seenTokens: new Set([sent, nextToken]),
-                streamKey,
                 createdAt: Date.now(),
             });
         }

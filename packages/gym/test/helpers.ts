@@ -7,7 +7,7 @@ import { Bindings } from '../src/bindings.ts';
 import { Box } from '../src/box.ts';
 import { Cache, type CacheOptions } from '../src/cache.ts';
 import { Catalog } from '../src/catalog.ts';
-import { loadSpec, type Operation } from '../src/spec.ts';
+import { withPageCount, loadSpec, type Operation } from '../src/spec.ts';
 import { WorldStore } from '../src/store.ts';
 import { NO_STORY, type Knowledge } from '../src/knowledge.ts';
 import { World } from '../src/synth.ts';
@@ -143,10 +143,19 @@ export interface Rig {
 export async function rig(
     file: string,
     model: Model,
-    opts: Partial<CacheOptions> & { knowledge?: Knowledge; timeout?: number; root?: string } = {},
+    opts: Partial<CacheOptions> & {
+        knowledge?: Knowledge;
+        timeout?: number;
+        root?: string;
+        pageCount?: number;
+    } = {},
 ): Promise<Rig> {
     const root = opts.root ?? mkdtempSync(join(tmpdir(), 'gym-'));
-    const operations = await loadSpec(spec(file));
+    const operations = (await loadSpec(spec(file))).map((op) =>
+        opts.pageCount !== undefined && op.operationId === 'listMachines'
+            ? withPageCount(op, opts.pageCount)
+            : op,
+    );
     const catalog = await Catalog.open([spec(file)]);
     const checks = new Checks();
     const store = new WorldStore(join(root, 'world.sqlite'));

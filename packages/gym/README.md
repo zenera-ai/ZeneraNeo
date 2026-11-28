@@ -171,6 +171,25 @@ Handlers run in a worker thread with an empty environment. A handler that
 throws or times out is repaired, up to `--regen-limit` times per URL; a failure
 of the world agent is never treated as a fault in the handler.
 
+### Long paged lists
+
+Use `--pages` to test a client against a fixed number of synthetic pages:
+
+```sh
+zen gym serve specs/fabric.yaml --pages listMachines=200
+```
+
+Use the operation ID from the spec. The operation needs a recognized list
+and a next-page field that can be null or omitted at the end. Repeat the flag
+for additional operations. Follow each returned cursor or offset and keep the
+page size and filters fixed throughout the walk.
+
+Gym writes and judges a handler for the configured page count. The handler
+derives each page from the request and creates only that page's records.
+The page count is part of that operation's handler cache key. Other operations
+retain their existing cache identities and paging defaults. The serving
+backstop still checks for repeated cursors.
+
 ## Worlds
 
 A world is one SQLite file under `<cache>/worlds/`. With `--story` and no

@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { cutLoop, PaginationLimiter, pagingSeen, tokenOf, type Paging } from '../src/paging.ts';
-import { loadSpec, type Operation } from '../src/spec.ts';
+import { loadSpec, withPageCount, type Operation } from '../src/spec.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -75,6 +75,16 @@ describe('recognising a paged operation', () => {
         expect(ops.get('getUserById')!.key).toBe('3a108d9dbb5e7c1b');
         expect(ops.get('createUser')!.key).toBe('0e659fe12f76bcf4');
         expect((await load('paged')).get('listTags')!.key).toBe('f7b26c53bc752f82');
+    });
+
+    it('includes the page count only in the configured handler identity', async () => {
+        const original = await load('paged');
+        const configured = new Map(original);
+        const machines = original.get('listMachines')!;
+        configured.set('listMachines', withPageCount(machines, 200));
+        expect(configured.get('listMachines')!.key).not.toBe(machines.key);
+        expect(configured.get('listMachines')!.key).not.toBe(withPageCount(machines, 100).key);
+        expect(configured.get('listEvents')!.key).toBe(original.get('listEvents')!.key);
     });
 });
 
@@ -215,6 +225,16 @@ describe('PaginationLimiter', () => {
         const empty = limiter.process('op1', 'c1', 't2', p4, paging);
         expect(empty).toEqual({ cut: true, reason: 'cut pagination at max pages (3)' });
         expect(p4.results).toEqual([]);
+    });
+
+    it('does not apply another operation’s history when both return the same token', () => {
+        const limiter = new PaginationLimiter(2);
+        const first = () => ({ results: ['a'], cursor: 'shared', has_more: true });
+        limiter.process('long', 'client', undefined, first(), paging, 200);
+        limiter.process('short', 'client', undefined, first(), paging);
+        const second = () => ({ results: ['b'], cursor: 'next', has_more: true });
+        expect(limiter.process('short', 'client', 'shared', second(), paging)?.cut).toBe(true);
+        expect(limiter.process('long', 'client', 'shared', second(), paging, 200)).toBeUndefined();
     });
 
     it('cuts cycling page tokens', () => {

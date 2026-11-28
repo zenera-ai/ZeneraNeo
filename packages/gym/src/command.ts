@@ -154,6 +154,10 @@ export const command: Command = {
             ['  --timeout <s>', dim('Seconds one handler may run, agent time aside. Default 30.')],
             ['  --max-body <n>', dim('Largest request body accepted, in bytes.')],
             ['  --regen-limit <n>', dim('Maximum regenerations per URL on error. Default 3.')],
+            [
+                '  --pages <operation=n>',
+                dim('With `serve`: serve n synthetic pages for an operation. Repeatable.'),
+            ],
             ['  --requests-dir <dir>', dim('Where to save request/response .md files.')],
             ['  --rebuild', dim('Ignore what is cached and write it again.')],
             ['  --no-cache', dim('Do not record what is written.')],
@@ -201,8 +205,13 @@ export const command: Command = {
 // ---------------------------------------------------------------------------
 
 async function serve(args: readonly string[], ctx: Context): Promise<void> {
-    const { values, positionals } = parse<Flags>(args, OPTIONS, SERVE_USAGE);
-    const setup = await start(values, positionals, ctx, 'serve');
+    const { values, positionals } = parse<Flags & { pages?: string[] }>(
+        args,
+        { ...OPTIONS, pages: { type: 'string', multiple: true } },
+        SERVE_USAGE + ' [--pages <operation=n>]...',
+    );
+    const maxPagesByOperation = pageCaps(values.pages ?? []);
+    const setup = await start(values, positionals, ctx, 'serve', maxPagesByOperation);
 
     const host = values.host ?? '127.0.0.1';
     const requestsDir = values['requests-dir']
@@ -245,6 +254,23 @@ async function serve(args: readonly string[], ctx: Context): Promise<void> {
     }
     await listener.close();
     await setup.close();
+}
+
+function pageCaps(entries: readonly string[]): Map<string, number> {
+    const caps = new Map<string, number>();
+    for (const entry of entries) {
+        const match = /^([^=]+)=([0-9]+)$/.exec(entry);
+        const id = match?.[1];
+        const cap = Number(match?.[2]);
+        if (!id || !Number.isSafeInteger(cap * 500) || cap < 1) {
+            throw usageError(`--pages expects <operation=positive integer>, got "${entry}"`);
+        }
+        if (caps.has(id)) {
+            throw usageError(`--pages was specified more than once for "${id}"`);
+        }
+        caps.set(id, cap);
+    }
+    return caps;
 }
 
 /** Resolves when one of the signals arrives, and stops listening for them. */
@@ -671,11 +697,13 @@ async function start(
     positionals: readonly string[],
     ctx: Context,
     what: 'serve' | 'build',
+    pageCounts?: ReadonlyMap<string, number>,
 ): Promise<Setup> {
     const loud = !values.quiet && !ctx.json;
     const progress = loud ? indexing() : undefined;
     const setup = await open({
         schemas: [...positionals, ...(values.schema ?? [])],
+        pageCounts,
         story: values.story,
         docs: values.docs,
         cwd: ctx.cwd,

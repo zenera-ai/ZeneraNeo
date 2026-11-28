@@ -129,7 +129,7 @@ export function brief(operation: Operation, opts: BriefOptions): string {
         lines.push('', 'This operation answers with no body: return null.');
     }
     if (operation.paging) {
-        lines.push('', ...pagination(operation.paging));
+        lines.push('', ...pagination(operation.paging, operation.pageCount));
     }
     if (opts.siblings.length > 0) {
         lines.push(
@@ -188,7 +188,7 @@ function fallback(operation: Operation): string {
  * matters is that the token advances: a body offering back the token it was
  * given passes the schema and hangs every client that walks the list.
  */
-function pagination(paging: Paging): string[] {
+function pagination(paging: Paging, pageCount?: number): string[] {
     const where = paging.paramIn === 'body' ? 'req.body' : 'req.query';
     const from =
         paging.style === 'cursor'
@@ -196,6 +196,14 @@ function pagination(paging: Paging): string[] {
             : `{ offset: ${where}.${paging.param}`;
     const size = paging.size ? `, size: ${where}.${paging.size}` : '';
     const lines = ['PAGINATION', `  This operation pages: \`ctx.page(items, ${from}${size} })\`.`];
+    if (pageCount !== undefined) {
+        lines[1] = `  Use \`ctx.pageSeries(${pageCount}, itemAt, ${from}${size} })\` for this operation.`;
+        lines.push(
+            '  itemAt is a synchronous function of the zero-based item index and the request filters. It must return one schema-valid synthetic record.',
+            '  Derive stable record identities from the index. Do not use the world database, synthesis, network, or state across requests.',
+            '  pageSeries returns items, nextToken, nextOffset, hasMore and total, like ctx.page.',
+        );
+    }
     if (paging.next) {
         const end = paging.nextNullable
             ? 'null'

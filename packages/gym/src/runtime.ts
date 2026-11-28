@@ -137,6 +137,8 @@ export interface HandlerContext {
     owner(): Promise<Account>;
     /** a page of `items` with a token or offset that always advances and always ends */
     page<T>(items: readonly T[], options?: PageOptions): Page<T>;
+    /** A fixed-length synthetic list that creates only the requested page. */
+    pageSeries<T>(count: number, itemAt: (index: number) => T, options?: PageOptions): Page<T>;
     /** answers with an HTTP error instead of the success body */
     fail(status: number, body?: unknown): never;
     /** a string matching a regular expression, e.g. a schema `pattern` */
@@ -294,6 +296,7 @@ export function createContext(
                 hint: 'the person whose mailbox, calendar and data this API serves',
             }),
         page: (items, options = {}) => page(items, options),
+        pageSeries,
         fail(status, body) {
             throw new HttpError(status, body);
         },
@@ -366,6 +369,39 @@ export function page<T>(items: readonly T[], options: PageOptions): Page<T> {
         nextOffset: hasMore ? end : null,
         hasMore,
         total: items.length,
+    };
+}
+
+function pageSeries<T>(
+    count: number,
+    itemAt: (index: number) => T,
+    options: PageOptions = {},
+): Page<T> {
+    const size = clampSize(options.size, clampSize(options.defaultSize, 10));
+    const total = count * size;
+    if (!Number.isSafeInteger(total) || !Number.isSafeInteger(count) || count < 1) {
+        throw new RangeError(
+            'pageSeries count must be a positive integer within the safe offset range',
+        );
+    }
+    const offset =
+        options.token != null && options.token !== ''
+            ? decodeToken(String(options.token))
+            : options.offset == null || options.offset === ''
+              ? 0
+              : Number(options.offset);
+    const start =
+        offset !== undefined && Number.isSafeInteger(offset) && offset >= 0
+            ? Math.min(total, offset)
+            : total;
+    const end = start + Math.min(size, total - start);
+    const hasMore = end < total;
+    return {
+        items: Array.from({ length: end - start }, (_, i) => itemAt(start + i)),
+        nextToken: hasMore ? encodeToken(end) : null,
+        nextOffset: hasMore ? end : null,
+        hasMore,
+        total,
     };
 }
 
