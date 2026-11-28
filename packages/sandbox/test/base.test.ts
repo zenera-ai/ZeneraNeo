@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
     ensurePodmanImage,
     ensureSandboxBases,
+    PLAYWRIGHT_BROWSERS_PATH,
+    PLAYWRIGHT_VERSION,
     SAME_PYTHON_CHECK,
     SANDBOX_BASE_REPO,
     sandboxBaseDockerfile,
@@ -140,6 +142,13 @@ describe('sandbox base', () => {
             expect(dockerfile.indexOf(`"${lib}@^`)).toBeLessThan(arg);
         }
         expect(dockerfile).toContain('ENV NODE_PATH=/usr/local/lib/node_modules');
+        // zen page's browser, before the zen release so a release does not fetch it again.
+        const browser = dockerfile.indexOf(
+            `npx -y "playwright-core@${PLAYWRIGHT_VERSION}" install --with-deps --only-shell chromium`,
+        );
+        expect(browser).toBeGreaterThan(-1);
+        expect(browser).toBeLessThan(arg);
+        expect(dockerfile).toContain(`ENV PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}`);
         expect(dockerfile).toContain('LABEL zenera.sandbox-base=1 zenera.version=$ZEN_VERSION');
     });
 

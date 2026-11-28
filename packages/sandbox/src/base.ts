@@ -25,6 +25,15 @@ export const SANDBOX_BASE_REPO = 'ghcr.io/zenera-ai/zenera-sandbox';
 const BASE_FROM =
     /^\s*FROM\s+(?:--platform=\S+\s+)?ghcr\.io\/zenera-ai\/zenera-sandbox:([^\s@]+)/gim;
 
+/**
+ * The Playwright whose browser the base carries, for `zen page`: the version @zenera/browser pins
+ * (a test keeps them equal), since a Playwright drives only the browser build it was made for.
+ */
+export const PLAYWRIGHT_VERSION = '1.65.1';
+
+/** Where the base keeps that browser; an ENV of the image, so every command finds it. */
+export const PLAYWRIGHT_BROWSERS_PATH = '/opt/ms-playwright';
+
 const REAL_EXECUTABLE = `-c 'import os, sys; print(os.path.realpath(sys.executable))'`;
 
 /**
@@ -103,6 +112,15 @@ RUN npm install -g \\
     "react-dom@^19.2.8" \\
     "@types/react@^19.2.18" \\
     "@types/react-dom@^19.2.3"
+
+# A browser for \`zen page\` (the html-page skill's check: a page's errors, screenshots, clicks):
+# Chromium's headless shell and the libraries it needs, for the Playwright @zenera/browser pins, and
+# fonts so text and emoji draw as on a desktop.
+ENV PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}
+RUN npx -y "playwright-core@${PLAYWRIGHT_VERSION}" install --with-deps --only-shell chromium \\
+    && apt-get install -y --no-install-recommends \\
+       fonts-liberation fonts-noto-core fonts-noto-color-emoji \\
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 
 # Libraries agents' scripts commonly reach for: HTTP clients, JSON Schema validation, YAML,
 # dates, HTML. \`python\` and \`python3\` must be one interpreter, the one pip installs into.

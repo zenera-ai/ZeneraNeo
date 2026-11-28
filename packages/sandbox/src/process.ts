@@ -22,6 +22,11 @@ export interface ProcOptions {
     maxBytes?: number;
     /** the child's whole environment; this process's when unset */
     env?: NodeJS.ProcessEnv;
+    /**
+     * Run in a process group of its own and stop the whole group: what a plain shell started
+     * would otherwise outlive it and hold its output open.
+     */
+    group?: boolean;
 }
 
 export interface ProcResult {
@@ -53,7 +58,19 @@ export const runProcess: Runner = (bin, args, opts = {}) =>
             shell: false,
             stdio: ['pipe', 'pipe', 'pipe'],
             env: opts.env,
+            detached: opts.group === true,
         });
+        const signal = (sig: NodeJS.Signals): void => {
+            if (opts.group && child.pid !== undefined) {
+                try {
+                    process.kill(-child.pid, sig);
+                    return;
+                } catch {
+                    // The group is gone already, or not ours to signal: stop the child itself.
+                }
+            }
+            child.kill(sig);
+        };
 
         const keep = (into: Buffer[], size: number, chunk: Buffer): number => {
             const room = max - size;
@@ -77,8 +94,8 @@ export const runProcess: Runner = (bin, args, opts = {}) =>
         // one that ignores it cannot hold the turn open forever.
         let hard: NodeJS.Timeout | undefined;
         const stop = (): void => {
-            child.kill('SIGTERM');
-            hard = setTimeout(() => child.kill('SIGKILL'), 2000);
+            signal('SIGTERM');
+            hard = setTimeout(() => signal('SIGKILL'), 2000);
             hard.unref();
         };
 

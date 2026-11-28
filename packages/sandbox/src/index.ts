@@ -8,6 +8,7 @@ export * from './fs.ts';
 export * from './image.ts';
 export * from './in-memory-fs.ts';
 export * from './limits.ts';
+export * from './local.ts';
 export * from './mounts.ts';
 export * from './podman.ts';
 export * from './process.ts';

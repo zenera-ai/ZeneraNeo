@@ -49,7 +49,7 @@ import { bold, CliError, cyan, dim, EXIT, green, note, table, yellow } from './t
 // ---------------------------------------------------------------------------
 
 /** The packages the server needs, in an order npm can install from files. */
-const PACKAGES = ['sandbox', 'neo', 'view', 'engine', 'server', 'cli'] as const;
+const PACKAGES = ['sandbox', 'neo', 'view', 'engine', 'browser', 'server', 'cli'] as const;
 
 const BWRAP_VERSION = '0.13.1';
 const IMAGE_REPO = 'localhost/zenera-agent';

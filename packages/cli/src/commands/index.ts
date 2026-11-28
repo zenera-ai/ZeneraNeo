@@ -18,6 +18,7 @@ import { list } from './list.ts';
 import { memory } from './memory.ts';
 import { models } from './models.ts';
 import { open } from './open.ts';
+import { page } from './page.ts';
 import { run } from './run.ts';
 import { sandbox } from './sandbox.ts';
 import { server } from './server.ts';
@@ -43,6 +44,7 @@ export const COMMANDS: Record<string, Command> = {
     check,
     inspect,
     view,
+    page,
     export: pack,
     import: unpack,
     memory,

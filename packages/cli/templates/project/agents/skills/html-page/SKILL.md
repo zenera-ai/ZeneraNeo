@@ -1,8 +1,8 @@
 ---
 name: html-page
-description: Building an interactive page the user opens from the chat - a dashboard or report with charts, tables, filters and headline numbers, or a small app whose page calls Python functions to read and change data (a tracker, a CRUD tool, a mail or ticket view, a form that saves, a page that queries a database each time it opens). The page is a React component in TypeScript (app.tsx) that a build checks and turns into one HTML file. Where to write it, how it gets its data, the kit of components, the layout that works in the chat's side panel and full page, and how to build and check it. Load when an answer has more than one chart or table, data the user will want to filter or explore, or the user wants something to use and change.
-tags: [html, react, typescript, dashboard, report, app, charts, api, python, ui]
-version: 2.1.0
+description: Building an interactive page the user opens from the chat - a dashboard or report with charts, tables, filters and headline numbers, or a small app whose page calls Python functions to read and change data (a tracker, a CRUD tool, a mail or ticket view, a form that saves, a page that queries a database each time it opens). The page is a React component in TypeScript (app.tsx) that a build checks and turns into one HTML file. Where to write it, how it gets its data, the kit of components, the layout that works in the chat's side panel and full page, and how to build it and test it in a real browser (zen page). Load when an answer has more than one chart or table, data the user will want to filter or explore, or the user wants something to use and change.
+tags: [html, react, typescript, dashboard, report, app, charts, api, python, ui, testing]
+version: 2.4.0
 ---
 
 # Interactive pages
@@ -43,6 +43,7 @@ One folder per page, under `/workspace/pages/`:
 ├── app.tsx              the page: export default function App() - you write this
 ├── components/          more components it imports, if it grows (optional)
 ├── index.html           written by the build - never edit it
+├── preview.png          the picture on the chat's card, written by zen page check
 ├── data.json            data it shows, written by your script        (static data)
 └── api/
     ├── orders.api.py    functions the page calls                      (functions)
@@ -206,6 +207,25 @@ How, with the kit:
   and drafts; demo messages only."). The chat shows it on the page's card
   under the title. No "built with", file or function names. The build
   reminds you when it is missing.
+- `export const previewAlt = '...'`: what the page's first screen shows, for
+  the alt text of the card's picture ("Bar chart of pipeline by stage, table
+  of regions").
+- The card: the build writes these into the head of `index.html`, and
+  `zen page check` writes the picture they name:
+
+    ```html
+    <title>Q3 pipeline dashboard</title>
+    <meta
+        name="description"
+        content="Q3 pipeline by stage and region: $4.8M total, EMEA −18% vs target."
+    />
+    <meta property="og:image" content="preview.png" />
+    <meta property="og:image:alt" content="Bar chart of pipeline by stage, table of regions" />
+    ```
+
+    So the page's first screen is its picture: put what matters most - the
+    headline numbers, the main chart - at the top.
+
 - State lives in hooks; everything on the page is drawn from it, so the
   numbers, charts and lists always agree. Derive filtered rows and chart
   options with `useMemo` from the data and the filters.
@@ -247,6 +267,92 @@ message`. Fix each one and build again until it prints `✓ wrote index.html`.
 - A page with functions: call each of them from the shell first
   (python-functions.md, "Test before you link it").
 - The build runs in the sandbox, where its tools are installed.
+
+## Then test it in a browser: `zen page`
+
+The build cannot see the page the way the user does. `zen page` opens it in
+a headless Chromium, served exactly as the chat serves it: its files, its
+`*.api.py` functions and its security policy. Two steps, every page.
+
+### 1. Check it: one command
+
+```sh
+zen page check /workspace/pages/todo
+```
+
+```
+✗ /workspace/pages/todo/index.html: 2 errors (loaded in 0.8 s)
+✗ function POST /workspace/pages/todo/api/items/add_item → 500: add_item failed: KeyError: 'done'
+✗ panel (400 px): the page is 708 px wide and scrolls sideways - div.toolbar (to 708 px)
+screenshots - open them all at once, one view_image each in the same reply:
+  /workspace/.tmp/page-check/todo/index-panel.png  (panel, 400 px)
+  /workspace/.tmp/page-check/todo/index-wide-panel.png  (wide-panel, 640 px)
+  /workspace/.tmp/page-check/todo/index-tab.png  (tab, 1280 px)
+  /workspace/.tmp/page-check/todo/index-panel-dark.png  (panel, 400 px, dark)
+  /workspace/pages/todo/preview.png  (the chat's card for the page, 1200×630, light)
+```
+
+- It reports uncaught and console errors, failed functions (with their
+  Python error), files or hosts it could not load, a blank page, and a page
+  that scrolls sideways (with what sticks out). It exits 1 on any `✗`.
+- It loads the page once and saves a screenshot at every width to a file -
+  you do not run it per width, and you do not take them yourself.
+- It also writes **`preview.png` beside the page** (`report.preview.png`
+  for `report.html`): its first screen at 1200×630, light - the picture on
+  the chat's card for the page. Run the check after the last build, so the
+  picture shows the page as you hand it over.
+- Fix every `✗`, build, and check again until it prints `✓ … loaded`.
+- **Then look at every screenshot**: one `view_image` per file, all in the
+  **same reply**, and compare the widths - `panel` (400 px, the chat's side
+  panel), `wide-panel` (640), `tab` (1280). A page with no `✗` can still be
+  wrong: overlapping or cut-off text, a chart with no data, an empty table,
+  a button out of reach, a wide tab with everything in one thin column. The
+  dark one too when you set colours of your own, and `preview.png`: does
+  its first screen say what the page is about?
+
+### 2. Use it: a session (apps, and anything that opens or changes)
+
+A dashboard that only shows data is done after step 1. A page the user
+clicks through - an app, a `Split` that opens an item, filters, tabs - gets
+tried the way the user will use it. Start the browser once **with
+`run_command_background`** (it keeps running), then one `run_command` per
+step:
+
+```sh
+zen page open /workspace/pages/todo      # background; prints "ready"
+zen page snapshot                        # the page as text, each element with a ref
+```
+
+```
+- textbox "New item" [ref=e10]
+- button "Add" [disabled] [ref=e11]
+- combobox [ref=e12]:
+  - option "All" [selected]
+```
+
+```sh
+zen page fill e10 "TEST milk"            # type into the input
+zen page click e11                       # Add: answers with errors and the new snapshot
+zen page select e12 Done                 # (refs from that snapshot) the list should be empty
+zen page select e12 All
+zen page screenshot --width panel        # then view_image the file it prints
+zen page resize tab                      # the same state, wide: look again
+zen page close
+```
+
+- Refs (`e10`) come from the **last** snapshot; each action answers with a
+  new one - use its refs for the next step.
+- After you fix the page and build again: `zen page reload`, not a new
+  `open`.
+- Go through each thing the user will do once: add, check off, filter, open
+  an item and go Back, edit, delete (`ConfirmButton`: click twice), an empty
+  list, a wrong input. Look after each step that changes something.
+- The functions run on the page's **real data**: name what you add `TEST …`
+  and delete it before you hand the page over.
+
+More - `type`, `press Enter`, `wait --text "Saved"`, `dark`, `eval`,
+`screenshot --full` for a tall page, selectors instead of refs, external
+sites: load the `browser` skill.
 
 ## Hand it over
 

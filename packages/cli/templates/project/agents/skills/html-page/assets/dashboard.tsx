@@ -44,6 +44,8 @@ interface Report {
 export const title = 'Dashboard';
 export const description =
     'Amounts by category, region and date, with filters and the rows behind them.';
+// What the page's first screen shows: the alt text of the picture on the chat's card.
+export const previewAlt = 'Headline numbers, bar chart by category, line chart over time';
 
 const columns: Column[] = [
     { title: 'Date', field: 'date', headerFilter: 'input', minWidth: 100 },

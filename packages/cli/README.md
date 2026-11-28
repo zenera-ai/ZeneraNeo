@@ -207,6 +207,7 @@ and does not execute their scripts or setup files.
 | Create and find work  | `zen init`, `zen open`, `zen list`                          |
 | Build and validate    | `zen meta`, `zen check`, `zen sandbox`                      |
 | Run and review        | `zen run`, `zen inspect`, `zen view`                        |
+| Check an html page    | `zen page check`, `zen page open`, `zen page install`       |
 | Configure providers   | `zen key`, `zen models`                                     |
 | Work with memory      | `zen memory`                                                |
 | Serve chats over HTTP | `zen server start`, `zen server check`, `zen server status` |
@@ -214,6 +215,15 @@ and does not execute their scripts or setup files.
 | Share and maintain    | `zen export`, `zen import`, `zen cache`, `zen completion`   |
 
 Run `zen --help` or `zen <command> --help` for details and options.
+
+`zen page` opens an html page (the html-page skill's, or any URL) in a headless Chromium: `check`
+reports its errors, failed function calls and sideways scrolling, with screenshots; `open` keeps a
+tab that `snapshot`, `click`, `fill`, `screenshot` and `console` drive one command at a time.
+Local pages are served as the chat serves them. The browser is `ZEN_BROWSER_URL`'s when set (a
+Playwright `run-server` at `ws://…`, or a DevTools endpoint at `http://…`), else a local one:
+`zen page install` fetches it; the sandbox base image has it. Widths go by where the chat shows a
+page: `panel` (400 px), `wide-panel` (640), `tab` (1280). Agents learn it from the `browser`
+skill.
 
 ### Serve a project
 

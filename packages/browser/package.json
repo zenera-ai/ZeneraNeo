@@ -1,0 +1,48 @@
+{
+    "name": "@zenera/browser",
+    "version": "1.3.38",
+    "description": "An html page in a real browser, served as a zen chat serves it: checked for errors, driven, photographed.",
+    "keywords": [
+        "playwright",
+        "browser",
+        "screenshots",
+        "agents"
+    ],
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "author": "Andrey Ryabov",
+    "homepage": "https://github.com/zenera-ai/ZeneraNeo#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zenera-ai/ZeneraNeo.git",
+        "directory": "packages/browser"
+    },
+    "bugs": "https://github.com/zenera-ai/ZeneraNeo/issues",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "!dist/**/*.map"
+    ],
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "clean": "tsc -b --clean && rm -rf dist",
+        "prepack": "tsc -b"
+    },
+    "dependencies": {
+        "@zenera/engine": "^1.3.38",
+        "@zenera/sandbox": "^1.3.38",
+        "playwright-core": "1.65.1"
+    }
+}

@@ -300,8 +300,11 @@ export interface AppCallThread {
 }
 
 export interface AppCallsOptions {
-    /** opens the thread's sandbox, ready to run (image checked): openSessionSandbox and a preflight */
-    open(t: AppCallThread, user: RunIdentity | null): Promise<SandboxSetup>;
+    /**
+     * opens the thread's sandbox, ready to run (image checked): openSessionSandbox and a
+     * preflight; or, for code already inside one (`zen page`), a ProcessSandbox
+     */
+    open(t: AppCallThread, user: RunIdentity | null): Promise<Pick<SandboxSetup, 'sandbox'>>;
     /** after a call that may have changed the thread's files (any but GET|HEAD) */
     changed?(t: AppCallThread): void;
     /** what a call that failed is said as in the host's log */
@@ -309,7 +312,7 @@ export interface AppCallsOptions {
 }
 
 interface Kept {
-    setup: Promise<SandboxSetup>;
+    setup: Promise<Pick<SandboxSetup, 'sandbox'>>;
     calls: number;
     timer?: NodeJS.Timeout;
 }
@@ -447,7 +450,7 @@ export class AppCalls {
         const left = new AbortController();
         res.on('close', () => left.abort());
         try {
-            let setup: SandboxSetup;
+            let setup: Pick<SandboxSetup, 'sandbox'>;
             try {
                 setup = await entry.setup;
             } catch (err) {

@@ -6,7 +6,7 @@ ARG ZEN_VERSION
 RUN test -n "$ZEN_VERSION" \
  && mkdir -p /opt/zenera/app /opt/zenera/bin && cd /opt/zenera/app \
  && printf '{"name":"zenera-runtime","private":true}\n' > package.json \
- && npm pkg set "dependencies.@zenera/cli=$ZEN_VERSION" "overrides.@zenera/sandbox=$ZEN_VERSION" "overrides.@zenera/neo=$ZEN_VERSION" "overrides.@zenera/view=$ZEN_VERSION" "overrides.@zenera/engine=$ZEN_VERSION" "overrides.@zenera/server=$ZEN_VERSION" \
+ && npm pkg set "dependencies.@zenera/cli=$ZEN_VERSION" "overrides.@zenera/sandbox=$ZEN_VERSION" "overrides.@zenera/neo=$ZEN_VERSION" "overrides.@zenera/view=$ZEN_VERSION" "overrides.@zenera/engine=$ZEN_VERSION" "overrides.@zenera/browser=$ZEN_VERSION" "overrides.@zenera/server=$ZEN_VERSION" \
  && npm install --omit=dev --ignore-scripts --no-audit --no-fund \
  && cp "$(command -v node)" /opt/zenera/bin/node \
  && test "$(/opt/zenera/bin/node /opt/zenera/app/node_modules/@zenera/cli/dist/main.js --version)" = "$ZEN_VERSION"

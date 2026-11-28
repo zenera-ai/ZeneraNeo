@@ -44,6 +44,7 @@ const items = api<ItemsApi>('api/items');
 
 export const title = 'Items';
 export const description = 'A list of items to add, check off and remove.';
+export const previewAlt = 'A checklist with a box to add items and a filter';
 
 const SHOW = [
     { value: 'all', label: 'All' },

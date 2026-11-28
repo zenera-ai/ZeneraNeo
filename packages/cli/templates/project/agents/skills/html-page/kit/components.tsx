@@ -212,7 +212,7 @@ export function Split({
 
 export function Loading({ children = 'Loading…' }: { children?: ReactNode }) {
     return (
-        <p className="muted" role="status">
+        <p className="muted" role="status" aria-busy="true">
             {children}
         </p>
     );

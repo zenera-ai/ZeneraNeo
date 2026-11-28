@@ -61,6 +61,15 @@ RUN npm install -g \
     "@types/react@^19.2.18" \
     "@types/react-dom@^19.2.3"
 
+# A browser for `zen page` (the html-page skill's check: a page's errors, screenshots, clicks):
+# Chromium's headless shell and the libraries it needs, for the Playwright @zenera/browser pins, and
+# fonts so text and emoji draw as on a desktop.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN npx -y "playwright-core@1.65.1" install --with-deps --only-shell chromium \
+    && apt-get install -y --no-install-recommends \
+       fonts-liberation fonts-noto-core fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+
 # Libraries agents' scripts commonly reach for: HTTP clients, JSON Schema validation, YAML,
 # dates, HTML. `python` and `python3` must be one interpreter, the one pip installs into.
 # Global npm packages resolve for require() through NODE_PATH; ESM import does not read it

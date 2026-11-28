@@ -2,15 +2,16 @@
 
 Six packages are published from this repository:
 
-| package                             | what it is                         | installed as            |
-| ----------------------------------- | ---------------------------------- | ----------------------- |
-| [`@zenera/neo`](packages/neo)       | the library                        | a dependency            |
-| [`@zenera/engine`](packages/engine) | runs a project: keys, sandbox, run | a dependency of the CLI |
-| [`@zenera/view`](packages/view)     | the live file viewer (`zen view`)  | a dependency of the CLI |
-| [`@zenera/cli`](packages/cli)       | the `zen` command                  | `npm i -g @zenera/cli`  |
-| [`@zenera/meta`](packages/meta)     | the `zen meta` subcommand          | `npm i -g @zenera/meta` |
-| [`@zenera/gym`](packages/gym)       | the `zen gym` subcommand           | `npm i -g @zenera/gym`  |
-| [`@zenera/rag`](packages/rag)       | the `zen rag` subcommand + tools   | `npm i -g @zenera/rag`  |
+| package                               | what it is                         | installed as            |
+| ------------------------------------- | ---------------------------------- | ----------------------- |
+| [`@zenera/neo`](packages/neo)         | the library                        | a dependency            |
+| [`@zenera/engine`](packages/engine)   | runs a project: keys, sandbox, run | a dependency of the CLI |
+| [`@zenera/view`](packages/view)       | the live file viewer (`zen view`)  | a dependency of the CLI |
+| [`@zenera/browser`](packages/browser) | a page in a browser (`zen page`)   | a dependency of the CLI |
+| [`@zenera/cli`](packages/cli)         | the `zen` command                  | `npm i -g @zenera/cli`  |
+| [`@zenera/meta`](packages/meta)       | the `zen meta` subcommand          | `npm i -g @zenera/meta` |
+| [`@zenera/gym`](packages/gym)         | the `zen gym` subcommand           | `npm i -g @zenera/gym`  |
+| [`@zenera/rag`](packages/rag)         | the `zen rag` subcommand + tools   | `npm i -g @zenera/rag`  |
 
 The repository root is `private: true` and is never published.
 

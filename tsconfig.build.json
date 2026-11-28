@@ -5,6 +5,7 @@
         { "path": "packages/neo" },
         { "path": "packages/view" },
         { "path": "packages/engine" },
+        { "path": "packages/browser" },
         { "path": "packages/server" },
         { "path": "packages/cli" },
         { "path": "packages/meta" },

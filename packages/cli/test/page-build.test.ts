@@ -216,11 +216,12 @@ describe('html-page build', { timeout: 60_000 }, () => {
         expect(run.out).toMatch(/Link it as \[Page \d+\]\(file:\/\/.*\/index\.html\)/);
     });
 
-    it("puts the page's description in a meta tag at the top, and reminds when it is missing", () => {
+    it("puts the page's card in meta tags at the top, and reminds of what is missing", () => {
         const dir = page({
             'app.tsx': [
                 `export const title = 'Mail';`,
                 `export const description = "Inbox you can search; it's <demo> & fake mail.";`,
+                `export const previewAlt = 'Inbox list with a search box';`,
                 `export default function App() { return <p>mail</p>; }`,
             ].join('\n'),
             'report.tsx': `export default function Report() { return <p>report</p>; }\n`,
@@ -231,10 +232,19 @@ describe('html-page build', { timeout: 60_000 }, () => {
         expect(html).toContain(
             `<meta name="description" content="Inbox you can search; it's &lt;demo&gt; &amp; fake mail." />`,
         );
+        // The picture `zen page check` writes beside each page.
+        expect(html).toContain('<meta property="og:image" content="preview.png" />');
+        expect(html).toContain(
+            '<meta property="og:image:alt" content="Inbox list with a search box" />',
+        );
         // Near the top, so the chat reads it with the first few KB of the file.
-        expect(html.indexOf('<meta name="description"')).toBeLessThan(1024);
-        expect(run.out).not.toContain('app.tsx has no description');
+        expect(html.indexOf('og:image:alt')).toBeLessThan(1024);
+        const report = readFileSync(join(dir, 'report.html'), 'utf8');
+        expect(report).toContain('<meta property="og:image" content="report.preview.png" />');
+        expect(report).toContain('<meta property="og:image:alt" content="Preview of Report" />');
+        expect(run.out).not.toMatch(/app\.tsx has no (description|previewAlt)/);
         expect(run.out).toContain('report.tsx has no description');
+        expect(run.out).toContain('report.tsx has no previewAlt');
     });
 
     it('--check says when a page is out of date with its sources, and writes nothing', () => {

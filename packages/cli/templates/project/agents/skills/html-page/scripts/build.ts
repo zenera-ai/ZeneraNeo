@@ -11,9 +11,11 @@
 //   2. rules   what a sandboxed page cannot do: storage, dialogs, other hosts, raw html, ...
 //   3. bundle  esbuild: React, the kit and the page's modules in one script
 //   4. render  App rendered once in Node, so a crash on first render is caught here
-//   5. write   the html: shell.html with the css and js inlined, the page's `title` and
-//              `description` exports in <title> and <meta name="description"> (the chat's
-//              card for the page shows them), stamped with a hash of the sources. Nothing is written unless every step passed.
+//   5. write   the html: shell.html with the css and js inlined, the page's `title`,
+//              `description` and `previewAlt` exports in <title>, <meta name="description"> and
+//              og:image:alt, and og:image naming the preview `zen page check` writes beside it
+//              (the chat's card for the page shows them), stamped with a hash of the sources.
+//              Nothing is written unless every step passed.
 // --check runs 1, 2 and 4 and says whether each page's html is out of date with its sources.
 //
 // Runs where esbuild, typescript, react, react-dom and their types are installed: in the zen
@@ -71,6 +73,8 @@ interface Entry {
     title: string;
     /** `export const description`, or '' when the page has none */
     description: string;
+    /** `export const previewAlt`, or '' when the page has none */
+    previewAlt: string;
 }
 
 interface Tools {
@@ -146,13 +150,21 @@ function titleOf(text: string, fallback: string): string {
     return words ? words[0]!.toUpperCase() + words.slice(1) : 'Page';
 }
 
-/** `export const description = '...'`: one sentence the chat's card shows under the title. */
-function descriptionOf(text: string): string {
-    const m =
-        /export\s+const\s+description(?:\s*:\s*string)?\s*=\s*(['"`])((?:(?!\1)[^\n\\])+)\1/.exec(
-            text,
-        );
+/** `export const <name> = '...'`: a one-line string the page declares for its html head. */
+function stringExport(text: string, name: string): string {
+    const m = new RegExp(
+        `export\\s+const\\s+${name}(?:\\s*:\\s*string)?\\s*=\\s*(['"\`])((?:(?!\\1)[^\\n\\\\])+)\\1`,
+    ).exec(text);
     return m ? m[2]!.trim() : '';
+}
+
+/**
+ * The picture of a page the chat's card shows (og:image): `zen page check` writes it beside the
+ * page - preview.png for index.html, report.preview.png for report.html.
+ */
+function previewName(html: string): string {
+    const base = basename(html).replace(/\.html?$/i, '');
+    return base === 'index' ? 'preview.png' : `${base}.preview.png`;
 }
 
 function entriesOf(dir: string): { entries: Entry[]; problems: Problem[] } {
@@ -192,7 +204,8 @@ function entriesOf(dir: string): { entries: Entry[]; problems: Problem[] } {
             source,
             html: join(dir, htmlName),
             title: titleOf(text, fallback),
-            description: descriptionOf(text),
+            description: stringExport(text, 'description'),
+            previewAlt: stringExport(text, 'previewAlt'),
         });
     }
     if (!entries.length && !problems.length) {
@@ -870,12 +883,14 @@ function pageHtml(dir: string, entry: Entry, built: Bundle, hash: string): strin
         STAMP: stamp,
         TITLE: escapeHtml(entry.title),
         DESCRIPTION: escapeHtml(entry.description),
+        PREVIEW: escapeHtml(previewName(entry.html)),
+        PREVIEW_ALT: escapeHtml(entry.previewAlt || `Preview of ${entry.title}`),
         HEAD: head.join('\n        '),
         CSS: css,
         JS: js,
     };
     return readFileSync(SHELL, 'utf8').replace(
-        /<!--(STAMP|TITLE|DESCRIPTION|HEAD|CSS|JS)-->/g,
+        /<!--(STAMP|TITLE|DESCRIPTION|PREVIEW_ALT|PREVIEW|HEAD|CSS|JS)-->/g,
         (_, key: string) => parts[key]!,
     );
 }
@@ -996,8 +1011,19 @@ async function main(argv: string[]): Promise<number> {
                         `(one sentence on what the page shows or lets the user do; the chat shows it on the page's card) and build again`,
                 );
             }
+            if (!entry.previewAlt) {
+                console.log(
+                    `  ${rel(dir, entry.source)} has no previewAlt: add export const previewAlt = '...' ` +
+                        `(what its first screen shows, e.g. 'Bar chart of pipeline by stage, table of regions'; ` +
+                        `the alt text of the card's picture) and build again`,
+                );
+            }
         }
         const link = pages.find((p) => basename(p.entry.html) === 'index.html') ?? pages[0]!;
+        console.log(
+            `Now check it in a browser: zen page check ${given} - it also writes ` +
+                `${pages.map((p) => previewName(p.entry.html)).join(', ')}, the picture on the chat's card`,
+        );
         console.log(
             `Link it as [${link.entry.title}](${pathToFileURL(join(given, basename(link.entry.html))).href})`,
         );

@@ -25,6 +25,7 @@ export const cliManifest = new URL('../../package.json', import.meta.url);
 
 /** What `zen` itself is built on, as opposed to the packages it loads by name. */
 const BUILT_ON = [
+    '@zenera/browser',
     '@zenera/engine',
     '@zenera/neo',
     '@zenera/sandbox',
