@@ -266,15 +266,18 @@ Copilot).
 `@zenera/cli` is the command-line front end for ZeneraNeo. The other packages
 provide the runtime and optional capabilities that work alongside it:
 
-| Package                                                                                    | What it is                                                          |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| [`@zenera/cli`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/cli/README.md)   | `zen` — agent projects on the command line                          |
-| [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)   | The runtime — agents, models, tools, skills, and memory             |
-| [`@zenera/meta`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/meta/README.md) | `zen meta` — the meta-agent that builds and tunes a project         |
-| [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)   | `zen gym` — mock APIs from OpenAPI or Swagger documents             |
-| [`@zenera/rag`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/rag/README.md)   | `zen rag` — indexing and search for documents and API schemas       |
-| [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md) | `zen view` — a live local viewer for a folder                       |
-| [`@zenera/server`](../server/README.md)                                                    | `zen server` — multi-user chats over HTTP and server authentication |
+| Package                                                                                          | What it is                                                          |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| **`@zenera/cli`**                                                                                | `zen` — agent projects on the command line                          |
+| [`@zenera/neo`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/neo/README.md)         | The runtime — agents, models, tools, skills, and memory             |
+| [`@zenera/engine`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/engine/README.md)   | Runs a project the way `zen run` does, for any host                 |
+| [`@zenera/sandbox`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/sandbox/README.md) | Where an agent’s commands run — podman or bubblewrap                |
+| [`@zenera/meta`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/meta/README.md)       | `zen meta` — the meta-agent that builds and tunes a project         |
+| [`@zenera/gym`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/gym/README.md)         | `zen gym` — mock APIs from OpenAPI or Swagger documents             |
+| [`@zenera/rag`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/rag/README.md)         | `zen rag` — indexing and search for documents and API schemas       |
+| [`@zenera/view`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/view/README.md)       | `zen view` — a live local viewer for a folder                       |
+| [`@zenera/server`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/server/README.md)   | `zen server` — multi-user chats over HTTP and server authentication |
+| [`@zenera/browser`](https://github.com/zenera-ai/ZeneraNeo/blob/main/packages/browser/README.md) | `zen page` — an HTML page checked and driven in a real browser      |
 
 `@zenera/rag` also exports tools that can be passed to `loadProject`, allowing
 an agent to search an API schema it has not read beforehand.
