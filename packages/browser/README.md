@@ -1,3 +1,23 @@
+<div align="center"> 
+  <img
+    src="https://raw.githubusercontent.com/zenera-ai/ZeneraNeo/main/docs/imgs/zenera-logo-with-media-queries.svg"
+    alt="Zenera Logo"
+    width="20"
+  />
+  <div>Powered By Zenera</div>
+</div>
+<br>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/zenera-ai/ZeneraNeo/main/docs/imgs/banner-browser-with-media-queries.svg" alt="ZENERA BROWSER" width="1008">
+
+[![npm](https://img.shields.io/npm/v/@zenera/browser.svg)](https://www.npmjs.com/package/@zenera/browser)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/zenera-ai/ZeneraNeo/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A524-brightgreen.svg)](https://nodejs.org)
+[![CI](https://github.com/zenera-ai/ZeneraNeo/actions/workflows/ci.yml/badge.svg)](https://github.com/zenera-ai/ZeneraNeo/actions/workflows/ci.yml)
+
+</div>
+
 # @zenera/browser
 
 An html page in a real browser, served as a zen chat serves it: checked for errors, driven,

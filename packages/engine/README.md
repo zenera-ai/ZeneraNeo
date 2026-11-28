@@ -1,3 +1,25 @@
+<div align="center"> 
+  <img
+    src="https://raw.githubusercontent.com/zenera-ai/ZeneraNeo/main/docs/imgs/zenera-logo-with-media-queries.svg"
+    alt="Zenera Logo"
+    width="20"
+  />
+  <div>Powered By Zenera</div>
+</div>
+<br>
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/zenera-ai/ZeneraNeo/main/docs/imgs/banner-engine-with-media-queries.svg" alt="ZENERA ENGINE" width="909">
+
+[![npm](https://img.shields.io/npm/v/@zenera/engine.svg)](https://www.npmjs.com/package/@zenera/engine)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/zenera-ai/ZeneraNeo/blob/main/LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A524-brightgreen.svg)](https://nodejs.org)
+[![CI](https://github.com/zenera-ai/ZeneraNeo/actions/workflows/ci.yml/badge.svg)](https://github.com/zenera-ai/ZeneraNeo/actions/workflows/ci.yml)
+
+[Use](#use) · [License](#license)
+
+</div>
+
 # @zenera/engine
 
 **Runs a [`@zenera/neo`](../neo/README.md) project the way `zen run` does - for any host, not only the terminal.**

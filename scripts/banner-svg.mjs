@@ -117,6 +117,18 @@ const ACCENTS = {
         dark: { accent: '#00ffff', accentShade: '#00afaf' },
         light: { accent: '#0a8f9a', accentShade: '#066a73' },
     },
+    gold: {
+        dark: { accent: '#ffd700', accentShade: '#d7af00' },
+        light: { accent: '#9a6700', accentShade: '#7d4e00' },
+    },
+    indigo: {
+        dark: { accent: '#8787ff', accentShade: '#5f5faf' },
+        light: { accent: '#5a5fd6', accentShade: '#3d3fa3' },
+    },
+    sky: {
+        dark: { accent: '#00afff', accentShade: '#005fd7' },
+        light: { accent: '#0969da', accentShade: '#0550ae' },
+    },
 };
 
 /** An ANSI line as `{ char, role }` cells — the escape codes carry the tone. */
@@ -193,6 +205,9 @@ const WORDMARKS = [
     { file: 'banner-view', accent: 'pink', text: { ...NEO_BANNER, accent: 'View' } },
     { file: 'banner-server', accent: 'crimson', text: { ...NEO_BANNER, accent: 'Server' } },
     { file: 'banner-meta', accent: 'cyan', text: { ...NEO_BANNER, accent: 'Meta' } },
+    { file: 'banner-engine', accent: 'gold', text: { ...NEO_BANNER, accent: 'Engine' } },
+    { file: 'banner-sandbox', accent: 'indigo', text: { ...NEO_BANNER, accent: 'Sandbox' } },
+    { file: 'banner-browser', accent: 'sky', text: { ...NEO_BANNER, accent: 'Browser' } },
 ];
 
 const selected = process.argv.slice(2);
