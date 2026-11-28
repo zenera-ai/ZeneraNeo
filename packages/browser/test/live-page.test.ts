@@ -149,6 +149,10 @@ describe.runIf(browser && hasPython)('zen page in a browser', { timeout: 60_000 
             await session.settle();
             expect(await session.snapshot()).toMatch(/listitem[^\n]*: Milk/);
             expect(session.takeProblems()).toEqual([]);
+            // A ref no snapshot gave fails at once, rather than waiting for it to appear.
+            const started = Date.now();
+            await expect(session.element('e999')).rejects.toThrow(/no element e999/);
+            expect(Date.now() - started).toBeLessThan(2000);
         } finally {
             await session.close();
         }

@@ -192,7 +192,7 @@ async function handle(
         case 'dblclick':
         case 'hover': {
             need(args, 1, `${req.cmd} <ref|selector>`);
-            const l = s.locate(args[0]!);
+            const l = await s.element(args[0]!);
             await (req.cmd === 'click'
                 ? l.click()
                 : req.cmd === 'dblclick'
@@ -206,7 +206,7 @@ async function handle(
         case 'fill':
         case 'type': {
             need(args, req.input === undefined ? 2 : 1, `${req.cmd} <ref|selector> <text>|--stdin`);
-            const l = s.locate(args[0]!);
+            const l = await s.element(args[0]!);
             const value = text(1) ?? '';
             await (req.cmd === 'fill' ? l.fill(value) : l.pressSequentially(value));
             return {
@@ -216,12 +216,14 @@ async function handle(
         }
         case 'press': {
             need(args, 1, 'press <key> [ref|selector]');
-            await (args[1] ? s.locate(args[1]).press(args[0]!) : s.page.keyboard.press(args[0]!));
+            await (args[1]
+                ? (await s.element(args[1])).press(args[0]!)
+                : s.page.keyboard.press(args[0]!));
             return { ok: true, lines: [`✓ press ${args[0]}`, ...(await afterAction(s, flags))] };
         }
         case 'select': {
             need(args, 2, 'select <ref|selector> <value...>');
-            await s.locate(args[0]!).selectOption(args.slice(1));
+            await (await s.element(args[0]!)).selectOption(args.slice(1));
             return {
                 ok: true,
                 lines: [`✓ select ${args.slice(1).join(', ')}`, ...(await afterAction(s, flags))],

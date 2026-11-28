@@ -74,6 +74,7 @@ const MAX_PARTS = 8;
 
 const PANEL = { width: WIDTH_PRESETS.panel, height: 900 };
 const QUIET_MS = 500;
+const ACTION_TIMEOUT_MS = 10_000;
 const CDN_HOSTS = new Set(VIEW_CDNS.map((u) => new URL(u).host));
 
 export class BrowserMissing extends Error {}
@@ -191,6 +192,8 @@ export class PageSession {
             deviceScaleFactor: 1,
             serviceWorkers: 'block',
         });
+        // An action on what is not there (yet) fails in 10 s, not Playwright's 30.
+        context.setDefaultTimeout(ACTION_TIMEOUT_MS);
         const page = await context.newPage();
         const session = new PageSession(b, context, page, host, browser === undefined);
         await session.#wire();
@@ -369,6 +372,20 @@ export class PageSession {
         return isRef(target)
             ? this.page.getByRef(target.replace(/^@/, ''))
             : this.page.locator(target);
+    }
+
+    /**
+     * locate, refusing at once a ref the last snapshot does not have (the page changed, or no
+     * snapshot was taken) rather than waiting for it to appear.
+     */
+    async element(target: string): Promise<Locator> {
+        const l = this.locate(target);
+        if (isRef(target) && (await l.count()) === 0) {
+            throw new Error(
+                `no element ${target} in the page's last snapshot: take a new one (zen page snapshot) and use its refs`,
+            );
+        }
+        return l;
     }
 
     async setView(opts: { width?: number; dark?: boolean }): Promise<void> {

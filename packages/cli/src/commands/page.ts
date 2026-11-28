@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parse } from '../args.ts';
 import type { Command } from '../command.ts';
 import { CliError, EXIT, json, note, usageError, write, writeAll } from '../term.ts';
@@ -196,6 +197,8 @@ async function open(ctx: Parameters<Command['run']>[0], positionals: string[], v
         const settled = await plainly(
             session.goto(target.pages[0]!, seconds(v.timeout, 15, '--timeout') * 1000),
         );
+        // Refs belong to a snapshot: take one, so the first action can use them.
+        await plainly(session.snapshot());
         const socket = sessionSocket(ctx.cwd);
         const idleMs = seconds(v.idle, 600, '--idle') * 1000;
         write(`✓ ${short(target.pages[0]!)} loaded in ${(settled.ms / 1000).toFixed(1)} s`);
@@ -274,9 +277,14 @@ export const page: Command = {
         const { askSession, sessionSocket } = await import('../page/daemon.ts');
         const flags: Record<string, string | boolean | undefined> = { ...values };
         if (values['no-snapshot']) flags.snapshot = false;
+        // The session runs elsewhere: a page named by a relative path is this shell's.
+        const args =
+            sub === 'goto' && positionals[0] && !/^https?:\/\//i.test(positionals[0])
+                ? [resolve(ctx.cwd, positionals[0]), ...positionals.slice(1)]
+                : positionals;
         const answer = await askSession(sessionSocket(ctx.cwd), {
             cmd: sub,
-            args: positionals,
+            args,
             flags,
             ...(values.stdin ? { input: readFileSync(0, 'utf8') } : {}),
         });
