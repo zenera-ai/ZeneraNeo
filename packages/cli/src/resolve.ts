@@ -44,6 +44,18 @@ export interface Target {
     freshWorkspace: boolean;
 }
 
+/** A stable, aligned project-picker detail from registry metadata. */
+function projectChoiceDetail(entry: Projects.RegistryEntry): string {
+    const raw = (entry as { addedAt?: unknown }).addedAt;
+    const added = typeof raw === 'string' ? new Date(raw) : undefined;
+    const valid = added !== undefined && !Number.isNaN(added.getTime());
+    const day =
+        valid && added.toISOString() === raw
+            ? raw.slice(0, 10)
+            : 'unknown'.padEnd('YYYY-MM-DD'.length);
+    return `${day}  ${entry.path}`;
+}
+
 // ---------------------------------------------------------------------------
 // Project
 // ---------------------------------------------------------------------------
@@ -72,7 +84,11 @@ export async function project(want: Wanted): Promise<Projects.Project> {
         .sort((a, b) => b.used.localeCompare(a.used) || a.entry.name.localeCompare(b.entry.name));
     const chosen = await term.choose(
         'Which project?',
-        ranked.map(({ entry }) => ({ label: entry.name, detail: entry.path, value: entry })),
+        ranked.map(({ entry }) => ({
+            label: entry.name,
+            detail: projectChoiceDetail(entry),
+            value: entry,
+        })),
     );
     return Projects.openDir(chosen.path);
 }
