@@ -715,6 +715,93 @@ describe('a refused connection', () => {
         expect(res.code).toBe(125);
         expect(f.tries()).toBe(1);
     });
+
+    // Each guard below is pinned on its own. In every case stderr reads like a
+    // refused connection, so the only thing that can stop the retry is the
+    // guard the test is named after.
+
+    /** A command can succeed and still log a transport-looking warning. */
+    it('is not repeated when the command succeeded, whatever its stderr says', async () => {
+        let n = 0;
+        const run: Runner = () => {
+            n++;
+            return Promise.resolve(
+                answer({ code: 0, stderr: 'warning: connection reset by peer' }),
+            );
+        };
+        const res = await resilient(run)('podman', ['exec']);
+        expect(res.code).toBe(0);
+        expect(n).toBe(1);
+    });
+
+    it('counts whitespace-only stdout as output', async () => {
+        let n = 0;
+        const run: Runner = () => {
+            n++;
+            return Promise.resolve(answer({ code: 1, stdout: '\n', stderr: 'connection refused' }));
+        };
+        await resilient(run)('podman', ['exec']);
+        expect(n).toBe(1);
+    });
+
+    it('does not retry an engine failure it does not recognise', async () => {
+        const f = flaky(99, 'Error: no such container');
+        await resilient(f.run)('podman', ['exec']);
+        expect(f.tries()).toBe(1);
+    });
+
+    it('stops at the cap exactly, not one attempt over or under', async () => {
+        const f = flaky(99, 'ssh: handshake failed');
+        await resilient(f.run, 2)('podman', ['ps']);
+        expect(f.tries()).toBe(2);
+        const g = flaky(99, 'ssh: handshake failed');
+        await resilient(g.run, 1)('podman', ['ps']);
+        expect(g.tries()).toBe(1);
+    });
+
+    it('repeats the identical command: same binary, arguments, stdin and options', async () => {
+        const seen: { bin: string; args: string[]; opts?: ProcOptions }[] = [];
+        const run: Runner = (bin, args, opts) => {
+            seen.push({ bin, args: [...args], opts });
+            return Promise.resolve(
+                seen.length < 3
+                    ? answer({ code: 125, stderr: 'ssh: handshake failed' })
+                    : answer({ stdout: 'ok' }),
+            );
+        };
+        const opts: ProcOptions = { input: 'echo hi', timeoutMs: 5000 };
+        await resilient(run)('podman', ['exec', '-i', 'c1', 'sh'], opts);
+        expect(seen).toHaveLength(3);
+        for (const call of seen) {
+            expect(call.bin).toBe('podman');
+            expect(call.args).toEqual(['exec', '-i', 'c1', 'sh']);
+            expect(call.opts).toMatchObject({ input: 'echo hi', timeoutMs: 5000 });
+        }
+    });
+
+    it('recognises each documented transport failure', async () => {
+        for (const stderr of [
+            'kex_exchange_identification: read: Connection reset by peer',
+            'Error: failed to connect: ssh: handshake failed: EOF',
+            'ssh: unexpected packet in response to channel open',
+            'Connection closed by remote host',
+            'dial tcp 127.0.0.1:52301: connect: connection refused',
+        ]) {
+            const f = flaky(1, stderr);
+            expect((await resilient(f.run)('podman', ['ps'])).stdout).toBe('ok');
+            expect(f.tries()).toBe(2);
+        }
+    });
+
+    // Known gap, not pinned as correct. The guard is "empty stdout", so a
+    // command that ran and printed only to stderr is repeated when that text
+    // matches. `curl localhost:3000` against a closed port exits 7 and is run
+    // four times today. Whether to also require podman's own exit code (125) is
+    // a question for the maintainers; see the pull request.
+    it.todo(
+        'does not repeat a command that ran and wrote only to stderr (exit 7, "Connection refused")',
+    );
+    it.todo('does not repeat a command that timed out (code 124) with transport-looking stderr');
 });
 
 // ---------------------------------------------------------------------------
