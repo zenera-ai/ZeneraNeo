@@ -58,6 +58,8 @@ export interface Operation {
     success: { status: number; schema?: Schema };
     /** how the operation turns pages, when it turns pages at all */
     paging?: Paging;
+    /** Exact length of an explicitly configured synthetic page series. */
+    pageCount?: number;
 }
 
 interface Doc {
@@ -227,6 +229,11 @@ function build(b: Built): Operation {
     return { ...operation, key: keyOf(operation) };
 }
 
+export function withPageCount(operation: Operation, pageCount: number): Operation {
+    const configured = { ...operation, pageCount };
+    return { ...configured, key: keyOf(configured) };
+}
+
 /**
  * Cache identity. Everything that changes what a handler must produce is in
  * here and nothing else is — not the file it came from, not its summary, not
@@ -251,6 +258,7 @@ function keyOf(op: Operation): string {
             : null,
         success: [op.success.status, op.success.schema ? canonical(bare(op.success.schema)) : null],
         paging: op.paging ? canonical(op.paging) : null,
+        ...(op.pageCount === undefined ? {} : { pageCount: op.pageCount }),
     };
     return createHash('sha256').update(JSON.stringify(shape)).digest('hex').slice(0, 16);
 }

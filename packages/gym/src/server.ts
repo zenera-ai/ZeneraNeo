@@ -610,7 +610,7 @@ async function handle(
     }
 
     const note = cacheStatus;
-    const streamKey = `${operation.key}:${req.socket.remoteAddress || 'local'}`;
+    const streamKey = `${req.socket.remoteAddress || 'local'}:${url.pathname}`;
     const cutResult = cut(
         operation,
         outcome.value,
@@ -618,6 +618,7 @@ async function handle(
         body,
         opts.paginationLimiter,
         streamKey,
+        operation.pageCount,
     );
     opts.history!.recordSuccess(operation.key, input, outcome.value);
     if (!operation.success.schema) {
@@ -663,6 +664,7 @@ function cut(
     body?: unknown,
     limiter?: PaginationLimiter,
     streamKey = 'default',
+    maxPages?: number,
 ): PaginationCutResult | undefined {
     const paging =
         operation.paging ?? pagingSeen(operation.params, operation.success.schema, query, body);
@@ -671,7 +673,21 @@ function cut(
     }
     const sent = getSentToken(query, body, paging);
     if (limiter) {
-        return limiter.process(operation.key, streamKey, sent, value, paging);
+        if (maxPages !== undefined) {
+            const filters = new URLSearchParams(query);
+            filters.delete(paging.param);
+            filters.sort();
+            const bodyFilters =
+                body !== null && typeof body === 'object' && !Array.isArray(body)
+                    ? Object.fromEntries(
+                          Object.entries(body).filter(([name]) => name !== paging.param),
+                      )
+                    : body;
+            streamKey = createHash('sha256')
+                .update(JSON.stringify([streamKey, filters.toString(), bodyFilters]))
+                .digest('hex');
+        }
+        return limiter.process(operation.key, streamKey, sent, value, paging, maxPages);
     }
     if (sent !== undefined && cutLoop(value, paging, sent)) {
         return { cut: true, reason: 'cut a looping page token' };

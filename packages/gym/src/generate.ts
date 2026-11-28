@@ -560,7 +560,8 @@ async function walk(
         input = setSize(input, paging, 2);
     }
 
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    const limit = operation.pageCount ?? MAX_PAGES;
+    for (let page = 1; page <= limit; page++) {
         const outcome = await opts.box.run(operation.key, input, { db, probe: true });
         used.push(...(outcome.used ?? []));
         const what = `page ${page} of ${operation.method.toUpperCase()} ${called(operation)}`;
@@ -575,7 +576,9 @@ async function walk(
         }
         const token = tokenOf(outcome.value, paging);
         if (token === undefined) {
-            return [];
+            return operation.pageCount !== undefined && page !== limit
+                ? [`- ${what}: expected ${limit} pages but pagination ended after ${page}.`]
+                : [];
         }
         if (token === sent) {
             return [
@@ -592,7 +595,7 @@ async function walk(
         input = nextPage(input, paging, token);
     }
     return [
-        `- ${operation.method.toUpperCase()} ${operation.path}: the pages never run out — after ${MAX_PAGES} of them \`${paging.next}\` is still set. Page with ctx.page so the list ends.`,
+        `- ${operation.method.toUpperCase()} ${operation.path}: the pages never run out — after ${limit} of them \`${paging.next}\` is still set. Use the pagination helper from the operation brief so the list ends.`,
     ];
 }
 

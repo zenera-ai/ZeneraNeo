@@ -28,7 +28,7 @@ import { Catalog } from './catalog.ts';
 import { checkTexts, expandSchemas } from './inputs.ts';
 import { openKnowledge, type Knowledge, type KnowledgeOptions } from './knowledge.ts';
 import { Router } from './router.ts';
-import { loadSpecs, SpecError } from './spec.ts';
+import { loadSpecs, SpecError, withPageCount } from './spec.ts';
 import { listWorlds, worldPath, WorldStore } from './store.ts';
 import { World, type WorldEvent } from './synth.ts';
 import { Checks } from './validate.ts';
@@ -185,6 +185,7 @@ export async function configuredEmbedding(keys: KeyStore): Promise<EmbeddingChoi
 }
 
 export interface SetupOptions {
+    pageCounts?: ReadonlyMap<string, number>;
     /** API documents: files, directories or patterns */
     schemas: readonly string[];
     /** the story of the world: files, directories or patterns */
@@ -265,6 +266,23 @@ export async function open(opts: SetupOptions): Promise<Setup> {
     const operations = await loadSpecs(files);
     if (operations.length === 0) {
         throw invalidError('the API documents declare no operations');
+    }
+    for (const [id, count] of opts.pageCounts ?? []) {
+        const index = operations.findIndex((op) => op.operationId === id);
+        if (index < 0 || operations.some((op, i) => i !== index && op.operationId === id)) {
+            throw invalidError(`--pages must uniquely identify an operation, got "${id}"`);
+        }
+        const operation = operations[index]!;
+        if (
+            !operation.paging?.next ||
+            !operation.paging.items ||
+            (operation.paging.nextRequired && !operation.paging.nextNullable)
+        ) {
+            throw invalidError(
+                `--pages needs a paged list with a nullable or optional next token, got "${id}"`,
+            );
+        }
+        operations[index] = withPageCount(operation, count);
     }
     const router = new Router(operations);
     const checks = new Checks();

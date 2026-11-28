@@ -63,10 +63,11 @@ async function boot(
         builder?: Script;
         server?: Partial<ServerOptions>;
         attempts?: number;
+        pageCount?: number;
     } = {},
 ): Promise<Booted> {
     const model = scripted({ world: opts.world ?? people, builder: opts.builder });
-    const r = await rig(file, model, { attempts: opts.attempts ?? 1 });
+    const r = await rig(file, model, { attempts: opts.attempts ?? 1, pageCount: opts.pageCount });
     const store = new Store(GYM_KIND, { dir: join(r.root, 'store') });
     for (const o of r.operations) {
         if (handlers[o.operationId]) {
@@ -307,15 +308,21 @@ describe('a looping page token', () => {
         listTags: body,
     });
 
-    it('is cut back to the last page, and narrated', async () => {
-        b = await boot(
-            'paged.yaml',
-            every(`export default () => ({ results: [], cursor: '8fde793b', has_more: true });`),
-        );
-        const res = await fetch(`${b.base}/machines?cursor=8fde793b`);
-        expect(await res.json()).toEqual({ results: [], cursor: null, has_more: false });
-        expect(b.log.at(-1)).toContain('cut a looping page token');
-    });
+    it.each([undefined, 200])(
+        'cuts and narrates a loop with operation cap %s',
+        async (maxPages) => {
+            b = await boot(
+                'paged.yaml',
+                every(
+                    `export default () => ({ results: [], cursor: '8fde793b', has_more: true });`,
+                ),
+                { pageCount: maxPages },
+            );
+            const res = await fetch(`${b.base}/machines?cursor=8fde793b`);
+            expect(await res.json()).toEqual({ results: [], cursor: null, has_more: false });
+            expect(b.log.at(-1)).toContain('cut a looping page token');
+        },
+    );
 
     it('is left alone when it advanced', async () => {
         b = await boot(
@@ -370,6 +377,63 @@ export default (req: any) => {
         });
         expect(b.log.at(-1)).toContain('cut pagination at max pages (2)');
     });
+
+    it('generates a handler on first request and serves all 200 configured pages', async () => {
+        const build = writes(`
+export default (req: any, ctx: any) => {
+    const p = ctx.pageSeries(200, (index: number) => ({ id: 'm' + (index + 1) }),
+        { token: req.query.cursor, size: req.query.page_size, defaultSize: 1 });
+    return { results: p.items, cursor: p.nextToken, has_more: p.hasMore };
+};`);
+        b = await boot(
+            'paged.yaml',
+            {},
+            {
+                pageCount: 200,
+                server: { maxPages: 2 },
+                builder(turn) {
+                    expect(turn.brief).toContain('ctx.pageSeries(200, itemAt,');
+                    return build(turn);
+                },
+            },
+        );
+        const url = new URL('/machines', b.base);
+        const seen = new Set<string>();
+        const replays: { url: string; body: unknown }[] = [];
+        for (let page = 1; page <= 200; page++) {
+            const response = await fetch(url);
+            expect(response.status).toBe(200);
+            expect(response.headers.get('x-gym-cache')).toBe(page === 1 ? 'miss' : 'hit');
+            const body = await response.json();
+            expect(body).toEqual({
+                results: [{ id: `m${page}` }],
+                cursor:
+                    page < 200
+                        ? Buffer.from(JSON.stringify({ o: page })).toString('base64url')
+                        : null,
+                has_more: page < 200,
+            });
+            if (page === 100 || page === 200) {
+                replays.push({ url: url.href, body });
+            }
+            if (page === 2) {
+                const alternate = await fetch(`${b.base}/machines?page_size=2`);
+                expect(await alternate.json()).toMatchObject({
+                    results: [{ id: 'm1' }, { id: 'm2' }],
+                    cursor: body.cursor,
+                });
+            }
+            if (body.cursor !== null) {
+                expect(seen.has(body.cursor)).toBe(false);
+                seen.add(body.cursor);
+                url.searchParams.set('cursor', body.cursor);
+            }
+        }
+        for (const replay of replays) {
+            expect(await (await fetch(replay.url)).json()).toEqual(replay.body);
+        }
+        expect(b.model.world).toHaveLength(0);
+    }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
