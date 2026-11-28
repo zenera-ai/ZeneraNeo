@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type { Bindings, HandlerRequest, SynthesisRequest, Use } from './runtime.ts';
 import type { FromWorker, ToWorker } from './worker.ts';
@@ -129,9 +129,26 @@ export class Box {
     }
 
     async write(key: string, source: string): Promise<void> {
-        mkdirSync(join(this.root, HANDLERS, key), { recursive: true });
-        await writeFile(this.sourceOf(key), source, 'utf8');
+        const file = this.sourceOf(key);
+        mkdirSync(dirname(file), { recursive: true });
+        // Live requests can import this file while it is replaced. A rename
+        // shows them the old source or the new one, never a half-written file.
+        // The name is unique because two builds can publish one key at once.
+        const temp = `${file}.${randomUUID()}.tmp`;
+        try {
+            await writeFile(temp, source, 'utf8');
+            await rename(temp, file);
+        } catch (err) {
+            await rm(temp, { force: true });
+            throw err;
+        }
         this.#versions.set(key, hash(source));
+    }
+
+    /** Deletes a handler's file and forgets its version. */
+    async remove(key: string): Promise<void> {
+        this.#versions.delete(key);
+        await rm(join(this.root, HANDLERS, key), { recursive: true, force: true });
     }
 
     run(key: string, input: HandlerRequest, opts: RunOptions = {}): Promise<Outcome> {

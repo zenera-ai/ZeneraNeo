@@ -281,9 +281,10 @@ export async function saveRequestDump(dir: string, data: RequestDumpData): Promi
 //
 // The request dump answers "what did this call do". This one answers "why is
 // there nothing to call", which is a longer story: every attempt the judge
-// threw out, what was wrong with it, and the file itself — because the next
-// test overwrites `handler.ts`, and a handler that merely hung leaves no
-// stack behind, so the code is the only evidence there will ever be.
+// threw out, what was wrong with it, and the file itself — because a
+// candidate's file is deleted once it is judged, and a handler that merely
+// hung leaves no stack behind, so the code is the only evidence there will
+// ever be.
 //
 // One file per build, rewritten as the attempts go by rather than one file per
 // attempt: the path is then stable enough to be handed to the request that was

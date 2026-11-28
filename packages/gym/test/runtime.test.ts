@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Box, type SynthesizeHook } from '../src/box.ts';
 import type { HandlerRequest } from '../src/runtime.ts';
@@ -307,6 +308,22 @@ describe('the box', () => {
         expect((await box.run('k', input())).value).toBe(1);
         await box.write('k', 'export default () => 2;');
         expect((await box.run('k', input())).value).toBe(2);
+    });
+
+    it('replaces a module in one step, so a reader never sees it half written', async () => {
+        const old = 'export default () => "old";';
+        await box.write('k', old);
+        // A reader that opened the file before the write must still read the
+        // whole old file: the write replaced the file, it did not truncate it.
+        const reader = await open(box.sourceOf('k'), 'r');
+        try {
+            await box.write('k', 'export default () => "new";');
+            expect(await reader.readFile('utf8')).toBe(old);
+        } finally {
+            await reader.close();
+        }
+        expect((await box.run('k', input())).value).toBe('new');
+        expect(readdirSync(dirname(box.sourceOf('k')))).toEqual(['handler.ts']);
     });
 
     it('turns ctx.fail into a status, not a fault', async () => {

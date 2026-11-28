@@ -196,7 +196,6 @@ export class Cache {
     }
 
     async regenerate(operation: Operation, ctx: CacheRegenerateContext): Promise<Handler> {
-        const { box } = this.#opts;
         await this.#enter();
         this.#opts.onStart?.({ operation });
         try {
@@ -210,8 +209,6 @@ export class Cache {
             return gen;
         } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
-            // The box holds the last rejected attempt; the next request must run the old file.
-            await box.write(operation.key, ctx.currentSource).catch(() => undefined);
             const dump = await this.#finished(operation, error);
             this.#opts.onFail?.({ operation, error, dump });
             throw error;
@@ -308,10 +305,10 @@ export class Cache {
     }
 
     /**
-     * An attempt the judge threw out. The report is rewritten with the file
-     * still in it before the next test overwrites `handler.ts` — for a timeout
-     * that source is the only evidence there will ever be, since a handler
-     * that hangs leaves no stack behind.
+     * An attempt the judge threw out. The report is rewritten with its source
+     * in it, because the candidate's file is deleted once it is judged — for a
+     * timeout that source is the only evidence there will ever be, since a
+     * handler that hangs leaves no stack behind.
      */
     async #rejected(
         operation: Operation,
