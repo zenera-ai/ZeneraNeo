@@ -28,6 +28,7 @@ import {
     budgetOf,
     CHROME_ROWS,
     clip,
+    columnsOf,
     describeCall,
     gistOf,
     gridOf,
@@ -1508,7 +1509,7 @@ function Branches({
                             <Text>{` ${spin}`}</Text>
                             <Text color={theme.chrome.color}>{`  ${b.context} `}</Text>
                             <Text>
-                                {'─'.repeat(Math.max(0, columns - said.length - 5))}
+                                {'─'.repeat(Math.max(0, columns - columnsOf(said) - 5))}
                                 {'╮'}
                             </Text>
                         </Text>
@@ -1525,7 +1526,7 @@ function Branches({
                             <Text>{'╰─ '}</Text>
                             <Text color={theme.chrome.color}>{foot}</Text>
                             <Text>
-                                {` ${'─'.repeat(Math.max(0, columns - foot.length - 5))}`}
+                                {` ${'─'.repeat(Math.max(0, columns - columnsOf(foot) - 5))}`}
                                 {'╯'}
                             </Text>
                         </Text>
@@ -1543,14 +1544,14 @@ function Branches({
  */
 function widthOf(row: ActivityRow): number {
     if (row.thinking || row.said) {
-        return row.text.length;
+        return columnsOf(row.text);
     }
     return (
         2 +
         Math.max(TIME_COL, row.time.length) +
         2 +
-        row.lead.length +
-        (row.text ? row.text.length + 1 : 0)
+        columnsOf(row.lead) +
+        (row.text ? columnsOf(row.text) + 1 : 0)
     );
 }
 
@@ -1687,13 +1688,14 @@ function Reasoning({
     );
 }
 
-function Streaming({ text: said, columns, rows }: StreamProps): React.ReactElement {
+/** Exported for the tests: the one block whose rows are wrapped here rather than by Ink. */
+export function Streaming({ text: said, columns, rows }: StreamProps): React.ReactElement {
     const text = shownText(said, useContext(LinksContext));
     // The same width the finished answer will take, so landing it reflows
     // nothing: what is on screen is what stays there.
     //
     // Markers are resolved but nothing is styled. This region repaints, and
-    // everything that repaints is measured by `.length` — so the stream gets
+    // everything that repaints is measured as plain text — so the stream gets
     // the words the answer will have and the weights it will not, which is the
     // half of the change that can be made without lying about the height.
     const shown = windowOf(
