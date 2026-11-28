@@ -64,7 +64,7 @@ export interface ServerOptions {
     regenLimit?: number;
     history?: RequestHistory;
     limiter?: RegenerationLimiter;
-    maxPages?: number | (() => number);
+    maxPages?: number | ((operationKey: string) => number);
     paginationLimiter?: PaginationLimiter;
 }
 

@@ -2,6 +2,7 @@ import type { Catalog } from './catalog.ts';
 import type { HandlerRequest } from './runtime.ts';
 import type { Paging } from './paging.ts';
 import { called, type Operation } from './spec.ts';
+import type { LongPaginationConfig } from './long-pagination.ts';
 
 // ---------------------------------------------------------------------------
 // What the handler agent is told
@@ -106,6 +107,8 @@ export interface BriefOptions {
     bindings: Readonly<Record<string, { collection: string; idField: string }>>;
     /** reference passages about this operation, quoted; '' when there are none */
     passages?: string;
+    /** Explicitly requested long-list behavior for this operation. */
+    longPagination?: LongPaginationConfig;
 }
 
 export function brief(operation: Operation, opts: BriefOptions): string {
@@ -130,6 +133,21 @@ export function brief(operation: Operation, opts: BriefOptions): string {
     }
     if (operation.paging) {
         lines.push('', ...pagination(operation.paging));
+    }
+    if (operation.paging && opts.longPagination) {
+        const { pages, pageSize } = opts.longPagination;
+        const records = pages * pageSize;
+
+        lines.push(
+            '',
+            'LONG PAGINATION REQUIREMENT',
+            `This operation must provide ${pages} pages at ${pageSize} records per page.`,
+            `Ensure at least ${records} matching records exist before paginating.`,
+            `Use ctx.ensure(Type, { min: ${records}, count: ${records} }) with the appropriate record type.`,
+            'Use ctx.page() with the request cursor or offset.',
+            'Do not create records independently for every page.',
+            'Preserve existing records and return a terminating token on the final page.',
+        );
     }
     if (opts.siblings.length > 0) {
         lines.push(
