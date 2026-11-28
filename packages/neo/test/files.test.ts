@@ -1,5 +1,6 @@
 import {
     existsSync,
+    linkSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -24,6 +25,11 @@ describe('workspace containment', () => {
     });
 
     const ws = new Workspace({ root });
+    const tools = fileTools({ root });
+    const call = async (name: string, args: unknown): Promise<any> => {
+        const found = tools.find((t) => t.name === name);
+        return await found!.execute(args, {} as never);
+    };
 
     it('allows paths inside, including ones that do not exist yet', async () => {
         expect(await ws.within('notes.md')).toBe(join(ws.root, 'notes.md'));
@@ -61,6 +67,103 @@ describe('workspace containment', () => {
     });
 
     /**
+     * Expected to fail: the same gap, through the tools the model calls. A
+     * hard link is not a symlink, so there is nothing for the path check to
+     * follow and the workspace treats a file outside as its own, to read and
+     * to write.
+     */
+    it.fails('does not reach a file outside through a hard link', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        writeFileSync(join(outside, 'hard-link-target.txt'), 'no');
+        mkdirSync(join(root, 'links'), { recursive: true });
+        linkSync(join(outside, 'secret.txt'), join(root, 'links', 'secret'));
+        linkSync(join(outside, 'hard-link-target.txt'), join(root, 'links', 'hard-link-out'));
+
+        const reading = call('read_file', { path: 'links/secret' });
+        await expect.soft(reading).rejects.toThrow('links/secret cannot be reached');
+
+        const writing = call('write_file', { path: 'links/hard-link-out', content: 'yes' });
+        await expect.soft(writing).rejects.toThrow('links/hard-link-out cannot be reached');
+
+        expect.soft(readFileSync(join(outside, 'hard-link-target.txt'), 'utf8')).toBe('no');
+    });
+
+    /**
+     * Expected to fail: with no target to follow, the check settles for the
+     * directory holding the link and finds it inside. `write_file` then
+     * follows the link and creates the file outside.
+     */
+    it.fails('does not write outside through a broken symlink', async () => {
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(join(outside, 'missing-file.txt'), join(root, 'links', 'link-to-missing-file'));
+
+        const writing = call('write_file', {
+            path: 'links/link-to-missing-file',
+            content: 'yes',
+        });
+        await expect.soft(writing).rejects.toThrow('links/link-to-missing-file cannot be reached');
+        expect.soft(existsSync(join(outside, 'missing-file.txt'))).toBe(false);
+    });
+
+    /**
+     * Expected to fail: `apply_patch` checks every path before it writes a
+     * byte, but it checks the same way, so a link with no target gets
+     * through. The patch adds its file outside the workspace and reports it
+     * as applied.
+     */
+    it.fails('does not add a file outside through a broken symlink', async () => {
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(
+            join(outside, 'missing-patch-file.txt'),
+            join(root, 'links', 'link-to-missing-patch-file'),
+        );
+
+        const out = await call('apply_patch', {
+            patch:
+                '*** Begin Patch\n' +
+                '*** Add File: links/link-to-missing-patch-file\n' +
+                '+x\n' +
+                '*** End Patch',
+        });
+        expect.soft(existsSync(join(outside, 'missing-patch-file.txt'))).toBe(false);
+        expect.soft(out.error).toContain('cannot be reached');
+    });
+
+    it('does not write outside through a symlink destination', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        mkdirSync(join(root, 'links'), { recursive: true });
+        symlinkSync(join(outside, 'secret.txt'), join(root, 'links', 'to-secret-link'));
+        writeFileSync(join(root, 'payload.md'), 'payload');
+
+        const writing = call('write_file', { path: 'links/to-secret-link', content: 'yes' });
+        await expect(writing).rejects.toThrow('links/to-secret-link cannot be reached');
+        const copying = call('copy_file', {
+            from: 'payload.md',
+            to: 'links/to-secret-link',
+            overwrite: true,
+        });
+        await expect(copying).rejects.toThrow('links/to-secret-link cannot be reached');
+        const moving = call('move_file', {
+            from: 'payload.md',
+            to: 'links/to-secret-link',
+            overwrite: true,
+        });
+        await expect(moving).rejects.toThrow('links/to-secret-link cannot be reached');
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
+    it('refuses a path that became a link out since the last call', async () => {
+        writeFileSync(join(outside, 'secret.txt'), 'no');
+        await call('write_file', { path: 'notes.txt', content: 'first' });
+        rmSync(join(root, 'notes.txt'));
+        symlinkSync(join(outside, 'secret.txt'), join(root, 'notes.txt'));
+
+        const writing = call('write_file', { path: 'notes.txt', content: 'second' });
+        await expect(writing).rejects.toThrow('notes.txt cannot be reached');
+        expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('no');
+    });
+
+    /**
      * The sandbox mounts this same directory at /workspace, so a path copied
      * out of a command's output has to land on the same file as a relative one.
      */
@@ -78,7 +181,18 @@ describe('workspace containment', () => {
         it('is a name, not a way out', async () => {
             await expect(mounted.within('/workspace/../etc/passwd')).rejects.toThrow();
             await expect(mounted.within('/workspaceX/a')).rejects.toThrow();
+            await expect(mounted.within('/Workspace/a.txt')).rejects.toThrow();
             await expect(mounted.within('/etc/passwd')).rejects.toThrow();
+        });
+
+        it('refuses Windows device and network paths', async () => {
+            await expect(mounted.within('\\\\?\\C:\\Windows\\win.ini')).rejects.toThrow();
+            await expect(mounted.within('\\\\localhost\\C$\\Windows\\win.ini')).rejects.toThrow();
+        });
+
+        it('refuses a way out spelled with backslashes', async () => {
+            await expect(mounted.within('\\workspace\\..\\etc\\passwd')).rejects.toThrow();
+            await expect(mounted.within('/workspace\\..\\etc\\passwd')).rejects.toThrow();
         });
 
         it('is not accepted when nothing is mounted there', async () => {
