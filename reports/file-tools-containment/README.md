@@ -118,11 +118,21 @@ which is the one thing the read-only tree says cannot happen.
 ## 6. Manual finding verification
 
 The automated cases exercise `RootedFs` and the file tools directly. To check
-that the broken-symlink finding is reachable by an agent rather than only by a
-test, a `zen` agent ran in a Podman sandbox with the file tools and a workspace
-holding four planted link entries.
+that both findings are reachable by an agent rather than only by a test, each
+was given its own lab and its own `zen` run in a Podman sandbox. A lab plants
+one category of trap and a control, and a verifier diffs the world outside
+the workspace against a manifest captured before the run, so the result is
+measured rather than taken from the agent's account.
 
-Three `write_file` calls against broken symlinks returned `"written":true` and
-put bytes outside the workspace. The one link whose target existed was refused.
-The call log, with every result verbatim, is in
-[`agent-run.md`](./agent-run.md).
+Broken symlinks, run `20261126-170854`: three files that did not exist before
+the run existed after it. The control, a symlink whose target was present,
+was refused.
+
+Hard links, run `20261127-203217`: the file outside the workspace changed, so
+the write went through the link, and the planted secret turned up in a file
+inside the workspace, so the read did too. Every call against the symlink
+control was refused and every call against the hard link succeeded.
+
+Both verdicts and both complete call logs are in
+[`agent-run.md`](./agent-run.md). Neither run covers the read-only tree
+variants, which stay test-only.
