@@ -746,6 +746,54 @@ describe('resolved limits', () => {
         });
     });
 
+    describe('ENG-5: Pinning retry behavior and output guard invariants', () => {
+        const answer = (res: Partial<ProcResult>): ProcResult => ({
+            code: 0,
+            stdout: '',
+            stderr: '',
+            truncated: false,
+            timedOut: false,
+            ...res,
+        });
+
+        it('retries command execution when transport fails with zero stdout', async () => {
+            let attempts = 0;
+            const run: Runner = () => {
+                attempts++;
+                if (attempts === 1) {
+                    return Promise.resolve(
+                        answer({ code: 125, stdout: '', stderr: 'ssh: handshake failed: EOF' }),
+                    );
+                }
+                return Promise.resolve(answer({ code: 0, stdout: 'success' }));
+            };
+
+            const res = await resilient(run, 3)('podman', ['exec']);
+            expect(res.code).toBe(0);
+            expect(res.stdout).toBe('success');
+            expect(attempts).toBe(2);
+        });
+
+        it('strictly halts retries when stdout contains data even on transport error', async () => {
+            let attempts = 0;
+            const run: Runner = () => {
+                attempts++;
+                return Promise.resolve(
+                    answer({
+                        code: 1,
+                        stdout: 'partial execution log',
+                        stderr: 'connection reset by peer',
+                    }),
+                );
+            };
+
+            const res = await resilient(run, 3)('podman', ['exec']);
+            expect(res.code).toBe(1);
+            expect(res.stdout).toBe('partial execution log');
+            expect(attempts).toBe(1);
+        });
+    });
+
     /** Or a status report would contradict the container a run actually starts. */
     it('agree with what the container is created with', async () => {
         const f = fresh();
